@@ -27,7 +27,7 @@ urls.Home-page = "https://github.com/theislab/cell_flow_perturbation"
 dependencies = [
     "anndata",
     "scanpy",
-    "ott-jax==0.4.7",
+    "ott-jax==0.5.3",
     "orbax",
     "flax",
     "cloudpickle",
