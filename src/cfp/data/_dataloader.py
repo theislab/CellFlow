@@ -69,7 +69,7 @@ class TrainSampler:
             if self._data.condition_data is None:
                 return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
 
-            condition_batch = self.get_embeddings(target_dist_idx)
+            condition_batch = self.get_embeddings(target_dist_idx.astype(jnp.int32))
             return {
                 "src_cell_data": source_batch,
                 "tgt_cell_data": target_batch,
