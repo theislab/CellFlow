@@ -29,10 +29,16 @@ class TrainSampler:
         self.n_source_dists = data.n_controls
         self.n_target_dists = data.n_perturbations
 
-        self.get_embeddings = lambda idx: {
-            pert_cov: jnp.expand_dims(arr[idx], 0)
-            for pert_cov, arr in self._data.condition_data.items()
-        }
+        self._condition_keys = list(data.condition_data.keys()) if data.condition_data is not None else []
+
+        @jax.jit
+        def get_embeddings(idx: jnp.ndarray) -> dict[str, jnp.ndarray]:
+            # Using static indexing is more efficient than a dict comprehension in JAX
+            result = {}
+            for key in self._condition_keys:
+                result[key] = jnp.expand_dims(self._data.condition_data[key][idx], 0)
+            return result
+        self._get_embeddings = get_embeddings
 
 
         @jax.jit
@@ -63,7 +69,7 @@ class TrainSampler:
             if self._data.condition_data is None:
                 return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
 
-            condition_batch = self.get_embeddings(target_dist_idx.astype(jnp.int32))
+            condition_batch = self._get_embeddings(target_dist_idx)
             return {
                 "src_cell_data": source_batch,
                 "tgt_cell_data": target_batch,
