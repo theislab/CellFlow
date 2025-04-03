@@ -31,7 +31,6 @@ class TrainSampler:
 
         self._condition_keys = list(data.condition_data.keys()) if data.condition_data is not None else []
 
-        @jax.jit
         def get_embeddings(idx: jnp.ndarray) -> dict[str, jnp.ndarray]:
             # Using static indexing is more efficient than a dict comprehension in JAX
             result = {}
@@ -42,7 +41,14 @@ class TrainSampler:
 
 
         @jax.jit
-        def _sample(rng: jax.Array, split_covariates_mask: jax.Array, data_idcs: jax.Array, perturbation_covariates_mask, control_to_perturbation) -> Any:
+        def _sample(
+            rng, 
+            split_covariates_mask,
+            data_idcs,
+            perturbation_covariates_mask,
+            control_to_perturbation,
+            cell_data
+        ) -> Any:
             rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
             source_dist_idx = np.random.randint(0, self.n_source_dists)
             source_cells_mask = split_covariates_mask == source_dist_idx
@@ -51,7 +57,7 @@ class TrainSampler:
                 rng_2, data_idcs, [self.batch_size], replace=True, p=src_cond_p
             )
 
-            source_batch = self._data.cell_data[source_batch_idcs]
+            source_batch = cell_data[source_batch_idcs]
 
             target_dist_idx = jax.random.choice(rng_3, control_to_perturbation[source_dist_idx])
             target_cells_mask = (
@@ -60,26 +66,30 @@ class TrainSampler:
             tgt_cond_p = target_cells_mask / jnp.count_nonzero(target_cells_mask)
             target_batch_idcs = jax.random.choice(
                 rng_4,
-                self._data_idcs,
+                data_idcs,
                 [self.batch_size],
                 replace=True,
                 p=tgt_cond_p,
             )
-            target_batch = self._data.cell_data[target_batch_idcs]
-            if self._data.condition_data is None:
-                return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
+            target_batch = cell_data[target_batch_idcs]
+            return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
 
-            condition_batch = self._get_embeddings(target_dist_idx.astype(jnp.int32))
-            return {
-                "src_cell_data": source_batch,
-                "tgt_cell_data": target_batch,
-                "condition": condition_batch,
-            }
+            
 
         self._sample = _sample
 
     def sample(self, rng: jax.Array) -> Any:
-        return self._sample(rng, self._data.split_covariates_mask, self._data_idcs, self._data.perturbation_covariates_mask, self._data.control_to_perturbation)
+        res = self._sample(
+            rng,
+            self._data.split_covariates_mask,
+            self._data_idcs,
+            self._data.perturbation_covariates_mask,
+            self._data.control_to_perturbation,
+            self.batch_size,
+            self._data.cell_data,
+        )
+        if self._data.condition_data is not None:
+            res.update(self._get_embeddings(res["src_cell_data"]))
 
     @property
     def data(self) -> TrainingData:
