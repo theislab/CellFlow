@@ -31,18 +31,14 @@ class TrainSampler:
 
         self._condition_keys = list(data.condition_data.keys()) if data.condition_data is not None else []
 
-        def get_embeddings(idx: jnp.ndarray) -> dict[str, jnp.ndarray]:
-            # Using static indexing is more efficient than a dict comprehension in JAX
-            result = {}
-            for key in self._condition_keys:
-                result[key] = jnp.expand_dims(self._data.condition_data[key][idx], 0)
-            return result
-        self._get_embeddings = get_embeddings
-
+        self.get_embeddings = lambda idx: {
+            pert_cov: jnp.expand_dims(arr[idx], 0)
+            for pert_cov, arr in self._data.condition_data.items()
+        }
 
         @jax.jit
         def _sample(
-            rng, 
+            rng,
             split_covariates_mask,
             data_idcs,
             perturbation_covariates_mask,
@@ -74,7 +70,6 @@ class TrainSampler:
             target_batch = cell_data[target_batch_idcs]
             return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
 
-            
 
         self._sample = _sample
 
@@ -88,7 +83,7 @@ class TrainSampler:
             self._data.cell_data,
         )
         if self._data.condition_data is not None:
-            res["condition"] =self._get_embeddings(res["src_cell_data"].astype(jnp.int32))
+            res["condition"] = self.get_embeddings(res["src_cell_data"].astype(jnp.int32))
         return res
 
     @property
