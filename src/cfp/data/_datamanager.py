@@ -738,8 +738,8 @@ class DataManager:
         control_to_perturbation = df[~df.control].groupby(["global_control_mask"])["global_pert_mask"].unique()
         control_to_perturbation = control_to_perturbation.to_dict()
 
-        split_covariates_mask = jnp.asarray(df["split_covariates_mask"].values)
-        perturbation_covariates_mask = jnp.asarray(df["perturbation_covariates_mask"].values)
+        split_covariates_mask = jnp.asarray(df["split_covariates_mask"].values, dtype=jnp.int32)
+        perturbation_covariates_mask = jnp.asarray(df["perturbation_covariates_mask"].values, dtype=jnp.int32)
 
         # Create delayed tasks for each condition
         delayed_results = []

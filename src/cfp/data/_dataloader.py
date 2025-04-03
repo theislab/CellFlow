@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Literal, Tuple, Dict, Callable
+from typing import Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -28,108 +28,52 @@ class TrainSampler:
         self.batch_size = batch_size
         self.n_source_dists = data.n_controls
         self.n_target_dists = data.n_perturbations
+
         self.get_embeddings = lambda idx: {
             pert_cov: jnp.expand_dims(arr[idx], 0)
             for pert_cov, arr in self._data.condition_data.items()
         }
 
-        # Store masks for each source distribution for efficient lookup
-        self._source_dist_masks = []
-        for i in range(self.n_source_dists):
-            mask = self._data.split_covariates_mask == i
-            self._source_dist_masks.append(mask)
 
-        # Store masks for each target distribution for efficient lookup
-        self._target_dist_masks = []
-        for i in range(self.n_target_dists):
-            mask = self._data.perturbation_covariates_mask == i
-            self._target_dist_masks.append(mask)
+        @jax.jit
+        def _sample(rng: jax.Array, split_covariates_mask: jax.Array, data_idcs: jax.Array, perturbation_covariates_mask, control_to_perturbation) -> Any:
+            rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
+            source_dist_idx = np.random.randint(0, self.n_source_dists)
+            source_cells_mask = split_covariates_mask == source_dist_idx
+            src_cond_p = source_cells_mask / jnp.count_nonzero(source_cells_mask)
+            source_batch_idcs = jax.random.choice(
+                rng_2, data_idcs, [self.batch_size], replace=True, p=src_cond_p
+            )
 
-        # Pre-compile the smaller function that only handles random sampling
-        self._sample_indices = jax.jit(self._create_sample_indices_fn())
+            source_batch = self._data.cell_data[source_batch_idcs]
 
-        # Separate conditional sampling functions to avoid tracing large arrays
-        self._conditional_sampling_fns = []
-        for i in range(self.n_source_dists):
-            targets = self._data.control_to_perturbation.get(i, jnp.array([]))
-            if len(targets) > 0:
-                self._conditional_sampling_fns.append(
-                    lambda key, targets=targets: targets[jax.random.randint(key, (), 0, len(targets))]
-                )
-            else:
-                self._conditional_sampling_fns.append(lambda key: 0)  # Fallback
+            target_dist_idx = jax.random.choice(rng_3, control_to_perturbation[source_dist_idx])
+            target_cells_mask = (
+                perturbation_covariates_mask == target_dist_idx
+            )
+            tgt_cond_p = target_cells_mask / jnp.count_nonzero(target_cells_mask)
+            target_batch_idcs = jax.random.choice(
+                rng_4,
+                self._data_idcs,
+                [self.batch_size],
+                replace=True,
+                p=tgt_cond_p,
+            )
+            target_batch = self._data.cell_data[target_batch_idcs]
+            if self._data.condition_data is None:
+                return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
 
-    def _create_sample_indices_fn(self) -> Callable:
-        """Create a JAX function for sampling indices without tracing large arrays."""
+            condition_batch = self.get_embeddings(target_dist_idx.astype(jnp.int32))
+            return {
+                "src_cell_data": source_batch,
+                "tgt_cell_data": target_batch,
+                "condition": condition_batch,
+            }
 
-        def sample_indices(
-            rng: jax.Array, source_dist_idx: int, target_dist_idx: int, source_mask_sum: int, target_mask_sum: int
-        ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-            """Sample source and target indices using provided distribution indices."""
-            rng_1, rng_2 = jax.random.split(rng)
+        self._sample = _sample
 
-            # Create probability distribution for the source
-            source_batch_idcs = jax.random.randint(rng_1, (self.batch_size,), 0, source_mask_sum)
-
-            # Create probability distribution for the target
-            target_batch_idcs = jax.random.randint(rng_2, (self.batch_size,), 0, target_mask_sum)
-
-            return source_batch_idcs, target_batch_idcs
-
-        return sample_indices
-
-    def sample(self, rng: jax.Array) -> dict:
-        """Sample a batch of data for training.
-
-        Parameters
-        ----------
-        rng
-            JAX random key.
-
-        Returns
-        -------
-        Dictionary with source and target data.
-        """
-        # Split the random keys
-        rng_1, rng_2 = jax.random.split(rng)
-
-        # Select a random source distribution
-        source_dist_idx = jax.random.randint(rng_1, (), 0, self.n_source_dists).item()
-        source_mask = self._source_dist_masks[source_dist_idx]
-        source_indices = jnp.where(source_mask)[0]
-        source_mask_sum = len(source_indices)
-
-        # Get the corresponding target distribution
-        # Using Python function call instead of jax.lax.switch to avoid tracing
-        target_dist_idx = self._conditional_sampling_fns[source_dist_idx](rng_2).item()
-        target_mask = self._target_dist_masks[target_dist_idx]
-        target_indices = jnp.where(target_mask)[0]
-        target_mask_sum = len(target_indices)
-
-        # Sample indices using the JAX-compiled function
-        source_relative_idcs, target_relative_idcs = self._sample_indices(
-            rng, source_dist_idx, target_dist_idx, source_mask_sum, target_mask_sum
-        )
-
-        # Convert to actual indices in the dataset
-        source_batch_idcs = source_indices[source_relative_idcs]
-        target_batch_idcs = target_indices[target_relative_idcs]
-
-        # Get the actual data
-        source_batch = self._data.cell_data[source_batch_idcs]
-        target_batch = self._data.cell_data[target_batch_idcs]
-
-        if self._data.condition_data is None:
-            return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
-
-        # Get embeddings for the target condition
-        condition_batch = self.get_embeddings(target_dist_idx)
-
-        return {
-            "src_cell_data": source_batch,
-            "tgt_cell_data": target_batch,
-            "condition": condition_batch,
-        }
+    def sample(self, rng: jax.Array) -> Any:
+        return self._sample(rng, self._data.split_covariates_mask, self._data_idcs, self._data.perturbation_covariates_mask, self._data.control_to_perturbation)
 
     @property
     def data(self) -> TrainingData:
