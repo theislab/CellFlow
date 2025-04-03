@@ -68,13 +68,13 @@ class TrainSampler:
                 p=tgt_cond_p,
             )
             target_batch = cell_data[target_batch_idcs]
-            return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
+            return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}, target_dist_idx
 
 
         self._sample = _sample
 
     def sample(self, rng: jax.Array) -> Any:
-        res = self._sample(
+        res, target_dist_idx = self._sample(
             rng,
             self._data.split_covariates_mask,
             self._data_idcs,
@@ -83,7 +83,7 @@ class TrainSampler:
             self._data.cell_data,
         )
         if self._data.condition_data is not None:
-            res["condition"] = self.get_embeddings(res["src_cell_data"].astype(jnp.int32))
+            res["condition"] = self.get_embeddings(target_dist_idx.astype(jnp.int32))
         return res
 
     @property

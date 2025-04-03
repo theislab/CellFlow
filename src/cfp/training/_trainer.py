@@ -114,26 +114,18 @@ class CellFlowTrainer:
 
         pbar = tqdm(range(num_iterations))
         for it in pbar:
-            print(f"Iteration {it}")
             rng, rng_step_fn = jax.random.split(rng, 2)
-            print("Sampling batch")
             batch = dataloader.sample(rng)
-            print("Putting batch on device")
             jax.device_put(batch)
-            print("Running step function")
             loss = self.solver.step_fn(rng_step_fn, batch)
-            print("Running loss function")
             self.training_logs["loss"].append(float(loss))
 
             if ((it - 1) % valid_freq == 0) and (it > 1):
-                print("Running validation step")
                 # Get predictions from validation data
                 valid_true_data, valid_pred_data = self._validation_step(
                     valid_loaders, mode="on_log_iteration"
                 )
 
-                # Run callbacks
-                print("Running callbacks")
                 metrics = crun.on_log_iteration(valid_true_data, valid_pred_data)
                 self._update_logs(metrics)
 
