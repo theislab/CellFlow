@@ -85,7 +85,6 @@ class TrainSampler:
             self._data_idcs,
             self._data.perturbation_covariates_mask,
             self._data.control_to_perturbation,
-            self.batch_size,
             self._data.cell_data,
         )
         if self._data.condition_data is not None:
