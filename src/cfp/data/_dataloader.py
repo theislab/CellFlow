@@ -88,7 +88,8 @@ class TrainSampler:
             self._data.cell_data,
         )
         if self._data.condition_data is not None:
-            res.update(self._get_embeddings(res["src_cell_data"]))
+            res["condition"] =self._get_embeddings(res["src_cell_data"].astype(jnp.int32))
+        return res
 
     @property
     def data(self) -> TrainingData:
