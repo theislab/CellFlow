@@ -70,7 +70,40 @@ def pbmc_cytokines(
     """
     return _load_dataset_from_url(
         path,
-        backup_url="https://figshare.com/ndownloader/files/53261228",
+        backup_url="https://figshare.com/ndownloader/files/53372768",
+        expected_shape=(54134, 2000),  # TODO: adapt this, and enable check
+        force_download=force_download,
+        **kwargs,
+    )
+
+
+def zesta(
+    path: PathLike = "~/.cache/cellflow/zesta.h5ad",
+    force_download: bool = False,
+    **kwargs: Any,
+) -> ad.AnnData:
+    """Developing zebrafish with genetic perturbations.
+
+    Dataset published in :cite:`saunders2023embryo` containing single-cell
+    RNA-seq readouts of the embryonic zebrafish at 5 time points with up
+    to 23 different genetic perturbations.
+
+    Parameters
+    ----------
+    path
+        Path where to save the file.
+    force_download
+        Whether to force-download the data.
+    kwargs
+        Keyword arguments for :func:`scanpy.read`.
+
+    Returns
+    -------
+    Annotated data object.
+    """
+    return _load_dataset_from_url(
+        path,
+        backup_url="https://figshare.com/ndownloader/files/52966469",
         expected_shape=(54134, 2000),  # TODO: adapt this, and enable check
         force_download=force_download,
         **kwargs,
