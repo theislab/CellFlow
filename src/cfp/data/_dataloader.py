@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Literal
+from typing import Any, Literal, Dict, List, Tuple, Callable
 
 import jax
 import jax.numpy as jnp
@@ -19,7 +19,6 @@ class TrainSampler:
         The training data.
     batch_size
         The batch size.
-
     """
 
     def __init__(self, data: TrainingData, batch_size: int = 1024):
@@ -28,63 +27,133 @@ class TrainSampler:
         self.batch_size = batch_size
         self.n_source_dists = data.n_controls
         self.n_target_dists = data.n_perturbations
+        # Pre-compile the control_to_perturbation mapping as JAX arrays
+        self._control_to_perturbation_lens = jnp.array(
+            [len(data.control_to_perturbation[i]) for i in range(self.n_source_dists)]
+        )
+        max_len = jnp.max(self._control_to_perturbation_lens)
+        # Pad the control_to_perturbation arrays to the maximum length
+        # Create padded arrays for each source distribution
+        padded_arrays = []
+        for i in range(self.n_source_dists):
+            arr = jnp.array(data.control_to_perturbation[i], dtype=jnp.int32)
+            # Pad with a safe value (first element) if needed
+            if len(arr) < max_len:
+                padding = jnp.full(max_len - len(arr), arr[0], dtype=jnp.int32)
+                arr = jnp.concatenate([arr, padding])
+            padded_arrays.append(arr)
+        self._control_to_perturbation_matrix = jnp.stack(padded_arrays)
+        self._control_to_perturbation_keys = list(data.control_to_perturbation.keys())
+        self._control_to_perturbation_idxs = jnp.arange(len(self._control_to_perturbation_keys), dtype=jnp.int32)
 
-        self._condition_keys = list(data.condition_data.keys()) if data.condition_data is not None else []
+        # Cache condition keys for efficient lookup
+        self._has_condition_data = data.condition_data is not None
 
-        self.get_embeddings = lambda idx: {
-            pert_cov: jnp.expand_dims(arr[idx], 0)
-            for pert_cov, arr in self._data.condition_data.items()
-        }
+        # Define helper functions with explicit parameters
+        @jax.jit
+        def _sample_target_dist_idx(
+            source_dist_idx: jnp.ndarray,
+            rng: jax.Array,
+            control_to_perturbation_lens: jnp.ndarray,
+            control_to_perturbation_matrix: jnp.ndarray,
+        ) -> jnp.ndarray:
+            """Sample a target distribution index given the source distribution index."""
+            target_dist_idx = jax.random.randint(
+                rng, shape=(), minval=0, maxval=control_to_perturbation_lens[source_dist_idx]
+            )
+            return control_to_perturbation_matrix[source_dist_idx, target_dist_idx]
 
         @jax.jit
-        def _sample(
-            rng,
-            split_covariates_mask,
-            data_idcs,
-            perturbation_covariates_mask,
-            control_to_perturbation,
-            cell_data
-        ) -> Any:
-            rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-            source_dist_idx = np.random.randint(0, self.n_source_dists)
-            source_cells_mask = split_covariates_mask == source_dist_idx
-            src_cond_p = source_cells_mask / jnp.count_nonzero(source_cells_mask)
-            source_batch_idcs = jax.random.choice(
-                rng_2, data_idcs, [self.batch_size], replace=True, p=src_cond_p
-            )
+        def _get_embeddings(idx: jnp.ndarray, condition_data: Dict[str, jnp.ndarray]) -> Dict[str, jnp.ndarray]:
+            """Get embeddings for a given index."""
+            # Using explicit return dictionary avoids capturing condition_data in closure
+            result = {}
+            for key, arr in condition_data.items():
+                result[key] = jnp.expand_dims(arr[idx], 0)
+            return result
 
+        @jax.jit
+        def _sample_from_mask(
+            rng: jax.Array, mask: jnp.ndarray, data_idcs: jnp.ndarray
+        ) -> jnp.ndarray:
+            """Sample indices according to a mask."""
+            cond_p = mask / jnp.count_nonzero(mask)
+            batch_idcs = jax.random.choice(rng, data_idcs, (self.batch_size,), replace=True, p=cond_p)
+            return batch_idcs
+
+        @jax.jit
+        def _sample_batch(
+            rng: jax.Array,
+            cell_data: jnp.ndarray,
+            split_covariates_mask: jnp.ndarray,
+            perturbation_covariates_mask: jnp.ndarray,
+            data_idcs: jnp.ndarray,
+            n_source_dists: int,
+            condition_data: Dict[str, jnp.ndarray] = None,
+            control_to_perturbation_lens: jnp.ndarray = None,
+            control_to_perturbation_matrix: jnp.ndarray = None,
+        ) -> Dict[str, Any]:
+            """Sample a batch of data."""
+            # Split the random key
+            rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
+
+            # Sample source distribution index
+            source_dist_idx = jax.random.randint(rng_1, shape=(), minval=0, maxval=n_source_dists)
+
+            # Get source cells
+            source_cells_mask = split_covariates_mask == source_dist_idx
+            source_batch_idcs = _sample_from_mask(rng_2, source_cells_mask, data_idcs)
             source_batch = cell_data[source_batch_idcs]
 
-            target_dist_idx = jax.random.choice(rng_3, control_to_perturbation[source_dist_idx])
-            target_cells_mask = (
-                perturbation_covariates_mask == target_dist_idx
-            )
-            tgt_cond_p = target_cells_mask / jnp.count_nonzero(target_cells_mask)
-            target_batch_idcs = jax.random.choice(
-                rng_4,
-                data_idcs,
-                [self.batch_size],
-                replace=True,
-                p=tgt_cond_p,
-            )
+            # Get target distribution index using the helper function
+            target_dist_idx = _sample_target_dist_idx(source_dist_idx, rng_3, control_to_perturbation_lens, control_to_perturbation_matrix)
+
+            # Get target cells
+            target_cells_mask = perturbation_covariates_mask == target_dist_idx
+            target_batch_idcs = _sample_from_mask(rng_4, target_cells_mask, data_idcs)
             target_batch = cell_data[target_batch_idcs]
-            return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}, target_dist_idx
 
+            # Return with or without condition
+            if condition_data is None:
+                return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
+            else:
+                condition_batch = _get_embeddings(target_dist_idx, condition_data)
+                return {
+                    "src_cell_data": source_batch,
+                    "tgt_cell_data": target_batch,
+                    "condition": condition_batch,
+                }
 
-        self._sample = _sample
+        # Store the helper functions and main sampling function
+        self._sample_target_dist_idx = _sample_target_dist_idx
+        self._get_embeddings = _get_embeddings
+        self._sample_from_mask = _sample_from_mask
+        self._sample_batch = _sample_batch
 
     def sample(self, rng: jax.Array) -> Any:
-        res, target_dist_idx = self._sample(
-            rng,
-            self._data.split_covariates_mask,
-            self._data_idcs,
-            self._data.perturbation_covariates_mask,
-            self._data.control_to_perturbation,
-            self._data.cell_data,
+        """Sample data for training.
+
+        Parameters
+        ----------
+        rng
+            Random key.
+
+        Returns
+        -------
+        Dictionary with source and target data from the training data.
+        """
+        # Pass all data explicitly to the sampling function
+        return self._sample_batch(
+            rng=rng,
+            cell_data=self._data.cell_data,
+            split_covariates_mask=self._data.split_covariates_mask,
+            perturbation_covariates_mask=self._data.perturbation_covariates_mask,
+            data_idcs=self._data_idcs,
+            n_source_dists=self.n_source_dists,
+            condition_data=self._data.condition_data,
+            control_to_perturbation_matrix=self._control_to_perturbation_matrix,
+            control_to_perturbation_lens=self._control_to_perturbation_lens,
         )
-        if self._data.condition_data is not None:
-            res["condition"] = self.get_embeddings(target_dist_idx.astype(jnp.int32))
-        return res
 
     @property
     def data(self) -> TrainingData:
