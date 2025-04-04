@@ -821,7 +821,7 @@ class DataManager:
                 if linked_group in self._covariate_reps:
                     rep_key = self._covariate_reps[linked_group]
                     if cov_name not in rep_dict[rep_key]:
-                        raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{linked_group}']`.")
+                        raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`.")
                     linked_arr = jnp.asarray(rep_dict[rep_key][cov_name])
                 else:
                     linked_arr = jnp.asarray(condition_data[linked_cov])

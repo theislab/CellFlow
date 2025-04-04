@@ -8,7 +8,12 @@ import jax.tree_util as jtu
 import numpy as np
 
 from cellflow._types import ArrayLike
-from cellflow.metrics._metrics import compute_e_distance, compute_r_squared, compute_scalar_mmd, compute_sinkhorn_div
+from cellflow.metrics._metrics import (
+    compute_e_distance_fast,
+    compute_r_squared,
+    compute_scalar_mmd,
+    compute_sinkhorn_div,
+)
 
 __all__ = [
     "BaseCallback",
@@ -26,7 +31,7 @@ metric_to_func: dict[str, Callable[[ArrayLike, ArrayLike], float | ArrayLike]] =
     "r_squared": compute_r_squared,
     "mmd": compute_scalar_mmd,
     "sinkhorn_div": compute_sinkhorn_div,
-    "e_distance": compute_e_distance,
+    "e_distance": compute_e_distance_fast,
 }
 
 agg_fn_to_func: dict[str, Callable[[ArrayLike], float | ArrayLike]] = {
