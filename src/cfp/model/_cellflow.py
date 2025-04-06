@@ -16,9 +16,10 @@ from ott.neural.methods.flows import dynamics
 
 from cfp import _constants
 from cfp._logging import logger
-from cfp._types import Layers_separate_input_t, Layers_t, ArrayLike
-from cfp.data._data import ConditionData, ValidationData, TrainingData
-from cfp.data._dataloader import PredictionSampler, TrainSampler, ValidationSampler
+from cfp._types import ArrayLike, Layers_separate_input_t, Layers_t
+from cfp.data._cpu_dataloader import CpuTrainSampler as TrainSampler
+from cfp.data._data import ConditionData, TrainingData, ValidationData
+from cfp.data._dataloader import PredictionSampler, ValidationSampler
 from cfp.data._datamanager import DataManager
 from cfp.model._utils import _write_predictions
 from cfp.networks._velocity_field import ConditionalVelocityField
