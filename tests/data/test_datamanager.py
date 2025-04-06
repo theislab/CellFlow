@@ -1,5 +1,5 @@
 import anndata as ad
-import jax
+import numpy as np
 import pytest
 
 from cfp.data._datamanager import DataManager
@@ -193,7 +193,7 @@ class TestDataManager:
             )
 
         assert isinstance(train_data.condition_data, dict)
-        assert isinstance(list(train_data.condition_data.values())[0], jax.Array)
+        assert isinstance(list(train_data.condition_data.values())[0], np.ndarray)
         assert train_data.max_combination_length == 1
 
         if sample_covariates == [] and perturbation_covariates == {"drug": ("drug1",)}:
@@ -202,10 +202,10 @@ class TestDataManager:
                 == (len(adata_perturbation.obs["drug1"].cat.categories) - 1)
                 * train_data.n_controls
             )
-        assert isinstance(train_data.cell_data, jax.Array)
-        assert isinstance(train_data.split_covariates_mask, jax.Array)
+        assert isinstance(train_data.cell_data, np.ndarray)
+        assert isinstance(train_data.split_covariates_mask, np.ndarray)
         assert isinstance(train_data.split_idx_to_covariates, dict)
-        assert isinstance(train_data.perturbation_covariates_mask, jax.Array)
+        assert isinstance(train_data.perturbation_covariates_mask, np.ndarray)
         assert isinstance(train_data.perturbation_idx_to_covariates, dict)
         assert isinstance(train_data.control_to_perturbation, dict)
 
@@ -249,7 +249,7 @@ class TestDataManager:
             )
 
         assert isinstance(train_data.condition_data, dict)
-        assert isinstance(list(train_data.condition_data.values())[0], jax.Array)
+        assert isinstance(list(train_data.condition_data.values())[0], np.ndarray)
         assert train_data.max_combination_length == len(perturbation_covariates["drug"])
 
         for k in perturbation_covariates.keys():
@@ -278,10 +278,10 @@ class TestDataManager:
                 == adata_perturbation.uns[k][cov_name].shape[0]
             )
 
-        assert isinstance(train_data.cell_data, jax.Array)
-        assert isinstance(train_data.split_covariates_mask, jax.Array)
+        assert isinstance(train_data.cell_data, np.ndarray)
+        assert isinstance(train_data.split_covariates_mask, np.ndarray)
         assert isinstance(train_data.split_idx_to_covariates, dict)
-        assert isinstance(train_data.perturbation_covariates_mask, jax.Array)
+        assert isinstance(train_data.perturbation_covariates_mask, np.ndarray)
         assert isinstance(train_data.perturbation_idx_to_covariates, dict)
         assert isinstance(train_data.control_to_perturbation, dict)
 
@@ -355,16 +355,16 @@ class TestValidationData:
 
         val_data = dm.get_validation_data(adata_perturbation)
 
-        assert isinstance(val_data.cell_data, jax.Array)
-        assert isinstance(val_data.split_covariates_mask, jax.Array)
+        assert isinstance(val_data.cell_data, np.ndarray)
+        assert isinstance(val_data.split_covariates_mask, np.ndarray)
         assert isinstance(val_data.split_idx_to_covariates, dict)
-        assert isinstance(val_data.perturbation_covariates_mask, jax.Array)
+        assert isinstance(val_data.perturbation_covariates_mask, np.ndarray)
         assert isinstance(val_data.perturbation_idx_to_covariates, dict)
         assert isinstance(val_data.control_to_perturbation, dict)
         assert val_data.max_combination_length == len(perturbation_covariates["drug"])
 
         assert isinstance(val_data.condition_data, dict)
-        assert isinstance(list(val_data.condition_data.values())[0], jax.Array)
+        assert isinstance(list(val_data.condition_data.values())[0], np.ndarray)
 
         if sample_covariates == [] and perturbation_covariates == {"drug": ("drug1",)}:
             assert (
@@ -440,15 +440,15 @@ class TestPredictionData:
             adata_pred, covariate_data=adata_pred.obs, sample_rep=sample_rep
         )
 
-        assert isinstance(pred_data.cell_data, jax.Array)
-        assert isinstance(pred_data.split_covariates_mask, jax.Array)
+        assert isinstance(pred_data.cell_data, np.ndarray)
+        assert isinstance(pred_data.split_covariates_mask, np.ndarray)
         assert isinstance(pred_data.split_idx_to_covariates, dict)
         assert isinstance(pred_data.perturbation_idx_to_covariates, dict)
         assert isinstance(pred_data.control_to_perturbation, dict)
         assert pred_data.max_combination_length == len(perturbation_covariates["drug"])
 
         assert isinstance(pred_data.condition_data, dict)
-        assert isinstance(list(pred_data.condition_data.values())[0], jax.Array)
+        assert isinstance(list(pred_data.condition_data.values())[0], np.ndarray)
 
         if sample_covariates == [] and perturbation_covariates == {"drug": ("drug1",)}:
             assert (
