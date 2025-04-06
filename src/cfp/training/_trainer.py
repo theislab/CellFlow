@@ -7,6 +7,8 @@ from numpy.typing import ArrayLike
 from tqdm import tqdm
 
 from cfp.data._dataloader import TrainSampler, ValidationSampler
+from cfp.data._cpu_dataloader import CpuTrainSampler
+from cfp.data._gpu_buffer import TorchDataset, jax_dataloader
 from cfp.solvers import _genot, _otfm
 from cfp.training._callbacks import BaseCallback, CallbackRunner
 
@@ -74,7 +76,7 @@ class CellFlowTrainer:
 
     def train(
         self,
-        dataloader: TrainSampler,
+        dataloader: TrainSampler | CpuTrainSampler,
         num_iterations: int,
         valid_freq: int,
         valid_loaders: dict[str, ValidationSampler] | None = None,
@@ -105,6 +107,16 @@ class CellFlowTrainer:
         self.training_logs = {"loss": []}
         rng = jax.random.PRNGKey(0)
 
+        torch_dataset = TorchDataset(
+            sampler=dataloader,
+            num_iterations=num_iterations,
+        )
+        dataloader = jax_dataloader(
+            torch_dataset,
+            num_workers=0,
+            pin_memory=False,
+        )
+
         # Initiate callbacks
         valid_loaders = valid_loaders or {}
         crun = CallbackRunner(
@@ -113,10 +125,8 @@ class CellFlowTrainer:
         crun.on_train_begin()
 
         pbar = tqdm(range(num_iterations))
-        for it in pbar:
+        for it, batch in zip(pbar, dataloader):
             rng, rng_step_fn = jax.random.split(rng, 2)
-            batch = dataloader.sample(rng)
-            jax.device_put(batch)
             loss = self.solver.step_fn(rng_step_fn, batch)
             self.training_logs["loss"].append(float(loss))
 

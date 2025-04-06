@@ -13,11 +13,11 @@ def dataloader():
     class DataLoader:
         n_conditions = 10
 
-        def sample(self, rng):
+        def sample(self):
             return {
-                "src_cell_data": jnp.ones((10, 5)) * 10,
-                "tgt_cell_data": jnp.ones((10, 5)),
-                "condition": {"pert1": jnp.ones((1, 2, 3))},
+                "src_cell_data": np.ones((10, 5)) * 10,
+                "tgt_cell_data": np.ones((10, 5)),
+                "condition": {"pert1": np.ones((1, 2, 3))},
             }
 
     return DataLoader()
