@@ -839,7 +839,7 @@ class DataManager:
             return np.asarray(adata.obsm[self._sample_rep])
         attr, key = next(iter(sample_rep.items()))  # type: ignore[union-attr]
         return np.asarray(getattr(adata, attr)[key])
-    
+
     def _verify_control_data(self, adata: anndata.AnnData | None) -> None:
         if adata is None:
             return None

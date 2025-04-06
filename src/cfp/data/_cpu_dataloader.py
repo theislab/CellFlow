@@ -6,7 +6,9 @@ import numpy as np
 from cfp.data._data import PredictionData, TrainingData, ValidationData
 from cfp.data._dataloader import BaseValidSampler
 
-__all__ = ["CpuTrainSampler", ]
+__all__ = [
+    "CpuTrainSampler",
+]
 
 
 class CpuTrainSampler:
@@ -50,7 +52,6 @@ class CpuTrainSampler:
         self._has_condition_data = data.condition_data is not None
 
         # Define helper functions with explicit parameters
-        
         def _sample_target_dist_idx(
             source_dist_idx: int,
             rng: np.random.Generator,
@@ -58,9 +59,7 @@ class CpuTrainSampler:
             control_to_perturbation_matrix: np.ndarray,
         ) -> int:
             """Sample a target distribution index given the source distribution index."""
-            target_dist_idx = rng.integers(
-                low=0, high=control_to_perturbation_lens[source_dist_idx], size=1
-            )[0]
+            target_dist_idx = rng.integers(low=0, high=control_to_perturbation_lens[source_dist_idx], size=1)[0]
             return control_to_perturbation_matrix[source_dist_idx, target_dist_idx]
 
         def _get_embeddings(idx: int, condition_data: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -71,9 +70,7 @@ class CpuTrainSampler:
                 result[key] = np.expand_dims(arr[idx], 0)
             return result
 
-        def _sample_from_mask(
-            rng: np.random.Generator, mask: np.ndarray, data_idcs: np.ndarray
-        ) -> np.ndarray:
+        def _sample_from_mask(rng: np.random.Generator, mask: np.ndarray, data_idcs: np.ndarray) -> np.ndarray:
             """Sample indices according to a mask."""
             cond_p = mask / np.count_nonzero(mask)
             batch_idcs = rng.choice(data_idcs, size=self.batch_size, replace=True, p=cond_p)
@@ -125,17 +122,9 @@ class CpuTrainSampler:
         self._get_embeddings = _get_embeddings
         self._sample_from_mask = _sample_from_mask
         self._sample_batch = _sample_batch
-        
-        # Initialize the random number generator
-        self.rng = np.random.default_rng()
 
     def sample(self) -> Any:
         """Sample data for training.
-
-        Parameters
-        ----------
-        seed
-            Optional random seed to use for this sample.
 
         Returns
         -------
@@ -143,7 +132,7 @@ class CpuTrainSampler:
         """
 
         rng = self.rng
-            
+
         # Pass all data explicitly to the sampling function
         return self._sample_batch(
             rng=rng,
@@ -161,4 +150,3 @@ class CpuTrainSampler:
     def data(self) -> TrainingData:
         """The training data."""
         return self._data
-
