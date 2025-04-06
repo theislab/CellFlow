@@ -125,7 +125,7 @@ class CellFlowTrainer:
         crun.on_train_begin()
 
         pbar = tqdm(range(num_iterations))
-        for it, batch in zip(pbar, dataloader):
+        for it, batch in zip(pbar, dataloader, strict=False):
             rng, rng_step_fn = jax.random.split(rng, 2)
             loss = self.solver.step_fn(rng_step_fn, batch)
             self.training_logs["loss"].append(float(loss))

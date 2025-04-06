@@ -18,7 +18,8 @@ from torch.utils import data
 from dataclasses import dataclass
 
 def jax_collate(batch):  # noqa: D103
-    batch = data.default_collate(batch)
+    # batch = data.default_collate(batch)
+    batch = batch[0]
     batch = jax.tree_util.tree_map(jnp.asarray, batch)
     return batch
 
