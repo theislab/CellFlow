@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 import jax
+from flax.jax_utils import prefetch_to_device
 import numpy as np
 from numpy.typing import ArrayLike
 from tqdm import tqdm
@@ -9,7 +10,45 @@ from tqdm import tqdm
 from cfp.data._dataloader import TrainSampler, ValidationSampler
 from cfp.solvers import _genot, _otfm
 from cfp.training._callbacks import BaseCallback, CallbackRunner
+import collections
+import itertools
+import warnings
+from collections.abc import Iterable  # pylint: disable=g-importing-member
 
+import jax
+import jax.numpy as jnp
+import numpy as np
+from jax import core, lax
+
+class IterativeSampler:
+    def __init__(self, dataloader, rng, num_iterations):
+        self.dataloader = dataloader
+        self.rng = rng
+        self.num_iterations = num_iterations
+
+
+    def __iter__(self):
+        for _ in range(self.num_iterations):
+            self.rng, rng_data = jax.random.split(self.rng, 2)
+            batch = self.dataloader.sample(rng_data)
+            yield batch
+
+
+
+def prefetch_to_device(iterator, size, devices=None):
+    queue = collections.deque()
+
+    def _prefetch(xs):
+        return jax.device_put(xs, devices)
+
+    def enqueue(n):  # Enqueues *up to* `n` elements from the iterator.
+        for data in itertools.islice(iterator, n):
+            queue.append(jax.tree_util.tree_map(_prefetch, data))
+
+    enqueue(size)  # Fill up the buffer.
+    while queue:
+        yield queue.popleft()
+        enqueue(1)
 
 class CellFlowTrainer:
     """Trainer for the OTFM/GENOT solver with a conditional velocity field.
@@ -113,10 +152,14 @@ class CellFlowTrainer:
         crun.on_train_begin()
 
         pbar = tqdm(range(num_iterations))
-        for it in pbar:
+
+        rng, rng_data, rng_step_fn = jax.random.split(rng, 3)
+
+        iter_sample = IterativeSampler(dataloader=dataloader, rng=rng_data, num_iterations=num_iterations)
+
+
+        for it, batch in zip(pbar, prefetch_to_device(iter_sample, 3)):
             rng, rng_step_fn = jax.random.split(rng, 2)
-            batch = dataloader.sample(rng)
-            jax.device_put(batch)
             loss = self.solver.step_fn(rng_step_fn, batch)
             self.training_logs["loss"].append(float(loss))
 
