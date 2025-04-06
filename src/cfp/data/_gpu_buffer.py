@@ -45,11 +45,15 @@ def jax_dataloader(  # noqa: D103
     pin_memory: bool = False,
     **kwargs,
 ):
+    import os
+    num_workers = max(os.cpu_count()-1, 0) if num_workers == 0 else num_workers
     return data.DataLoader(
         ds,
         collate_fn=jax_collate,
         batch_size=1,
+        in_order=False,
         shuffle=False,
+        prefetch_factor=10,
         num_workers=num_workers,
         pin_memory=pin_memory,
         **kwargs,
