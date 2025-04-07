@@ -2,7 +2,6 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 import jax
-from flax.jax_utils import prefetch_to_device
 import numpy as np
 from numpy.typing import ArrayLike
 from tqdm import tqdm
@@ -18,6 +17,9 @@ from collections.abc import Iterable  # pylint: disable=g-importing-member
 import jax
 import jax.numpy as jnp
 import numpy as np
+import threading
+import queue
+import jax
 from jax import core, lax
 
 class IterativeSampler:
@@ -35,20 +37,27 @@ class IterativeSampler:
 
 
 
-def prefetch_to_device(iterator, size, devices=None):
-    queue = collections.deque()
+def prefetch_to_device(data_iter, prefetch_size=2):
+    q = queue.Queue(maxsize=prefetch_size)
 
-    def _prefetch(xs):
-        return jax.device_put(xs, devices)
+    def producer():
+        # Iterate over your data batches.
+        for batch in data_iter:
+            # Move the batch to the GPU asynchronously.
+            q.put(jax.device_put(batch))
+        # Signal the end of the iterator.
+        q.put(None)
 
-    def enqueue(n):  # Enqueues *up to* `n` elements from the iterator.
-        for data in itertools.islice(iterator, n):
-            queue.append(jax.tree_util.tree_map(_prefetch, data))
+    # Start the producer thread as a daemon.
+    threading.Thread(target=producer, daemon=True).start()
 
-    enqueue(size)  # Fill up the buffer.
-    while queue:
-        yield queue.popleft()
-        enqueue(1)
+    # Yield prefetched batches.
+    while True:
+        batch = q.get()
+        if batch is None:
+            break
+        yield batch
+
 
 class CellFlowTrainer:
     """Trainer for the OTFM/GENOT solver with a conditional velocity field.
