@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import jax
 import numpy as np
 from jax import numpy as jnp
@@ -6,7 +8,6 @@ from ott.geometry import costs, pointcloud
 from ott.tools.sinkhorn_divergence import sinkhorn_divergence
 from sklearn.metrics import pairwise_distances, r2_score
 from sklearn.metrics.pairwise import rbf_kernel
-from collections.abc  import Sequence
 
 __all__ = [
     "compute_metrics",
@@ -30,6 +31,7 @@ def compute_r_squared(x: ArrayLike, y: ArrayLike) -> float:
             An array of shape [num_samples, num_features].
         y
             An array of shape [num_samples, num_features].
+
     Returns
     -------
         A scalar denoting the R squared score.
@@ -48,6 +50,7 @@ def compute_sinkhorn_div(x: ArrayLike, y: ArrayLike, epsilon: float = 1e-2) -> f
             An array of shape [num_samples, num_features].
         epsilon
             The regularization parameter.
+
     Returns
     -------
         A scalar denoting the sinkhorn divergence value.
@@ -73,6 +76,7 @@ def compute_e_distance(x: ArrayLike, y: ArrayLike) -> float:
             An array of shape [num_samples, num_features].
         y
             An array of shape [num_samples, num_features].
+
     Returns
     -------
         A scalar denoting the energy distance value.
@@ -98,6 +102,7 @@ def compute_e_distance_fast(x: ArrayLike, y: ArrayLike) -> float:
             An array of shape [num_samples, num_features].
         y
             An array of shape [num_samples, num_features].
+
     Returns
     -------
         A scalar denoting the energy distance value.
@@ -117,10 +122,11 @@ def compute_metrics(x: ArrayLike, y: ArrayLike) -> dict[str, float]:
             An array of shape [num_samples, num_features].
         y
             An array of shape [num_samples, num_features].
+
     Returns
     -------
-        A dictionary containing the following computed metrics: 
-        
+        A dictionary containing the following computed metrics:
+
         - the r squared score.
         - the sinkhorn divergence with ``epsilon`` = 1.0.
         - the sinkhorn divergence with ``epsilon`` = 10.0.
@@ -140,7 +146,7 @@ def compute_metrics(x: ArrayLike, y: ArrayLike) -> dict[str, float]:
 
 def compute_mean_metrics(metrics: dict[str, dict[str, float]], prefix: str = "") -> dict[str, list[float]]:
     """Compute the mean value of different metrics.
-    
+
     Parameters
     ----------
         metrics
@@ -148,6 +154,7 @@ def compute_mean_metrics(metrics: dict[str, dict[str, float]], prefix: str = "")
             dictionaries containing computed metrics.
         prefix
             A string definining the prefix of all metrics in the output dictionary.
+
     Returns
     -------
         A dictionary where the keys indicate the metrics and the values contain the average metric
@@ -208,11 +215,11 @@ def compute_scalar_mmd(x: ArrayLike, y: ArrayLike, gammas: Sequence[float] | Non
             An array of shape [num_samples, num_features].
         gammas
             A sequence of values for the paramater gamma of the rbf kernel.
+
     Returns
     -------
         A scalar denoting the average MMD over all gammas.
     """
-
     if gammas is None:
         gammas = [2, 1, 0.5, 0.1, 0.01, 0.005]
     mmds = [maximum_mean_discrepancy(x, y, gamma=gamma) for gamma in gammas]  # type: ignore[union-attr]
@@ -231,13 +238,12 @@ def compute_metrics_fast(x: ArrayLike, y: ArrayLike) -> dict[str, float]:
 
     Returns
     -------
-        A dictionary containing the following computed metrics: 
-        
+        A dictionary containing the following computed metrics:
+
         - the r squared score.
         - the energy distance value.
         - the mean maximum discrepancy loss
     """
-
     metrics = {}
     metrics["r_squared"] = compute_r_squared(x, y)
     metrics["e_distance"] = compute_e_distance(x, y)
