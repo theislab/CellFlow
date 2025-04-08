@@ -23,12 +23,12 @@ import jax
 from jax import core, lax
 import time  # Add this import at the top of the file
 
+
 class IterativeSampler:
     def __init__(self, dataloader, rng, num_iterations):
         self.dataloader = dataloader
         self.rng = rng
         self.num_iterations = num_iterations
-
 
     def __iter__(self):
         for _ in range(self.num_iterations):
@@ -37,10 +37,9 @@ class IterativeSampler:
             yield batch
 
 
-
 def prefetch_to_device(data_iter, prefetch_size=2, num_threads=4):
     """Prefetch data to device using multiple threads with timing information.
-    
+
     Parameters
     ----------
     data_iter : iterator
@@ -52,19 +51,19 @@ def prefetch_to_device(data_iter, prefetch_size=2, num_threads=4):
     """
     input_queue = queue.Queue()  # Queue for raw batches
     output_queue = queue.Queue(maxsize=prefetch_size)  # Queue for processed batches
-    
+
     # Put all batches into the input queue
     def feeder():
         for batch in data_iter:
             input_queue.put(batch)
-        
+
         # Signal the end for each worker
         for _ in range(num_threads):
             input_queue.put(None)
-    
+
     # Start the feeder thread
     threading.Thread(target=feeder, daemon=True, name="feeder").start()
-    
+
     # Producer function that moves data to device
     def producer():
         while True:
@@ -72,24 +71,24 @@ def prefetch_to_device(data_iter, prefetch_size=2, num_threads=4):
             if batch is None:
                 output_queue.put(None)
                 break
-                
+
             # start_time = time.time()
             device_batch = jax.device_put(batch, jax.devices()[0])
             jax.block_until_ready(device_batch)
 
             # elapsed = time.time() - start_time
-            
+
             # print(f"Thread {threading.current_thread().name}: Moving batch to device took {elapsed:.4f} seconds")
             output_queue.put(device_batch)
-    
+
     # Start multiple producer threads
     for i in range(num_threads):
         t = threading.Thread(target=producer, daemon=True, name=f"producer-{i}")
         t.start()
-    
+
     # Count termination signals received
     end_signals_received = 0
-    
+
     # Yield prefetched batches
     while end_signals_received < num_threads:
         batch = output_queue.get()
@@ -122,9 +121,7 @@ class CellFlowTrainer:
         seed: int = 0,
     ):
         if not isinstance(solver, (_otfm.OTFlowMatching | _genot.GENOT)):
-            raise NotImplementedError(
-                f"Solver must be an instance of OTFlowMatching or GENOT, got {type(solver)}"
-            )
+            raise NotImplementedError(f"Solver must be an instance of OTFlowMatching or GENOT, got {type(solver)}")
 
         self.solver = solver
         self.rng_subsampling = np.random.default_rng(seed)
@@ -207,35 +204,27 @@ class CellFlowTrainer:
 
         iter_sample = IterativeSampler(dataloader=dataloader, rng=rng_data, num_iterations=num_iterations)
 
-        
+        self.solver.vf_state = jax.device_put(self.solver.vf_state, jax.devices()[0])
 
-        for it, batch in zip(pbar, prefetch_to_device(iter_sample, 2, 16)):
+        for it, batch in zip(pbar, prefetch_to_device(iter_sample, 16, 4)):
             rng_gpu, rng_step_fn = jax.random.split(rng_gpu, 2)
-            ts = time.time()
             loss = self.solver.step_fn(rng_step_fn, batch)
             self.training_logs["loss"].append(float(loss))
             # print(f"Iteration {it}: Loss: {loss:.4f}, Time: {time.time() - ts:.4f} seconds")
             if ((it - 1) % valid_freq == 0) and (it > 1):
                 # Get predictions from validation data
-                valid_true_data, valid_pred_data = self._validation_step(
-                    valid_loaders, mode="on_log_iteration"
-                )
+                valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_log_iteration")
 
                 metrics = crun.on_log_iteration(valid_true_data, valid_pred_data)
                 self._update_logs(metrics)
 
                 # Update progress bar
                 mean_loss = np.mean(self.training_logs["loss"][-valid_freq:])
-                postfix_dict = {
-                    metric: round(self.training_logs[metric][-1], 3)
-                    for metric in monitor_metrics
-                }
+                postfix_dict = {metric: round(self.training_logs[metric][-1], 3) for metric in monitor_metrics}
                 postfix_dict["loss"] = round(mean_loss, 3)
                 pbar.set_postfix(postfix_dict)
         if num_iterations > 0:
-            valid_true_data, valid_pred_data = self._validation_step(
-                valid_loaders, mode="on_train_end"
-            )
+            valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_train_end")
             metrics = crun.on_train_end(valid_true_data, valid_pred_data)
             self._update_logs(metrics)
 
