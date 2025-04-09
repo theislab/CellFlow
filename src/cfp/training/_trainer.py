@@ -164,6 +164,8 @@ class CellFlowTrainer:
         valid_loaders: dict[str, ValidationSampler] | None = None,
         monitor_metrics: Sequence[str] = [],
         callbacks: Sequence[BaseCallback] = [],
+        num_workers:int =4,
+        prefetch_size:int =4,
     ) -> _otfm.OTFlowMatching | _genot.GENOT:
         """Trains the model.
 
@@ -204,9 +206,12 @@ class CellFlowTrainer:
         iter_sample = IterativeSampler(dataloader=dataloader, rng=rng_data, num_iterations=num_iterations)
         self.solver.vf_state = jax.device_put(self.solver.vf_state, jax.devices()[0], donate=True)
         jax.block_until_ready(self.solver.vf_state)
-        for it, batch in zip(pbar, prefetch_to_device(iter_sample, 5, 1)):
+        # iter_sample = prefetch_to_device(data_iter=iter_sample, prefetch_size=prefetch_size, num_threads=num_workers)
+
+        for it, batch in zip(pbar, iter_sample):
             rng_gpu, rng_step_fn = jax.random.split(rng_gpu, 2)
             t0 = time.time()
+            batch = jax.device_put(batch, device=jax.devices()[0])
             loss = self.solver.step_fn(rng_step_fn, batch)
             # print(f"Time taken for step_fn: {time.time() - t0:.4f} seconds")
             self.training_logs["loss"].append(float(loss))
