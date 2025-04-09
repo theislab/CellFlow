@@ -18,7 +18,7 @@ from cfp import _constants
 from cfp._logging import logger
 from cfp._types import Layers_separate_input_t, Layers_t, ArrayLike
 from cfp.data._data import ConditionData, ValidationData, TrainingData
-from cfp.data._dataloader import PredictionSampler, TrainSampler, ValidationSampler
+from cfp.data._dataloader import PredictionSampler, CpuTrainSampler, ValidationSampler
 from cfp.data._datamanager import DataManager
 from cfp.model._utils import _write_predictions
 from cfp.networks._velocity_field import ConditionalVelocityField
@@ -50,7 +50,7 @@ class CellFlow:
 
         self._adata = adata
         self._solver_class = _otfm.OTFlowMatching if solver == "otfm" else _genot.GENOT
-        self._dataloader: TrainSampler | None = None
+        self._dataloader: CpuTrainSampler | None = None
         self._trainer: CellFlowTrainer | None = None
         self._validation_data: dict[str, ValidationData] = {}
         self._solver: _otfm.OTFlowMatching | _genot.GENOT | None = None
@@ -536,7 +536,7 @@ class CellFlow:
                 "Model not initialized. Please call `prepare_model` first."
             )
 
-        self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
+        self._dataloader = CpuTrainSampler(data=self.train_data, batch_size=batch_size)
         validation_loaders = {
             k: ValidationSampler(v) for k, v in self.validation_data.items()
         }
@@ -804,7 +804,7 @@ class CellFlow:
         return self._solver
 
     @property
-    def dataloader(self) -> TrainSampler | None:
+    def dataloader(self) -> CpuTrainSampler | None:
         """The dataloader used for training."""
         return self._dataloader
 

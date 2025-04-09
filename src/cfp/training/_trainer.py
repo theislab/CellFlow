@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 from tqdm import tqdm
 
-from cfp.data._dataloader import TrainSampler, ValidationSampler
+from cfp.data._dataloader import CpuTrainSampler, ValidationSampler
 from cfp.solvers import _genot, _otfm
 from cfp.training._callbacks import BaseCallback, CallbackRunner
 import collections
@@ -37,9 +37,10 @@ class IterativeSampler:
             yield batch
 
 
+
 def prefetch_to_device(data_iter, prefetch_size=2, num_threads=4):
     """Prefetch data to device using multiple threads with timing information.
-
+    
     Parameters
     ----------
     data_iter : iterator
@@ -51,19 +52,22 @@ def prefetch_to_device(data_iter, prefetch_size=2, num_threads=4):
     """
     input_queue = queue.Queue()  # Queue for raw batches
     output_queue = queue.Queue(maxsize=prefetch_size)  # Queue for processed batches
-
+    
     # Put all batches into the input queue
     def feeder():
+        t0 = time.time()
         for batch in data_iter:
+            print(f"> FEEDER: Time taken for raw data loading: {time.time() - t0:.4f} seconds")
             input_queue.put(batch)
-
+            t0 = time.time()
+        
         # Signal the end for each worker
         for _ in range(num_threads):
             input_queue.put(None)
-
+    
     # Start the feeder thread
     threading.Thread(target=feeder, daemon=True, name="feeder").start()
-
+    
     # Producer function that moves data to device
     def producer():
         while True:
@@ -71,23 +75,23 @@ def prefetch_to_device(data_iter, prefetch_size=2, num_threads=4):
             if batch is None:
                 output_queue.put(None)
                 break
-
+                
             start_time = time.time()
-            device_batch = jax.device_put(batch, jax.devices()[0], donate=True)
+            device_batch = jax.device_put(batch)
             jax.block_until_ready(device_batch)
             elapsed = time.time() - start_time
-
-            # print(f" > Thread {threading.current_thread().name}: Moving batch to device took {elapsed:.4f} seconds")
+            
+            print(f"Thread {threading.current_thread().name}: Moving batch to device took {elapsed:.4f} seconds")
             output_queue.put(device_batch)
-
+    
     # Start multiple producer threads
     for i in range(num_threads):
         t = threading.Thread(target=producer, daemon=True, name=f"producer-{i}")
         t.start()
-
+    
     # Count termination signals received
     end_signals_received = 0
-
+    
     # Yield prefetched batches
     while end_signals_received < num_threads:
         batch = output_queue.get()
@@ -158,7 +162,7 @@ class CellFlowTrainer:
 
     def train(
         self,
-        dataloader: TrainSampler,
+        dataloader: CpuTrainSampler,
         num_iterations: int,
         valid_freq: int,
         valid_loaders: dict[str, ValidationSampler] | None = None,
@@ -206,14 +210,16 @@ class CellFlowTrainer:
         iter_sample = IterativeSampler(dataloader=dataloader, rng=rng_data, num_iterations=num_iterations)
         self.solver.vf_state = jax.device_put(self.solver.vf_state, jax.devices()[0], donate=True)
         jax.block_until_ready(self.solver.vf_state)
-        # iter_sample = prefetch_to_device(data_iter=iter_sample, prefetch_size=prefetch_size, num_threads=num_workers)
+        iter_sample = prefetch_to_device(data_iter=iter_sample, prefetch_size=prefetch_size, num_threads=num_workers)
 
-        for it, batch in zip(pbar, iter_sample):
+        for it in pbar:
             rng_gpu, rng_step_fn = jax.random.split(rng_gpu, 2)
             t0 = time.time()
-            batch = jax.device_put(batch, device=jax.devices()[0])
+            batch = next(iter_sample)
+            print(f"Time taken for data loading: {time.time() - t0:.4f} seconds")
+            t0 = time.time()
             loss = self.solver.step_fn(rng_step_fn, batch)
-            # print(f"Time taken for step_fn: {time.time() - t0:.4f} seconds")
+            print(f"Time taken for step_fn: {time.time() - t0:.4f} seconds")
             self.training_logs["loss"].append(float(loss))
             # print(f"Iteration {it}: Loss: {loss:.4f}, Time: {time.time() - ts:.4f} seconds")
             if ((it - 1) % valid_freq == 0) and (it > 1):

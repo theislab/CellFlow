@@ -315,3 +315,120 @@ class PredictionSampler(BaseValidSampler):
     def data(self) -> PredictionData:
         """The training data."""
         return self._data
+
+
+class CpuTrainSampler:
+    """NumPy-based data sampler for TrainingData.
+
+    Parameters
+    ----------
+    data
+        The training data.
+    batch_size
+        The batch size.
+    """
+
+    def __init__(self, data, batch_size: int = 1024):
+        self._data = data
+        self._data_idcs = np.arange(data.cell_data.shape[0])
+        self.batch_size = batch_size
+        self.n_source_dists = data.n_controls
+        self.n_target_dists = data.n_perturbations
+        
+        # Pre-compute mappings for efficiency
+        self._control_to_perturbation_lens = np.array(
+            [len(data.control_to_perturbation[i]) for i in range(self.n_source_dists)]
+        )
+        max_len = np.max(self._control_to_perturbation_lens)
+        
+        # Create padded arrays for the control_to_perturbation mapping
+        padded_arrays = []
+        for i in range(self.n_source_dists):
+            arr = np.array(data.control_to_perturbation[i], dtype=np.int32)
+            # Pad with the first element if needed
+            if len(arr) < max_len:
+                padding = np.full(max_len - len(arr), arr[0], dtype=np.int32)
+                arr = np.concatenate([arr, padding])
+            padded_arrays.append(arr)
+            
+        self._control_to_perturbation_matrix = np.stack(padded_arrays)
+        self._control_to_perturbation_keys = list(data.control_to_perturbation.keys())
+        self._control_to_perturbation_idxs = np.arange(len(self._control_to_perturbation_keys), dtype=np.int32)
+        
+        # Cache condition data flag
+        self._has_condition_data = data.condition_data is not None
+        self.rng = np.random.default_rng(42)
+
+    def _sample_target_dist_idx(self, source_dist_idx, rng):
+        """Sample a target distribution index given the source distribution index."""
+        max_val = self._control_to_perturbation_lens[source_dist_idx]
+        target_dist_idx = rng.integers(0, max_val)
+        return self._control_to_perturbation_matrix[source_dist_idx, target_dist_idx]
+
+    def _get_embeddings(self, idx, condition_data):
+        """Get embeddings for a given index."""
+        result = {}
+        for key, arr in condition_data.items():
+            result[key] = np.expand_dims(arr[idx], 0)
+        return result
+
+    def _sample_from_mask(self, rng, mask):
+        """Sample indices according to a mask."""
+        # Convert mask to probability distribution
+        valid_indices = np.where(mask)[0]
+        
+        # Handle case with no valid indices (should not happen in practice)
+        if len(valid_indices) == 0:
+            return rng.choice(self._data_idcs, self.batch_size, replace=True)
+            
+        # Sample from valid indices with equal probability
+        batch_idcs = rng.choice(valid_indices, self.batch_size, replace=True)
+        return batch_idcs
+
+    def sample(self, rng) -> Dict[str, Any]:
+        """Sample a batch of data.
+        
+        Parameters
+        ----------
+        seed : int, optional
+            Random seed
+            
+        Returns
+        -------
+        Dictionary with source and target data
+        """
+        # Create RNG with optional seed
+        del rng
+        rng = self.rng
+        
+        # Sample source distribution index
+        source_dist_idx = rng.integers(0, self.n_source_dists)
+        
+        # Get source cells
+        source_cells_mask = self._data.split_covariates_mask == source_dist_idx
+        source_batch_idcs = self._sample_from_mask(rng, source_cells_mask)
+        source_batch = self._data.cell_data[source_batch_idcs]
+        
+        # Get target distribution index
+        target_dist_idx = self._sample_target_dist_idx(source_dist_idx, rng)
+        
+        # Get target cells
+        target_cells_mask = self._data.perturbation_covariates_mask == target_dist_idx
+        target_batch_idcs = self._sample_from_mask(rng, target_cells_mask)
+        target_batch = self._data.cell_data[target_batch_idcs]
+        
+        # Return with or without condition
+        if not self._has_condition_data:
+            return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
+        else:
+            condition_batch = self._get_embeddings(target_dist_idx, self._data.condition_data)
+            return {
+                "src_cell_data": source_batch,
+                "tgt_cell_data": target_batch,
+                "condition": condition_batch,
+            }
+
+    @property
+    def data(self):
+        """The training data."""
+        return self._data
