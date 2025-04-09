@@ -72,13 +72,12 @@ def prefetch_to_device(data_iter, prefetch_size=2, num_threads=4):
                 output_queue.put(None)
                 break
 
-            # start_time = time.time()
-            device_batch = jax.device_put(batch, jax.devices()[0])
+            start_time = time.time()
+            device_batch = jax.device_put(batch, jax.devices()[0], donate=True)
             jax.block_until_ready(device_batch)
+            elapsed = time.time() - start_time
 
-            # elapsed = time.time() - start_time
-
-            # print(f"Thread {threading.current_thread().name}: Moving batch to device took {elapsed:.4f} seconds")
+            # print(f" > Thread {threading.current_thread().name}: Moving batch to device took {elapsed:.4f} seconds")
             output_queue.put(device_batch)
 
     # Start multiple producer threads
@@ -200,15 +199,16 @@ class CellFlowTrainer:
         pbar = tqdm(range(num_iterations))
 
         rng, rng_data, rng_gpu = jax.random.split(rng, 3)
-        rng_gpu = jax.device_put(rng_gpu)
+        rng_gpu = jax.device_put(rng_gpu, jax.devices()[0])
 
         iter_sample = IterativeSampler(dataloader=dataloader, rng=rng_data, num_iterations=num_iterations)
-
-        self.solver.vf_state = jax.device_put(self.solver.vf_state, jax.devices()[0])
-
-        for it, batch in zip(pbar, prefetch_to_device(iter_sample, 16, 4)):
+        self.solver.vf_state = jax.device_put(self.solver.vf_state, jax.devices()[0], donate=True)
+        jax.block_until_ready(self.solver.vf_state)
+        for it, batch in zip(pbar, prefetch_to_device(iter_sample, 5, 1)):
             rng_gpu, rng_step_fn = jax.random.split(rng_gpu, 2)
+            t0 = time.time()
             loss = self.solver.step_fn(rng_step_fn, batch)
+            # print(f"Time taken for step_fn: {time.time() - t0:.4f} seconds")
             self.training_logs["loss"].append(float(loss))
             # print(f"Iteration {it}: Loss: {loss:.4f}, Time: {time.time() - ts:.4f} seconds")
             if ((it - 1) % valid_freq == 0) and (it > 1):

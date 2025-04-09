@@ -71,7 +71,6 @@ class OTFlowMatching:
             target: jnp.ndarray,
             conditions: dict[str, jnp.ndarray] | None,
         ) -> tuple[Any, Any]:
-
             def loss_fn(
                 params: jnp.ndarray,
                 t: jnp.ndarray,
@@ -92,7 +91,6 @@ class OTFlowMatching:
                 u_t = self.flow.compute_ut(t, x_t, source, target)
 
                 return jnp.mean((v_t - u_t) ** 2)
-
             batch_size = len(source)
             key_t, key_model = jax.random.split(rng, 2)
             t = self.time_sampler(key_t, batch_size)
@@ -123,6 +121,8 @@ class OTFlowMatching:
         -------
         Loss value.
         """
+        import time
+        t0 = time.time()
         src, tgt = batch["src_cell_data"], batch["tgt_cell_data"]
         condition = batch.get("condition")
         rng_resample, rng_step_fn = jax.random.split(rng, 2)
@@ -130,7 +130,18 @@ class OTFlowMatching:
             tmat = self.match_fn(src, tgt)
             src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample, tmat)
             src, tgt = src[src_ixs], tgt[tgt_ixs]
-
+        # print(f"Matching time: {time.time() - t0:.2f}s")
+        # t0 = time.time()
+        # var = [
+        #     rng_step_fn,
+        #     src,
+        #     tgt,
+        # ]
+        # print the devices of the variables
+        # print(f"Devices: {[v.addressable_data(0).devices() for v in var]}")
+        # for k,v in condition.items():
+        #     if hasattr(v, "addressable_data"):
+        #         print(f"Condition {k} devices: {[v.addressable_data(0).devices() for v in v]}")
         self.vf_state, loss = self.vf_step_fn(
             rng_step_fn,
             self.vf_state,
@@ -138,6 +149,7 @@ class OTFlowMatching:
             tgt,
             condition,
         )
+        # print(f"VF step time: {time.time() - t0:.2f}s")
         return loss
 
     def get_condition_embedding(self, condition: dict[str, ArrayLike]) -> ArrayLike:
