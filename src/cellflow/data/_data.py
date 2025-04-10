@@ -4,6 +4,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from cellflow._types import ArrayLike
 
@@ -107,20 +108,50 @@ class TrainingData(BaseDataMixin):
         The data manager
     """
 
-    cell_data: jax.Array  # (n_cells, n_features)
-    split_covariates_mask: jax.Array  # (n_cells,), which cell assigned to which source distribution
-    split_idx_to_covariates: dict[int, tuple[Any, ...]]  # (n_sources,) dictionary explaining split_covariates_mask
-    perturbation_covariates_mask: jax.Array  # (n_cells,), which cell assigned to which target distribution
+    cell_data: np.ndarray  # (n_cells, n_features)
+    split_covariates_mask: (
+        np.ndarray
+    )  # (n_cells,), which cell assigned to which source distribution
+    split_idx_to_covariates: dict[
+        int, tuple[Any, ...]
+    ]  # (n_sources,) dictionary explaining split_covariates_mask
+    perturbation_covariates_mask: (
+        np.ndarray
+    )  # (n_cells,), which cell assigned to which target distribution
     perturbation_idx_to_covariates: dict[
         int, tuple[str, ...]
     ]  # (n_targets,), dictionary explaining perturbation_covariates_mask
     perturbation_idx_to_id: dict[int, Any]
-    condition_data: dict[str, ArrayLike]  # (n_targets,) all embeddings for conditions
-    control_to_perturbation: dict[int, ArrayLike]  # mapping from control idx to target distribution idcs
+    condition_data: dict[str, np.ndarray]  # (n_targets,) all embeddings for conditions
+    control_to_perturbation: dict[
+        int, np.ndarray
+    ]  # mapping from control idx to target distribution idcs
     max_combination_length: int
     null_value: Any
     data_manager: Any
 
+    def __post_init__(self) -> None:
+        # convert to numpy arrays
+        self.cell_data = np.asarray(self.cell_data)
+        self.split_covariates_mask = np.asarray(self.split_covariates_mask)
+        self.split_idx_to_covariates = {
+            k: tuple(np.asarray(v)) for k, v in self.split_idx_to_covariates.items()
+        }
+        self.perturbation_covariates_mask = np.asarray(
+            self.perturbation_covariates_mask
+        )
+        self.perturbation_idx_to_covariates = {
+            k: tuple(np.asarray(v)) for k, v in self.perturbation_idx_to_covariates.items()
+        }
+        self.perturbation_idx_to_id = {
+            k: np.asarray(v) for k, v in self.perturbation_idx_to_id.items()
+        }
+        self.condition_data = {
+            k: np.asarray(v) for k, v in self.condition_data.items()
+        }
+        self.control_to_perturbation = {
+            k: np.asarray(v) for k, v in self.control_to_perturbation.items()
+        }
 
 @dataclass
 class ValidationData(BaseDataMixin):
