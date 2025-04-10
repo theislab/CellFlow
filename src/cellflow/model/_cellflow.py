@@ -17,7 +17,7 @@ from ott.neural.methods.flows import dynamics
 from cellflow import _constants
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
 from cellflow.data._data import ConditionData, TrainingData, ValidationData
-from cellflow.data._dataloader import PredictionSampler, TrainSampler, ValidationSampler
+from cellflow.data._dataloader import PredictionSampler, CpuTrainSampler, ValidationSampler
 from cellflow.data._datamanager import DataManager
 from cellflow.model._utils import _write_predictions
 from cellflow.networks import _velocity_field
@@ -53,7 +53,7 @@ class CellFlow:
             if solver == "otfm"
             else _velocity_field.GENOTConditionalVelocityField
         )
-        self._dataloader: TrainSampler | None = None
+        self._dataloader: CpuTrainSampler | None = None
         self._trainer: CellFlowTrainer | None = None
         self._validation_data: dict[str, ValidationData] = {}
         self._solver: _otfm.OTFlowMatching | _genot.GENOT | None = None
@@ -72,7 +72,7 @@ class CellFlow:
         max_combination_length: int | None = None,
         null_value: float = 0.0,
     ) -> None:
-        """Prepare the dataloader for training from :attr:`~cellflow.model.CellFlow.adata`.
+        """Prepare the dataloader for training from :attr:`~cfp.model.CellFlow.adata`.
 
         Parameters
         ----------
@@ -445,7 +445,6 @@ class CellFlow:
             decoder_dropout=decoder_dropout,
             layer_norm_before_concatenation=layer_norm_before_concatenation,
             linear_projection_before_concatenation=linear_projection_before_concatenation,
-            **vf_kwargs,
         )
 
         flow, noise = next(iter(flow.items()))
@@ -489,6 +488,8 @@ class CellFlow:
         valid_freq: int = 1000,
         callbacks: Sequence[BaseCallback] = [],
         monitor_metrics: Sequence[str] = [],
+        prefetch_factor:int = 4,
+        num_workers:int = 4
     ) -> None:
         """Train the model.
 
@@ -527,7 +528,7 @@ class CellFlow:
         if self.trainer is None:
             raise ValueError("Model not initialized. Please call `prepare_model` first.")
 
-        self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
+        self._dataloader = CpuTrainSampler(data=self.train_data, batch_size=batch_size)
         validation_loaders = {k: ValidationSampler(v) for k, v in self.validation_data.items()}
 
         self._solver = self.trainer.train(
@@ -537,6 +538,8 @@ class CellFlow:
             valid_loaders=validation_loaders,
             callbacks=callbacks,
             monitor_metrics=monitor_metrics,
+            prefetch_factor=prefetch_factor,
+            num_workers=num_workers
         )
 
     def predict(
@@ -784,7 +787,7 @@ class CellFlow:
         return self._solver
 
     @property
-    def dataloader(self) -> TrainSampler | None:
+    def dataloader(self) -> CpuTrainSampler | None:
         """The dataloader used for training."""
         return self._dataloader
 
