@@ -1,3 +1,6 @@
+import queue
+import threading
+import time  # Add this import at the top of the file
 from collections.abc import Sequence
 from typing import Any, Literal
 
@@ -6,9 +9,48 @@ import numpy as np
 from numpy.typing import ArrayLike
 from tqdm import tqdm
 
-from cellflow.data._dataloader import TrainSampler, ValidationSampler
+from cellflow.data._dataloader import CpuTrainSampler, ValidationSampler
 from cellflow.solvers import _genot, _otfm
 from cellflow.training._callbacks import BaseCallback, CallbackRunner
+
+
+def prefetch_to_device(sampler, num_iterations, prefetch_factor=2, num_workers=4):
+    q = queue.Queue(maxsize=prefetch_factor*num_workers)
+    sem = threading.Semaphore(num_iterations)
+    stop_event = threading.Event()
+    def worker(seed):
+        rng = np.random.default_rng(seed)
+        while not stop_event.is_set() and sem.acquire(blocking=False):
+            batch = sampler.sample(rng)
+            batch = jax.device_put(batch, jax.devices()[0], donate=True)
+            jax.block_until_ready(batch)
+            while not stop_event.is_set():
+                try:
+                    q.put(batch, timeout=1.0)
+                    break  # Batch successfully put into the queue; break out of retry loop
+                except queue.Full:
+                    continue
+
+        return
+
+    # Start multiple worker threads
+    ts = []
+    for i in range(num_workers):
+        t = threading.Thread(target=worker, daemon=True, name=f"worker-{i}", args=(i, ))
+        t.start()
+        ts.append(t)
+
+    try:
+        for i in range(num_iterations):
+            # Yield batches from the queue; will block waiting for available batch
+            yield q.get()
+    finally:
+        # When the generator is closed or garbage collected, clean up the worker threads
+        stop_event.set()  # Signal all workers to exit
+        for t in ts:
+            t.join()  # Wait for all worker threads to finish
+
+
 
 
 class CellFlowTrainer:
@@ -72,12 +114,14 @@ class CellFlowTrainer:
 
     def train(
         self,
-        dataloader: TrainSampler,
+        dataloader: CpuTrainSampler,
         num_iterations: int,
         valid_freq: int,
         valid_loaders: dict[str, ValidationSampler] | None = None,
         monitor_metrics: Sequence[str] = [],
         callbacks: Sequence[BaseCallback] = [],
+        num_workers:int =4,
+        prefetch_factor:int =4,
     ) -> _otfm.OTFlowMatching | _genot.GENOT:
         """Trains the model.
 
@@ -111,9 +155,25 @@ class CellFlowTrainer:
         crun.on_train_begin()
 
         pbar = tqdm(range(num_iterations))
+
+        rng, rng_gpu = jax.random.split(rng, 2)
+        rng_gpu = jax.device_put(rng_gpu, jax.devices()[0])
+
+        self.solver.vf_state = jax.device_put(self.solver.vf_state, jax.devices()[0], donate=True)
+        jax.block_until_ready(self.solver.vf_state)
+        iter_sample = prefetch_to_device(
+            num_iterations=num_iterations,
+            sampler=dataloader,
+            prefetch_factor=prefetch_factor,
+            num_workers=num_workers
+        )
+
         for it in pbar:
-            rng, rng_step_fn = jax.random.split(rng, 2)
-            batch = dataloader.sample(rng)
+            rng_gpu, rng_step_fn = jax.random.split(rng_gpu, 2)
+            t0 = time.time()
+            batch = next(iter_sample)
+            # print(f"Time taken for data loading: {time.time() - t0:.4f} seconds")
+            t0 = time.time()
             loss = self.solver.step_fn(rng_step_fn, batch)
             self.training_logs["loss"].append(float(loss))
 
@@ -130,11 +190,11 @@ class CellFlowTrainer:
                 postfix_dict = {metric: round(self.training_logs[metric][-1], 3) for metric in monitor_metrics}
                 postfix_dict["loss"] = round(mean_loss, 3)
                 pbar.set_postfix(postfix_dict)
-
+        print("HERE IT IS DONE")
         if num_iterations > 0:
             valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_train_end")
             metrics = crun.on_train_end(valid_true_data, valid_pred_data)
             self._update_logs(metrics)
-
+        print("HERE IT IS DONE 2")
         self.solver.is_trained = True
         return self.solver
