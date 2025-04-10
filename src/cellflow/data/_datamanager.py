@@ -2,12 +2,16 @@ from collections.abc import Sequence
 from typing import Any
 
 import anndata
+import dask
+import dask.dataframe as dd
+import dask.delayed
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import sklearn.preprocessing as preprocessing
+from dask.diagnostics import ProgressBar
 from pandas.api.types import is_numeric_dtype
 from tqdm import tqdm
 
@@ -293,9 +297,9 @@ class DataManager:
         else:
             return [[]]
 
-    def _get_condition_data(
+    def _get_condition_data_old(
         self,
-        split_cov_combs: np.ndarray | list[list[Any]],  # type: ignore[type-arg]
+        split_cov_combs: np.ndarray | list[list[Any]],
         adata: anndata.AnnData | None,
         covariate_data: pd.DataFrame | None = None,
         rep_dict: dict[str, Any] | None = None,
@@ -436,6 +440,349 @@ class DataManager:
         )
 
     @staticmethod
+    def _get_perturbation_covariates_static(
+        condition_data: pd.DataFrame,
+        rep_dict: dict[str, dict[str, ArrayLike]],
+        perturb_covariates: Any,
+        covariate_reps: dict[str, str],
+        is_categorical: bool,
+        primary_one_hot_encoder: preprocessing.OneHotEncoder | None,
+        null_value: float,
+        max_combination_length: int,
+        linked_perturb_covars: dict[str, dict[Any, Any]],
+        sample_covariates: Sequence[str],
+    ) -> dict[str, jax.Array]:
+        """Get perturbation covariates embeddings.
+
+        Parameters
+        ----------
+        condition_data
+            DataFrame with condition data.
+        rep_dict
+            Dictionary with representations of covariates.
+        perturb_covariates
+            Dictionary with perturbation covariates.
+        covariate_reps
+            Dictionary with representations of covariates.
+        is_categorical
+            Whether primary covariate is categorical.
+        primary_one_hot_encoder
+            One-hot encoder for primary covariates.
+        null_value
+            Value to use for padding.
+        max_combination_length
+            Maximum combination length of perturbation covariates.
+        linked_perturb_covars
+            Dictionary linking primary covariates to other covariates.
+        sample_covariates
+            Sample covariates.
+
+        Returns
+        -------
+        Dictionary with perturbation covariate embeddings.
+        """
+        check_shape_fn = DataManager._check_shape
+
+        pad_to_max_length_fn = DataManager._pad_to_max_length
+
+        primary_group, primary_covars = next(iter(perturb_covariates.items()))
+
+        perturb_covar_emb: dict[str, list[jax.Array]] = {group: [] for group in perturb_covariates}
+        for primary_cov in primary_covars:
+            value = condition_data[primary_cov]
+            cov_name = value if is_categorical else primary_cov
+            if primary_group in covariate_reps:
+                rep_key = covariate_reps[primary_group]
+                if cov_name not in rep_dict[rep_key]:
+                    raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`.")
+                prim_arr = jnp.asarray(rep_dict[rep_key][cov_name])
+            else:
+                prim_arr = jnp.asarray(
+                    primary_one_hot_encoder.transform(  # type: ignore[union-attr]
+                        np.array(cov_name).reshape(-1, 1)
+                    )
+                )
+
+            if not is_categorical:
+                prim_arr *= value
+
+            prim_arr = check_shape_fn(prim_arr)
+            perturb_covar_emb[primary_group].append(prim_arr)
+
+            for linked_covar in linked_perturb_covars[primary_cov].items():
+                linked_group, linked_cov = list(linked_covar)
+
+                if linked_cov is None:
+                    linked_arr = jnp.full((1, 1), null_value)
+                    linked_arr = check_shape_fn(linked_arr)
+                    perturb_covar_emb[linked_group].append(linked_arr)
+                    continue
+
+                cov_name = condition_data[linked_cov]
+
+                if linked_group in covariate_reps:
+                    rep_key = covariate_reps[linked_group]
+                    if cov_name not in rep_dict[rep_key]:
+                        raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{linked_group}']`.")
+                    linked_arr = jnp.asarray(rep_dict[rep_key][cov_name])
+                else:
+                    linked_arr = jnp.asarray(condition_data[linked_cov])
+
+                linked_arr = check_shape_fn(linked_arr)
+                perturb_covar_emb[linked_group].append(linked_arr)
+
+        perturb_covar_emb = {
+            k: pad_to_max_length_fn(
+                jnp.concatenate(v, axis=0),
+                max_combination_length,
+                null_value,
+            )
+            for k, v in perturb_covar_emb.items()
+        }
+
+        sample_covar_emb: dict[str, jax.Array] = {}
+        for sample_cov in sample_covariates:
+            value = condition_data[sample_cov]
+            if sample_cov in covariate_reps:
+                rep_key = covariate_reps[sample_cov]
+
+                if value not in rep_dict[rep_key]:
+                    raise ValueError(f"Representation for '{value}' not found in `adata.uns['{sample_cov}']`.")
+                cov_arr = jnp.asarray(rep_dict[rep_key][value])
+            else:
+                cov_arr = jnp.asarray(value)
+
+            cov_arr = check_shape_fn(cov_arr)
+            sample_covar_emb[sample_cov] = jnp.tile(cov_arr, (max_combination_length, 1))
+
+        return perturb_covar_emb | sample_covar_emb
+
+    def _get_condition_data(
+        self,
+        split_cov_combs: np.ndarray | list[list[Any]],
+        adata: anndata.AnnData | None,
+        covariate_data: pd.DataFrame | None = None,
+        rep_dict: dict[str, Any] | None = None,
+        condition_id_key: str | None = None,
+    ) -> ReturnData:
+        # for prediction: adata is None, covariate_data is provided
+        # for training/validation: adata is provided and used to get cell masks, covariate_data is None
+        if adata is None and covariate_data is None:
+            raise ValueError("Either `adata` or `covariate_data` must be provided.")
+        covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
+        if (
+            len(self._split_covariates) == 0
+            or len(self._perturbation_covariates) == 0
+            or len(self._sample_covariates) == 0
+            or not self.is_conditional
+            or adata is None
+        ):
+            return self._get_condition_data_old(
+                split_cov_combs=split_cov_combs,
+                adata=adata,
+                covariate_data=covariate_data,
+                rep_dict=rep_dict,
+                condition_id_key=condition_id_key,
+            )
+        if rep_dict is None:
+            rep_dict = adata.uns if adata is not None else {}
+        # check if all perturbation/split covariates and control cells are present in the input
+        self._verify_covariate_data(
+            covariate_data,
+            {covar: _to_list(covar) for covar in self._sample_covariates},
+        )
+        self._verify_control_data(adata)
+        self._verify_covariate_data(covariate_data, _to_list(self._split_covariates))
+
+        # extract unique combinations of perturbation covariates
+        if condition_id_key is not None:
+            self._verify_condition_id_key(covariate_data, condition_id_key)
+            select_keys = self._perturb_covar_keys + [condition_id_key]
+        else:
+            select_keys = self._perturb_covar_keys
+        perturb_covar_df = covariate_data[select_keys].drop_duplicates()
+        if condition_id_key is not None:
+            perturb_covar_df = perturb_covar_df.set_index(condition_id_key)
+        else:
+            perturb_covar_df = perturb_covar_df.reset_index()
+
+        control_to_perturbation: dict[int, ArrayLike] = {}
+        split_idx_to_covariates: dict[int, tuple[Any]] = {}
+        perturbation_idx_to_covariates: dict[int, tuple[Any]] = {}
+        perturbation_idx_to_id: dict[int, Any] = {}
+        split_covariates_mask = None
+        perturbation_covariates_mask = None
+        condition_data: dict[str, list[jnp.ndarray]] = (
+            {i: [] for i in self._covar_to_idx.keys()} if self.is_conditional else {}
+        )
+        perturb_covariates = {k: _to_list(v) for k, v in self._perturbation_covariates.items()}
+        npartitions = 2  # TODO: make this dynamic
+
+        # Modified process_condition function
+        def process_condition(tgt_idx, tgt_cond):
+            """Process a single condition and return its embeddings with identifying info.
+
+            Parameters
+            ----------
+            idx : int
+                The index or identifier for this condition
+            tgt_cond : pd.Series
+                The condition data
+
+            Returns
+            -------
+            tuple
+                (idx, embedding_dict, split_combination_info)
+            """
+            embedding = DataManager._get_perturbation_covariates_static(
+                condition_data=tgt_cond,
+                rep_dict=rep_dict,
+                perturb_covariates=perturb_covariates,
+                covariate_reps=self._covariate_reps,
+                is_categorical=self.is_categorical,
+                primary_one_hot_encoder=self._primary_one_hot_encoder,
+                null_value=self._null_value,
+                max_combination_length=self._max_combination_length,
+                linked_perturb_covars=self._linked_perturb_covars,
+                sample_covariates=self._sample_covariates,
+            )
+            # Also return the split combination information so we can track it
+            # split_info = {s: tgt_cond[s] for s in split_covariates} if split_covariates else {}
+            return tgt_idx, embedding
+
+        split_covariates = self._sample_covariates
+        perturbation_covariates_keys = self.perturb_covar_keys
+
+        perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in split_covariates]
+
+        df = covariate_data[split_covariates + perturbation_covariates_keys + ["control"]]
+        for col in split_covariates + perturbation_covariates_keys:
+            if df[col].dtype != "category":
+                df[col] = df[col].astype("category")
+        ddf = dd.from_pandas(df, npartitions=npartitions)
+        ddf = ddf.sort_values(by=[*split_covariates, *perturbation_covariates_keys, "control"])
+
+        control_combs = df[split_covariates + ["control"]].drop_duplicates(keep="first")
+        all_combs = df[split_covariates + perturbation_covariates_keys + ["control"]].drop_duplicates(keep="first")
+        with ProgressBar():
+            control_combs, all_combs, df = dask.compute(control_combs, all_combs, ddf)
+
+        control_combs = control_combs[control_combs["control"]]
+        all_combs = all_combs[~all_combs["control"]]
+
+        all_combs["global_pert_mask"] = np.arange(len(all_combs))
+        control_combs["global_control_mask"] = np.arange(len(control_combs))
+        control_combs["global_control_mask"] = control_combs["global_control_mask"].astype(int)
+        all_combs["global_pert_mask"] = all_combs["global_pert_mask"].astype(int)
+
+        control_combs = control_combs.sort_values(by=split_covariates)
+        all_combs = all_combs.sort_values(by=split_covariates + perturbation_covariates_keys)
+
+        all_combs = all_combs.drop(columns=["control"])
+        control_combs = control_combs.drop(columns=["control"])
+
+        df = df.merge(control_combs, on=split_covariates, how="left")
+        df = df.merge(all_combs, on=split_covariates + perturbation_covariates_keys, how="left")
+
+        df["split_covariates_mask"] = df["global_control_mask"]
+        df["perturbation_covariates_mask"] = df["global_pert_mask"]
+        df.loc[df["control"], "perturbation_covariates_mask"] = -1
+        df.loc[~df["control"], "split_covariates_mask"] = -1
+        df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(int)
+        df["split_covariates_mask"] = df["split_covariates_mask"].astype(int)
+
+        split_idx_to_covariates = (
+            df[["global_control_mask", *split_covariates]]
+            .groupby(["global_control_mask"])
+            .first()
+            .to_dict(orient="index")
+        )
+        split_idx_to_covariates = {k: tuple(v[s] for s in split_covariates) for k, v in split_idx_to_covariates.items()}
+        split_covariates_to_idx = {v: k for k, v in split_idx_to_covariates.items()}
+
+        perturbation_idx_to_covariates = (
+            df[["global_pert_mask", *perturbation_covariates_keys, *split_covariates]]
+            .groupby(["global_pert_mask"])
+            .first()
+            .to_dict(orient="index")
+        )
+        perturbation_idx_to_covariates = {
+            k: [v[s] for s in [*perturbation_covariates_keys, *split_covariates]]
+            for k, v in perturbation_idx_to_covariates.items()
+        }
+        perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
+
+        control_to_perturbation = df[~df.control].groupby(["global_control_mask"])["global_pert_mask"].unique()
+        control_to_perturbation = control_to_perturbation.to_dict()
+
+        split_covariates_mask = jnp.asarray(df["split_covariates_mask"].values, dtype=jnp.int32)
+        perturbation_covariates_mask = jnp.asarray(df["perturbation_covariates_mask"].values, dtype=jnp.int32)
+
+        # Create delayed tasks for each condition
+        delayed_results = []
+
+        # Create delayed tasks with tracking information
+
+        perturb_covar_df = df[~df["control"]][split_covariates + perturbation_covariates_keys].drop_duplicates()
+        for _, tgt_cond in perturb_covar_df.iterrows():
+            tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + split_covariates])]
+            tgt_cond = tgt_cond[self._perturb_covar_keys]
+            delayed_results.append(
+                dask.delayed(process_condition)(
+                    tgt_idx,
+                    tgt_cond,
+                )
+            )
+
+        # for split_combination in split_cov_combs:
+        #     filter_dict = dict(zip(self.split_covariates, split_combination, strict=False))
+        #     pc_df = perturb_covar_df[
+        #         (perturb_covar_df[list(filter_dict.keys())] == list(filter_dict.values())).all(axis=1)
+        #     ]
+        #     for i, tgt_cond in pc_df.iterrows():
+        #         tgt_cond = tgt_cond[self._perturb_covar_keys]
+        #         print(tgt_cond)
+        #         print("--------------------------------")
+        #         # condition_indices.append((tgt_counter, src_counter, i))
+        #         delayed_results.append(
+        #             dask.delayed(process_condition)(
+        #                 tgt_counter,
+        #                 tgt_cond,
+        #             )
+        #         )
+        #         tgt_counter += 1
+        #     src_counter += 1
+        # Process results maintaining correct order
+        with ProgressBar():
+            results = dask.compute(*delayed_results)
+
+        # Create a mapping from target counter to result
+        # sort results by tgt_idx
+        results = sorted(results, key=lambda x: x[0])
+        for _, embeddings in results:
+            for pert_cov, emb in embeddings.items():
+                condition_data[pert_cov].append(emb)
+
+        # Process in the same order as the condition_indices we tracked
+        # for tgt_idx, emb in results:
+        #     embedding, split_info = result_mapping[(src_idx, tgt_idx)]
+        #     for pert_cov, emb in embedding.items():
+        #         condition_data[pert_cov].append(emb)
+
+        for pert_cov, emb in condition_data.items():
+            condition_data[pert_cov] = jnp.array(emb)
+        return ReturnData(
+            split_covariates_mask=split_covariates_mask,
+            split_idx_to_covariates=split_idx_to_covariates,
+            perturbation_covariates_mask=perturbation_covariates_mask,
+            perturbation_idx_to_covariates=perturbation_idx_to_covariates,
+            perturbation_idx_to_id=perturbation_idx_to_id,
+            condition_data=condition_data,  # type: ignore[arg-type]
+            control_to_perturbation=control_to_perturbation,
+            max_combination_length=self._max_combination_length,
+        )
+
+    @staticmethod
     def _verify_condition_id_key(covariate_data: pd.DataFrame, condition_id_key: str | None) -> None:
         if condition_id_key is not None and condition_id_key not in covariate_data.columns:
             raise ValueError(f"The `condition_id_key` column ('{condition_id_key}') was not found in `adata.obs`.")
@@ -454,20 +801,21 @@ class DataManager:
         self,
         adata: anndata.AnnData,
         sample_rep: str | None = None,
+        device: str = "cpu",
     ) -> jax.Array:
         sample_rep = self._sample_rep if sample_rep is None else sample_rep
         if sample_rep == "X":
             sample_rep = adata.X
             if isinstance(sample_rep, sp.csr_matrix):
-                return jnp.asarray(sample_rep.toarray())
+                return jnp.asarray(sample_rep.toarray(), device=jax.devices("cpu")[0])
             else:
-                return jnp.asarray(sample_rep)
+                return jnp.asarray(sample_rep, device=jax.devices("cpu")[0])
         if isinstance(self._sample_rep, str):
             if self._sample_rep not in adata.obsm:
                 raise KeyError(f"Sample representation '{self._sample_rep}' not found in `adata.obsm`.")
             return jnp.asarray(adata.obsm[self._sample_rep])
         attr, key = next(iter(sample_rep.items()))  # type: ignore[union-attr]
-        return jnp.asarray(getattr(adata, attr)[key])
+        return jax.device_put(jnp.asarray(getattr(adata, attr)[key]), device=jax.devices("cpu")[0])
 
     def _verify_control_data(self, adata: anndata.AnnData | None) -> None:
         if adata is None:
@@ -524,14 +872,17 @@ class DataManager:
         src_counter = 0
         for split_combination in split_cov_combs:
             split_covariates_mask_previous = split_covariates_mask.copy()
-            split_covariates_mask, split_idx_to_covariates, _ = self._get_split_combination_mask(
-                covariate_data=adata.obs,
-                split_covariates_mask=split_covariates_mask,
-                split_combination=split_combination,  # type: ignore[arg-type]
-                split_idx_to_covariates=split_idx_to_covariates,
-                control_mask=jnp.ones((adata.n_obs,)),
-                src_counter=src_counter,
+            split_covariates_mask, split_idx_to_covariates, _ = (
+                self._get_split_combination_mask(
+                    covariate_data=adata.obs,
+                    split_covariates_mask=split_covariates_mask,
+                    split_combination=split_combination,
+                    split_idx_to_covariates=split_idx_to_covariates,
+                    control_mask=jnp.ones((adata.n_obs,)),
+                    src_counter=src_counter,
+                )
             )
+
             if (split_covariates_mask == split_covariates_mask_previous).all():
                 raise ValueError(f"No cells found in `adata` for split covariates {split_combination}.")
             src_counter += 1
