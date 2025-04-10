@@ -494,7 +494,7 @@ class CellFlow:
         valid_freq: int = 1000,
         callbacks: Sequence[BaseCallback] = [],
         monitor_metrics: Sequence[str] = [],
-        prefetch_size:int = 4,
+        prefetch_factor:int = 4,
         num_workers:int = 4
     ) -> None:
         """Train the model.
@@ -548,7 +548,7 @@ class CellFlow:
             valid_loaders=validation_loaders,
             callbacks=callbacks,
             monitor_metrics=monitor_metrics,
-            prefetch_size=prefetch_size,
+            prefetch_factor=prefetch_factor,
             num_workers=num_workers
         )
 

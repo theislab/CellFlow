@@ -357,7 +357,6 @@ class CpuTrainSampler:
         
         # Cache condition data flag
         self._has_condition_data = data.condition_data is not None
-        self.rng = np.random.default_rng(42)
 
     def _sample_target_dist_idx(self, source_dist_idx, rng):
         """Sample a target distribution index given the source distribution index."""
@@ -397,9 +396,6 @@ class CpuTrainSampler:
         -------
         Dictionary with source and target data
         """
-        # Create RNG with optional seed
-        del rng
-        rng = self.rng
         
         # Sample source distribution index
         source_dist_idx = rng.integers(0, self.n_source_dists)
