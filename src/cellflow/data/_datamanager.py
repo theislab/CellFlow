@@ -813,7 +813,7 @@ class DataManager:
         if isinstance(self._sample_rep, str):
             if self._sample_rep not in adata.obsm:
                 raise KeyError(f"Sample representation '{self._sample_rep}' not found in `adata.obsm`.")
-            return jnp.asarray(adata.obsm[self._sample_rep])
+            return jnp.asarray(adata.obsm[self._sample_rep], device=jax.devices("cpu")[0])
         attr, key = next(iter(sample_rep.items()))  # type: ignore[union-attr]
         return jax.device_put(jnp.asarray(getattr(adata, attr)[key]), device=jax.devices("cpu")[0])
 
