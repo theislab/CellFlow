@@ -6,7 +6,7 @@ from jax import numpy as jnp
 from jax.typing import ArrayLike
 from ott.geometry import costs, pointcloud
 from ott.tools.sinkhorn_divergence import sinkhorn_divergence
-from sklearn.metrics import pairwise_distances, r2_score
+from sklearn.metrics import r2_score
 from sklearn.metrics.pairwise import rbf_kernel
 
 __all__ = [
@@ -23,7 +23,7 @@ __all__ = [
 
 
 def compute_r_squared(x: ArrayLike, y: ArrayLike) -> float:
-    """Compute the R squared score between the true (x) and predicted (y) distributions.
+    """Compute the R squared score between means of the true (x) and predicted (y) distributions.
 
     Parameters
     ----------
@@ -40,7 +40,7 @@ def compute_r_squared(x: ArrayLike, y: ArrayLike) -> float:
 
 
 def compute_sinkhorn_div(x: ArrayLike, y: ArrayLike, epsilon: float = 1e-2) -> float:
-    """Compute the Sinkhorn divergence between x and y.
+    """Compute the Sinkhorn divergence between x and y as in Feydy et al. :cite:`feydy:19`.
 
     Parameters
     ----------
@@ -68,33 +68,7 @@ def compute_sinkhorn_div(x: ArrayLike, y: ArrayLike, epsilon: float = 1e-2) -> f
 
 
 def compute_e_distance(x: ArrayLike, y: ArrayLike) -> float:
-    """Compute the energy distance between x and y as in Peidli et al.
-
-    Parameters
-    ----------
-        x
-            An array of shape [num_samples, num_features].
-        y
-            An array of shape [num_samples, num_features].
-
-    Returns
-    -------
-        A scalar denoting the energy distance value.
-    """
-    sigma_X = pairwise_distances(x, x, metric="sqeuclidean").mean()
-    sigma_Y = pairwise_distances(y, y, metric="sqeuclidean").mean()
-    delta = pairwise_distances(x, y, metric="sqeuclidean").mean()
-    return 2 * delta - sigma_X - sigma_Y
-
-
-def pairwise_squeuclidean(x: ArrayLike, y: ArrayLike) -> ArrayLike:
-    """Compute pairwise squared euclidean distances."""
-    return ((x[:, None, :] - y[None, :, :]) ** 2).sum(-1)
-
-
-@jax.jit
-def compute_e_distance_fast(x: ArrayLike, y: ArrayLike) -> float:
-    """Compute the energy distance between x and y as in Peidli et al.
+    """Compute the energy distance between x and y as in Peidli et al. :cite:`Peidli2024`.
 
     Parameters
     ----------
@@ -111,6 +85,29 @@ def compute_e_distance_fast(x: ArrayLike, y: ArrayLike) -> float:
     sigma_Y = pairwise_squeuclidean(y, y).mean()
     delta = pairwise_squeuclidean(x, y).mean()
     return 2 * delta - sigma_X - sigma_Y
+
+
+def pairwise_squeuclidean(x: ArrayLike, y: ArrayLike) -> ArrayLike:
+    """Compute pairwise squared euclidean distances."""
+    return ((x[:, None, :] - y[None, :, :]) ** 2).sum(-1)
+
+
+@jax.jit
+def compute_e_distance_fast(x: ArrayLike, y: ArrayLike) -> float:
+    """Compute the energy distance between x and y as in Peidli et al. :cite:`Peidli2024`.
+
+    Parameters
+    ----------
+        x
+            An array of shape [num_samples, num_features].
+        y
+            An array of shape [num_samples, num_features].
+
+    Returns
+    -------
+        A scalar denoting the energy distance value.
+    """
+    return compute_e_distance(x, y)
 
 
 def compute_metrics(x: ArrayLike, y: ArrayLike) -> dict[str, float]:

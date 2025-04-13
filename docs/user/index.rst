@@ -10,6 +10,7 @@ User API
     solvers
     networks
     datasets
+    metrics
     utils
     training
     plotting
