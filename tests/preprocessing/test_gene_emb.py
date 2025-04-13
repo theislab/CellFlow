@@ -52,7 +52,6 @@ def adata_test_legacy():
 
 
 class TestGeneEmb:
-    @pytest.mark.skip(reason="Skipped due to error in transformers package")
     def test_embedding(self, adata_with_ko):
         adata = get_esm_embedding(adata_with_ko, gene_key="gene_target_", copy=True)
         metadata = adata.uns["gene_embedding_metadata"]
@@ -60,7 +59,6 @@ class TestGeneEmb:
         gene_with_prot_seq = metadata[metadata.protein_sequence.notnull()].gene_id.tolist()
         assert Counter(gene_with_prot_seq) == IS_PROT_CODING
 
-    @pytest.mark.skip(reason="Skipped due to error in transformers package")
     def test_legacy_emb(self, adata_test_legacy):
         """Test if we can reproduce the original embeddings we used."""
         adata = get_esm_embedding(adata_test_legacy, gene_key="gene", copy=True)
