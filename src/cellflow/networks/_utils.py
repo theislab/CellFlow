@@ -166,7 +166,7 @@ class ResNetBlock(nn.Module):
         h = self.mlp_block_1(x)
         h = h + self.cond_proj(cond)
         h = self.mlp_block_2(h)
-        return h
+        return h + x
 
 
 class SelfAttention(BaseModule):
