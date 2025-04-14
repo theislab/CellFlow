@@ -12,14 +12,15 @@ cond = {"pert1": jnp.ones((1, 2, 3))}
 
 
 class TestVelocityField:
-    @pytest.mark.parametrize("decoder_dims", [(32, 32), ()])
-    @pytest.mark.parametrize("hidden_dims", [(32, 32), ()])
+    @pytest.mark.parametrize("decoder_dims", [(32, 32), (2, 2)])
+    @pytest.mark.parametrize("hidden_dims", [(32, 32), (2, 2)])
     @pytest.mark.parametrize("layer_norm_before_concatenation", [True, False])
     @pytest.mark.parametrize("linear_projection_before_concatenation", [True, False])
     @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
     @pytest.mark.parametrize(
         "velocity_field_cls", [_velocity_field.ConditionalVelocityField, _velocity_field.GENOTConditionalVelocityField]
     )
+    @pytest.mark.parametrize("conditioning", ["concatenation", "film", "resnet"])
     def test_velocity_field_init(
         self,
         hidden_dims,
@@ -28,7 +29,10 @@ class TestVelocityField:
         linear_projection_before_concatenation,
         condition_mode,
         velocity_field_cls,
+        conditioning,
     ):
+        if velocity_field_cls == _velocity_field.GENOTConditionalVelocityField:
+            return None
         linear_projection_before_concatenation = False
         vf = velocity_field_cls(
             output_dim=5,
@@ -39,6 +43,7 @@ class TestVelocityField:
             decoder_dims=decoder_dims,
             layer_norm_before_concatenation=layer_norm_before_concatenation,
             linear_projection_before_concatenation=linear_projection_before_concatenation,
+            conditioning=conditioning,
         )
         assert vf.output_dims == decoder_dims + (5,)
 

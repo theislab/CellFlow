@@ -12,7 +12,7 @@ from ott.neural.networks.layers import time_encoder
 from cellflow._logging import logger
 from cellflow._types import Layers_separate_input_t, Layers_t
 from cellflow.networks._set_encoders import ConditionEncoder
-from cellflow.networks._utils import MLPBlock
+from cellflow.networks._utils import FilmBlock, MLPBlock, ResNetBlock
 
 __all__ = ["ConditionalVelocityField", "GENOTConditionalVelocityField"]
 
@@ -156,6 +156,7 @@ class ConditionalVelocityField(nn.Module):
         )
 
         self.output_layer = nn.Dense(self.output_dim)
+        print("hidden_dims are ", self.hidden_dims)
 
         if self.conditioning == "film":
             self.film_block = FilmBlock(
@@ -166,7 +167,7 @@ class ConditionalVelocityField(nn.Module):
         elif self.conditioning == "resnet":
             self.resnet_block = ResNetBlock(
                 input_dim=self.hidden_dims[-1],
-                cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
+                # cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
                 **self.conditioning_kwargs,
             )
 
