@@ -74,6 +74,110 @@ class MLPBlock(BaseModule):
         z = nn.Dropout(self.dropout_rate)(z, deterministic=not training)
         return z
 
+class FilmBlock(BaseModule):
+    """Feature-wise Linear Modulation (FiLM) layer.
+
+    Applies a learned affine transformation (scale and shift) to the input,
+    conditioned on an external embedding.
+
+    Parameters
+    ----------
+    input_dim
+        Dimensionality of the input features.
+    cond_dim
+        Dimensionality of the conditioning features.
+    act_fn
+        Activation function to apply after modulation. If :obj:`None`, no activation is applied.
+    """
+
+    input_dim: int
+    cond_dim: int
+    act_fn: Callable[[jnp.ndarray], jnp.ndarray] = lambda x: x
+
+    def setup(self) -> None:
+        self.film_generator = nn.Dense(self.input_dim * 2)
+
+    def __call__(self, x: jnp.ndarray, cond: jnp.ndarray) -> jnp.ndarray:
+        """Applies FiLM modulation.
+
+        Parameters
+        ----------
+        x
+            Input features of shape (batch, input_dim).
+        cond
+            Conditioning features of shape (batch, cond_dim).
+
+        Returns
+        -------
+            Modulated features of shape (batch, input_dim).
+        """
+        gamma_beta = self.film_generator(cond)  # shape: (batch, input_dim * 2)
+        gamma, beta = jnp.split(gamma_beta, 2, axis=-1)  # each shape: (batch, input_dim)
+        return self.act_fn(gamma * x + beta)
+    
+
+class ResNetBlock(nn.Module):
+    """Residual conditioning layer.
+
+    Applies a residual MLP transformation to the input, conditioned on external features.
+
+    Parameters
+    ----------
+    input_dim
+        Dimensionality of the input features.
+    cond_dim
+        Dimensionality of the conditioning features.
+    hidden_dims
+        Hidden layer sizes for the residual block.
+    act_fn
+        Activation function to apply in the MLP block.
+    dropout_rate
+        Dropout rate applied after each hidden layer.
+    """
+
+    input_dim: int
+    cond_dim: int
+    hidden_dims: Sequence[int] = (256, 256)
+    act_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.silu
+    dropout_rate: float = 0.0
+
+    def setup(self):
+        self.mlp_layers = []
+        in_dim = self.input_dim + self.cond_dim
+        for dim in self.hidden_dims:
+            self.mlp_layers.append(nn.Dense(dim))
+            self.mlp_layers.append(nn.Dropout(rate=self.dropout_rate))
+            self.mlp_layers.append(self.act_fn)
+
+        self.out_proj = nn.Dense(self.input_dim)
+
+    def __call__(self, x: jnp.ndarray, cond: jnp.ndarray, *, train: bool = True) -> jnp.ndarray:
+        """Forward pass of the residual layer.
+
+        Parameters
+        ----------
+        x : jnp.ndarray
+            Input features of shape (batch, input_dim).
+        cond : jnp.ndarray
+            Conditioning features of shape (batch, cond_dim).
+        train : bool
+            If True, apply dropout.
+
+        Returns
+        -------
+        jnp.ndarray
+            Output features of shape (batch, input_dim).
+        """
+        h = jnp.concatenate([x, cond], axis=-1)
+        for layer in self.mlp_layers:
+            if isinstance(layer, nn.Dropout):
+                h = layer(h, deterministic=not train)
+            elif callable(layer):
+                h = layer(h)
+            else:
+                h = layer(h)
+        h = self.out_proj(h)
+        return x + h
 
 class SelfAttention(BaseModule):
     """Self-attention layer
