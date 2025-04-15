@@ -147,8 +147,6 @@ class TestCellFlow:
         condition_dim = math.prod(list(condition_data.values())[0].shape[1:])
 
         embedding_dim = condition_embedding_dim if encode_conditions else condition_dim
-        # import numpy as np
-        # embedding_dim = condition_embedding_dim if encode_conditions else np.prod(np.array(conds.shape[1:]))
 
         assert isinstance(cond_embed_mean, pd.DataFrame)
         assert isinstance(cond_embed_var, pd.DataFrame)
