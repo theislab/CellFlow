@@ -165,7 +165,10 @@ class ConditionalVelocityField(nn.Module):
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         squeeze = x_t.ndim == 1
         if not self.encode_conditions:
-            cond_embedding = jnp.concatenate(list(cond.values()), axis=-1)
+            n_conditions = len(cond.keys())
+            cond_embedding = jnp.array(list(cond.values())).reshape(n_conditions, -1)
+            cond_mean = cond_embedding.copy()
+            cond_logvar = jnp.zeros_like(cond_mean)
         else:
             cond_mean, cond_logvar = self.condition_encoder(cond, training=train)
             if self.condition_mode == "deterministic":
@@ -209,7 +212,9 @@ class ConditionalVelocityField(nn.Module):
         if self.encode_conditions:
             condition_mean, condition_logvar = self.condition_encoder(condition, training=False)
         else:
-            condition = jnp.concatenate(list(condition.values()), axis=-1)
+            n_conditions = len(condition.keys())
+            condition_mean = jnp.array(list(condition.values())).reshape(n_conditions, -1)
+            condition_logvar = jnp.zeros_like(condition_mean)
             logger.warning("Condition encoder is not defined. Returning concatenated input as the embedding.")
         return condition_mean, condition_logvar
 
@@ -452,7 +457,10 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
     ):
         squeeze = x_t.ndim == 1
         if not self.encode_conditions:
-            cond_embedding = jnp.concatenate(list(cond.values()), axis=-1)
+            n_conditions = len(cond.keys())
+            cond_embedding = jnp.array(list(cond.values())).reshape(n_conditions, -1)
+            cond_mean = cond_embedding.copy()
+            cond_logvar = jnp.zeros_like(cond_mean)
         else:
             cond_mean, cond_logvar = self.condition_encoder(cond, training=train)
             if self.condition_mode == "deterministic":
