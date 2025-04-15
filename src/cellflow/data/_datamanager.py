@@ -654,21 +654,21 @@ class DataManager:
         perturbation_covariates_keys = self.perturb_covar_keys
 
         perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in split_covariates]
-
-        df = covariate_data[split_covariates + perturbation_covariates_keys + ["control"]]
+        control_key = self._control_key
+        df = covariate_data[split_covariates + perturbation_covariates_keys + [control_key]]
         for col in split_covariates + perturbation_covariates_keys:
             if df[col].dtype != "category":
                 df[col] = df[col].astype("category")
         ddf = dd.from_pandas(df, npartitions=npartitions)
-        ddf = ddf.sort_values(by=[*split_covariates, *perturbation_covariates_keys, "control"])
+        ddf = ddf.sort_values(by=[*split_covariates, *perturbation_covariates_keys, control_key])
 
-        control_combs = df[split_covariates + ["control"]].drop_duplicates(keep="first")
-        all_combs = df[split_covariates + perturbation_covariates_keys + ["control"]].drop_duplicates(keep="first")
+        control_combs = df[split_covariates + [control_key]].drop_duplicates(keep="first")
+        all_combs = df[split_covariates + perturbation_covariates_keys + [control_key]].drop_duplicates(keep="first")
         with ProgressBar():
             control_combs, all_combs, df = dask.compute(control_combs, all_combs, ddf)
 
-        control_combs = control_combs[control_combs["control"]]
-        all_combs = all_combs[~all_combs["control"]]
+        control_combs = control_combs[control_combs[control_key]]
+        all_combs = all_combs[~all_combs[control_key]]
 
         all_combs["global_pert_mask"] = np.arange(len(all_combs))
         control_combs["global_control_mask"] = np.arange(len(control_combs))
@@ -678,16 +678,16 @@ class DataManager:
         control_combs = control_combs.sort_values(by=split_covariates)
         all_combs = all_combs.sort_values(by=split_covariates + perturbation_covariates_keys)
 
-        all_combs = all_combs.drop(columns=["control"])
-        control_combs = control_combs.drop(columns=["control"])
+        all_combs = all_combs.drop(columns=[control_key])
+        control_combs = control_combs.drop(columns=[control_key])
 
         df = df.merge(control_combs, on=split_covariates, how="left")
         df = df.merge(all_combs, on=split_covariates + perturbation_covariates_keys, how="left")
 
         df["split_covariates_mask"] = df["global_control_mask"]
         df["perturbation_covariates_mask"] = df["global_pert_mask"]
-        df.loc[df["control"], "perturbation_covariates_mask"] = -1
-        df.loc[~df["control"], "split_covariates_mask"] = -1
+        df.loc[df[control_key], "perturbation_covariates_mask"] = -1
+        df.loc[~df[control_key], "split_covariates_mask"] = -1
         df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(int)
         df["split_covariates_mask"] = df["split_covariates_mask"].astype(int)
 
@@ -712,7 +712,7 @@ class DataManager:
         }
         perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
 
-        control_to_perturbation = df[~df.control].groupby(["global_control_mask"])["global_pert_mask"].unique()
+        control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
         control_to_perturbation = control_to_perturbation.to_dict()
 
         split_covariates_mask = jnp.asarray(df["split_covariates_mask"].values, dtype=jnp.int32)
@@ -723,7 +723,7 @@ class DataManager:
 
         # Create delayed tasks with tracking information
 
-        perturb_covar_df = df[~df["control"]][split_covariates + perturbation_covariates_keys].drop_duplicates()
+        perturb_covar_df = df[~df[control_key]][split_covariates + perturbation_covariates_keys].drop_duplicates()
         for _, tgt_cond in perturb_covar_df.iterrows():
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + split_covariates])]
             tgt_cond = tgt_cond[self._perturb_covar_keys]
