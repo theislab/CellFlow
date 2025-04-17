@@ -228,6 +228,60 @@ class OTFlowMatching:
         x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))(x, condition, encoder_noise)
         return np.array(x_pred)
 
+    def predict_j(
+        self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any
+    ) -> ArrayLike:
+        """Predict the translated source ``'x'`` under condition ``'condition'``.
+
+        This function solves the ODE learnt with
+        the :class:`~cellflow.networks.ConditionalVelocityField`.
+
+        Parameters
+        ----------
+        x
+            Input data of shape [batch_size, ...].
+        condition
+            Condition of the input data of shape [batch_size, ...].
+        rng
+            Random number generator to sample from the latent distribution,
+            only used if ``'condition_mode'='stochastic'``. If :obj:`None`, the
+            mean embedding is used.
+        kwargs
+            Keyword arguments for :func:`diffrax.diffeqsolve`.
+
+        Returns
+        -------
+        The push-forward distribution of ``'x'`` under condition ``'condition'``.
+        """
+        kwargs.setdefault("dt0", None)
+        kwargs.setdefault("solver", diffrax.Tsit5())
+        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+
+        noise_dim = (1, self.vf.condition_embedding_dim)
+        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
+        rng = utils.default_prng_key(rng)
+        encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
+
+        def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
+            params = self.vf_state.params
+            condition, encoder_noise = args
+            return self.vf_state.apply_fn({"params": params}, t, x, condition, encoder_noise, train=False)[0]
+
+        def solve_ode(x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray) -> jnp.ndarray:
+            ode_term = diffrax.ODETerm(vf)
+            result = diffrax.diffeqsolve(
+                ode_term,
+                t0=0.0,
+                t1=1.0,
+                y0=x,
+                args=(condition, encoder_noise),
+                **kwargs,
+            )
+            return result.ys[0]
+
+        x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))(x, condition, encoder_noise)
+        return x_pred
+
     @property
     def is_trained(self) -> bool:
         """Whether the model is trained."""

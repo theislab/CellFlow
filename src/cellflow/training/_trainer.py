@@ -3,7 +3,7 @@ import threading
 import time  # Add this import at the top of the file
 from collections.abc import Sequence
 from typing import Any, Literal
-
+import jax.numpy as jnp
 import jax
 import numpy as np
 from numpy.typing import ArrayLike
@@ -92,16 +92,44 @@ class CellFlowTrainer:
     ]:
         """Compute predictions for validation data."""
         # TODO: Sample fixed number of conditions to validate on
+        
+
 
         valid_pred_data: dict[str, dict[str, ArrayLike]] = {}
         valid_true_data: dict[str, dict[str, ArrayLike]] = {}
         for val_key, vdl in val_data.items():
             batch = vdl.sample(mode=mode)
+            batch = jax.device_put(batch, jax.devices()[0], donate=True)
             src = batch["source"]
+            
             condition = batch.get("condition", None)
             true_tgt = batch["target"]
-            valid_pred_data[val_key] = jax.tree.map(self.solver.predict, src, condition)
-            valid_true_data[val_key] = true_tgt
+            print(src.keys())
+            print(condition.keys())
+
+            keys = sorted(src.keys())
+            condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
+            batched_src = jnp.concatenate([src[k] for k in keys], axis=0)
+            print(batched_src.shape)
+                        
+            batched_condition = jnp.concatenate(jnp.concatenate([condition[k][ck] for k in keys for ck in condition_keys], axis=-1), axis=0)
+            print(batched_condition.shape)
+
+            # def jitted_solver(src, condition_arr, keys, keys2idx):
+            #     return self.solver(src, {k: condition_arr[keys2idx[k]] for k in keys})
+
+
+            # res = []
+            # for k in keys:
+            #     # src[k] is jnp.ndarray
+            #     # condition[k] is a dict[str, jnp.ndarray]
+            #     res.append(jitted_solver(src[k], condition[k], keys, keys2idx))
+            
+            # batched_src = jnp.concatenate([src[k] for k in keys], axis=0)
+            # batched_condition = jnp.concatenate([condition[k] for k in keys], axis=0)
+            # print(res)
+            # valid_true_data[val_key] = true_tgt
+            
 
         return valid_true_data, valid_pred_data
 
