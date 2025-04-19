@@ -236,20 +236,20 @@ class GENOT:
         rng_genot: ArrayLike | None = None,
         **kwargs: Any,
     ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
-        """Generate the push-forward of ``'source'`` under condition ``'condition'``.
+        """Generate the push-forward of ``x`` under condition ``condition``.
 
         This function solves the ODE learnt with
         the :class:`~cellflow.networks.ConditionalVelocityField`.
 
         Parameters
         ----------
-        source
+        x
             Input data of shape [batch_size, ...].
         condition
             Condition of the input data of shape [batch_size, ...].
         rng
             Random number generator to sample from the latent distribution,
-            only used if ``'condition_mode'='stochastic'``. If :obj:`None`, the
+            only used if ``condition_mode='stochastic'``. If :obj:`None`, the
             mean embedding is used.
         rng_genot
             Random generate used to sample from the latent distribution in cell space.
@@ -258,7 +258,7 @@ class GENOT:
 
         Returns
         -------
-        The push-forward distribution of ``'x'`` under condition ``'condition'``.
+        The push-forward distribution of ``x`` under condition ``condition``.
         """
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
