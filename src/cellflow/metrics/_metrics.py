@@ -40,7 +40,7 @@ def compute_r_squared(x: ArrayLike, y: ArrayLike) -> float:
 
 
 def compute_sinkhorn_div(x: ArrayLike, y: ArrayLike, epsilon: float = 1e-2) -> float:
-    """Compute the Sinkhorn divergence between x and y as in Feydy et al. :cite:`feydy:19`.
+    """Compute the Sinkhorn divergence between x and y as in :cite:`feydy:19`.
 
     Parameters
     ----------
@@ -68,7 +68,7 @@ def compute_sinkhorn_div(x: ArrayLike, y: ArrayLike, epsilon: float = 1e-2) -> f
 
 
 def compute_e_distance(x: ArrayLike, y: ArrayLike) -> float:
-    """Compute the energy distance between x and y as in Peidli et al. :cite:`Peidli2024`.
+    """Compute the energy distance between x and y as in :cite:`Peidli2024`.
 
     Parameters
     ----------
@@ -94,7 +94,7 @@ def pairwise_squeuclidean(x: ArrayLike, y: ArrayLike) -> ArrayLike:
 
 @jax.jit
 def compute_e_distance_fast(x: ArrayLike, y: ArrayLike) -> float:
-    """Compute the energy distance between x and y as in Peidli et al. :cite:`Peidli2024`.
+    """Compute the energy distance between x and y as in :cite:`Peidli2024`.
 
     Parameters
     ----------
@@ -125,9 +125,9 @@ def compute_metrics(x: ArrayLike, y: ArrayLike) -> dict[str, float]:
         A dictionary containing the following computed metrics:
 
         - the r squared score.
-        - the sinkhorn divergence with ``epsilon`` = 1.0.
-        - the sinkhorn divergence with ``epsilon`` = 10.0.
-        - the sinkhorn divergence with ``epsilon`` = 100.0.
+        - the sinkhorn divergence with ``epsilon = 1.0``.
+        - the sinkhorn divergence with ``epsilon = 10.0``.
+        - the sinkhorn divergence with ``epsilon = 100.0``.
         - the energy distance value.
         - the mean maximum discrepancy loss
     """
