@@ -177,7 +177,7 @@ class OTFlowMatching:
     def predict(
         self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any
     ) -> ArrayLike:
-        """Predict the translated source ``'x'`` under condition ``'condition'``.
+        """Predict the translated source ``x`` under condition ``condition``.
 
         This function solves the ODE learnt with
         the :class:`~cellflow.networks.ConditionalVelocityField`.
@@ -190,14 +190,14 @@ class OTFlowMatching:
             Condition of the input data of shape [batch_size, ...].
         rng
             Random number generator to sample from the latent distribution,
-            only used if ``'condition_mode'='stochastic'``. If :obj:`None`, the
+            only used if ``condition_mode='stochastic'``. If :obj:`None`, the
             mean embedding is used.
         kwargs
             Keyword arguments for :func:`diffrax.diffeqsolve`.
 
         Returns
         -------
-        The push-forward distribution of ``'x'`` under condition ``'condition'``.
+        The push-forward distribution of ``x`` under condition ``condition``.
         """
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
