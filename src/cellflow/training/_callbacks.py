@@ -14,6 +14,7 @@ from cellflow.metrics._metrics import (
     compute_scalar_mmd,
     compute_sinkhorn_div,
 )
+from cellflow.solvers import _genot, _otfm
 
 __all__ = [
     "BaseCallback",
@@ -103,6 +104,7 @@ class ComputationCallback(BaseCallback, abc.ABC):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to compute metrics
 
@@ -112,6 +114,8 @@ class ComputationCallback(BaseCallback, abc.ABC):
             Validation data in nested dictionary format with same keys as ``predicted_data``
         predicted_data
             Predicted data in nested dictionary format with same keys as ``validation_data``
+        solver
+            OTFM/GENOT solver with a conditional velocity field.
 
         Returns
         -------
@@ -176,6 +180,7 @@ class Metrics(ComputationCallback):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
+        _,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to compute metrics
 
@@ -248,6 +253,7 @@ class PCADecodedMetrics(Metrics):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
+        _,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to reconstruct the data and compute metrics on the reconstruction
 
@@ -305,6 +311,7 @@ class VAEDecodedMetrics(Metrics):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
+        _,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to reconstruct the data and compute metrics on the reconstruction
 
@@ -443,6 +450,7 @@ class CallbackRunner:
         self,
         valid_data: dict[str, dict[str, ArrayLike]],
         pred_data: dict[str, dict[str, ArrayLike]],
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, Any]:
         """Called at each validation/log iteration to run callbacks. First computes metrics with computation callbacks and then logs data with logging callbacks.
 
@@ -452,6 +460,8 @@ class CallbackRunner:
             Validation data in nested dictionary format with same keys as ``pred_data``
         pred_data
             Predicted data in nested dictionary format with same keys as ``valid_data``
+        solver
+            OTFM/GENOT solver with a conditional velocity field.
 
         Returns
         -------
@@ -460,7 +470,7 @@ class CallbackRunner:
         dict_to_log: dict[str, Any] = {}
 
         for callback in self.computation_callbacks:
-            results = callback.on_log_iteration(valid_data, pred_data)
+            results = callback.on_log_iteration(valid_data, pred_data, solver)
             dict_to_log.update(results)
 
         for callback in self.logging_callbacks:
@@ -468,7 +478,12 @@ class CallbackRunner:
 
         return dict_to_log
 
-    def on_train_end(self, valid_data, pred_data) -> dict[str, Any]:
+    def on_train_end(
+        self,
+        valid_data: dict[str, dict[str, ArrayLike]],
+        pred_data: dict[str, dict[str, ArrayLike]],
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
+    ) -> dict[str, Any]:
         """Called at the end of training to run callbacks. First computes metrics with computation callbacks and then logs data with logging callbacks.
 
         Parameters
@@ -477,6 +492,8 @@ class CallbackRunner:
             Validation data in nested dictionary format with same keys as ``pred_data``
         pred_data: dict
             Predicted data in nested dictionary format with same keys as ``valid_data``
+        solver
+            OTFM/GENOT solver with a conditional velocity field.
 
         Returns
         -------
@@ -485,7 +502,7 @@ class CallbackRunner:
         dict_to_log: dict[str, Any] = {}
 
         for callback in self.computation_callbacks:
-            results = callback.on_log_iteration(valid_data, pred_data)
+            results = callback.on_log_iteration(valid_data, pred_data, solver)
             dict_to_log.update(results)
 
         for callback in self.logging_callbacks:

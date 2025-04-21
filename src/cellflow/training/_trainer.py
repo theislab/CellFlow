@@ -122,7 +122,7 @@ class CellFlowTrainer:
                 valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_log_iteration")
 
                 # Run callbacks
-                metrics = crun.on_log_iteration(valid_true_data, valid_pred_data)  # type: ignore[arg-type]
+                metrics = crun.on_log_iteration(valid_true_data, valid_pred_data, self.solver)  # type: ignore[arg-type]
                 self._update_logs(metrics)
 
                 # Update progress bar
@@ -133,7 +133,7 @@ class CellFlowTrainer:
 
         if num_iterations > 0:
             valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_train_end")
-            metrics = crun.on_train_end(valid_true_data, valid_pred_data)
+            metrics = crun.on_train_end(valid_true_data, valid_pred_data, self.solver)
             self._update_logs(metrics)
 
         self.solver.is_trained = True
