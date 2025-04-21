@@ -15,11 +15,14 @@ from cellflow.training._callbacks import BaseCallback, CallbackRunner
 
 
 def prefetch_to_device(sampler, num_iterations, prefetch_factor=2, num_workers=4):
+    seed = 42  # Set a fixed seed for reproducibility
+    seq = np.random.SeedSequence(seed)
+    random_generators = [np.random.default_rng(s) for s in seq.spawn(num_workers)]
+
     q = queue.Queue(maxsize=prefetch_factor*num_workers)
     sem = threading.Semaphore(num_iterations)
     stop_event = threading.Event()
-    def worker(seed):
-        rng = np.random.default_rng(seed)
+    def worker(rng):
         while not stop_event.is_set() and sem.acquire(blocking=False):
             batch = sampler.sample(rng)
             batch = jax.device_put(batch, jax.devices()[0], donate=True)
@@ -36,12 +39,12 @@ def prefetch_to_device(sampler, num_iterations, prefetch_factor=2, num_workers=4
     # Start multiple worker threads
     ts = []
     for i in range(num_workers):
-        t = threading.Thread(target=worker, daemon=True, name=f"worker-{i}", args=(i, ))
+        t = threading.Thread(target=worker, daemon=True, name=f"worker-{i}", args=(random_generators[i], ))
         t.start()
         ts.append(t)
 
     try:
-        for i in range(num_iterations):
+        for _ in range(num_iterations):
             # Yield batches from the queue; will block waiting for available batch
             yield q.get()
     finally:
