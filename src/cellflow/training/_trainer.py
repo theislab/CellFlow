@@ -120,28 +120,15 @@ class CellFlowTrainer:
                 in_axes=(0, dict.fromkeys(condition_keys, 0))
             )
             # Execute the batched prediction in one go
+            t0 = time.time()
+            print("batched_predict")
             pred_targets = batched_predict(src_inputs, batched_conditions)
-            # true_tgt = batch["target"]
-            # print(src.keys())
-            # print(condition.keys())
+            print("Time taken for prediction: ", time.time() - t0)
+            valid_pred_data[val_key] = pred_targets
+            valid_true_data[val_key] = batch["target"]
 
-            # keys = sorted(src.keys())
-            # condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
-            # src_inputs = jnp.concatenate([src[k][None,:] for k in keys], axis=0)
-            # conded_functions = []
 
-            # for k in keys:
-            #     conded_functions.append(
-            #         jax.jit(
-            #             lambda x: self.solver.predict_j(
-            #                 x,
-            #                 condition[k],  # dict of cond_key -> 1, dim2
-            #             )
-            #         )
-            #     )
-            # print("conded_functions")
-            # pred_tgt = jnp.concatenate([conded_functions[i](src_inputs[i]) for i in range(len(keys))], axis=0)
-            # print("pred_tgt")
+
         return valid_true_data, valid_pred_data
 
     def _update_logs(self, logs: dict[str, Any]) -> None:
@@ -229,11 +216,9 @@ class CellFlowTrainer:
                 postfix_dict = {metric: round(self.training_logs[metric][-1], 3) for metric in monitor_metrics}
                 postfix_dict["loss"] = round(mean_loss, 3)
                 pbar.set_postfix(postfix_dict)
-        print("HERE IT IS DONE")
         if num_iterations > 0:
             valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_train_end")
             metrics = crun.on_train_end(valid_true_data, valid_pred_data)
             self._update_logs(metrics)
-        print("HERE IT IS DONE 2")
         self.solver.is_trained = True
         return self.solver
