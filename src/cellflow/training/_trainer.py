@@ -92,45 +92,56 @@ class CellFlowTrainer:
     ]:
         """Compute predictions for validation data."""
         # TODO: Sample fixed number of conditions to validate on
-        
-
-
         valid_pred_data: dict[str, dict[str, ArrayLike]] = {}
         valid_true_data: dict[str, dict[str, ArrayLike]] = {}
         for val_key, vdl in val_data.items():
             batch = vdl.sample(mode=mode)
             batch = jax.device_put(batch, jax.devices()[0], donate=True)
             src = batch["source"]
-            
             condition = batch.get("condition", None)
-            true_tgt = batch["target"]
-            print(src.keys())
-            print(condition.keys())
-
             keys = sorted(src.keys())
             condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
-            batched_src = jnp.concatenate([src[k] for k in keys], axis=0)
-            print(batched_src.shape)
-                        
-            batched_condition = jnp.concatenate(jnp.concatenate([condition[k][ck] for k in keys for ck in condition_keys], axis=-1), axis=0)
-            print(batched_condition.shape)
+            src_inputs = jnp.stack([src[k] for k in keys], axis=0)
 
-            # def jitted_solver(src, condition_arr, keys, keys2idx):
-            #     return self.solver(src, {k: condition_arr[keys2idx[k]] for k in keys})
+            # Define a function that can be vectorized
+            @jax.jit
+            def predict_single(src_data, cond_dict):
+                return self.solver.predict_j(src_data, cond_dict)
+            # Check if we can use vmap (all condition dicts have same structure)
+            consistent_structure = all(set(condition[k].keys()) == set(condition_keys) for k in keys)
+            assert consistent_structure, "Condition dictionaries must have the same structure across all keys."
+            # Create a dictionary of batched condition arrays
+            batched_conditions = {}
+            for cond_key in condition_keys:
+                batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
+            # Create a batched prediction function
+            batched_predict = jax.vmap(
+                predict_single,
+                in_axes=(0, dict.fromkeys(condition_keys, 0))
+            )
+            # Execute the batched prediction in one go
+            pred_targets = batched_predict(src_inputs, batched_conditions)
+            # true_tgt = batch["target"]
+            # print(src.keys())
+            # print(condition.keys())
 
+            # keys = sorted(src.keys())
+            # condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
+            # src_inputs = jnp.concatenate([src[k][None,:] for k in keys], axis=0)
+            # conded_functions = []
 
-            # res = []
             # for k in keys:
-            #     # src[k] is jnp.ndarray
-            #     # condition[k] is a dict[str, jnp.ndarray]
-            #     res.append(jitted_solver(src[k], condition[k], keys, keys2idx))
-            
-            # batched_src = jnp.concatenate([src[k] for k in keys], axis=0)
-            # batched_condition = jnp.concatenate([condition[k] for k in keys], axis=0)
-            # print(res)
-            # valid_true_data[val_key] = true_tgt
-            
-
+            #     conded_functions.append(
+            #         jax.jit(
+            #             lambda x: self.solver.predict_j(
+            #                 x,
+            #                 condition[k],  # dict of cond_key -> 1, dim2
+            #             )
+            #         )
+            #     )
+            # print("conded_functions")
+            # pred_tgt = jnp.concatenate([conded_functions[i](src_inputs[i]) for i in range(len(keys))], axis=0)
+            # print("pred_tgt")
         return valid_true_data, valid_pred_data
 
     def _update_logs(self, logs: dict[str, Any]) -> None:
