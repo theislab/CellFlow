@@ -120,11 +120,9 @@ class CellFlowTrainer:
                 in_axes=(0, dict.fromkeys(condition_keys, 0))
             )
             # Execute the batched prediction in one go
-            t0 = time.time()
-            print("batched_predict")
             pred_targets = batched_predict(src_inputs, batched_conditions)
-            print("Time taken for prediction: ", time.time() - t0)
-            valid_pred_data[val_key] = pred_targets
+            pred_targets = np.array(pred_targets)
+            valid_pred_data[val_key] = {k: pred_targets[i] for i, k in enumerate(keys)}
             valid_true_data[val_key] = batch["target"]
 
 
