@@ -25,10 +25,10 @@ CellFlow
 
 
     .. grid-item-card:: Manuscript
-        :link: https://doi.org/...
+        :link: https://www.biorxiv.org/content/10.1101/2025.04.11.648220v1.abstract
         :link-type: url
 
-        bioRxiv preprint coming soon!
+        Check out our preprint
 
 .. toctree::
     :maxdepth: 3
