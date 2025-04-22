@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import optax
 import pandas as pd
 from ott.neural.methods.flows import dynamics
+import numpy as np
 
 from cellflow import _constants
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
@@ -529,7 +530,10 @@ class CellFlow:
             raise ValueError("Model not initialized. Please call `prepare_model` first.")
 
         self._dataloader = CpuTrainSampler(data=self.train_data, batch_size=batch_size)
-        validation_loaders = {k: ValidationSampler(v) for k, v in self.validation_data.items()}
+        val_seed = 434
+        seq = np.random.SeedSequence(val_seed)
+        child_seeds = seq.spawn(len(self._validation_data))
+        validation_loaders = {k: ValidationSampler(v, seed=child_seeds[i]) for i, (k, v) in enumerate(self.validation_data.items())}
 
         self._solver = self.trainer.train(
             dataloader=self._dataloader,

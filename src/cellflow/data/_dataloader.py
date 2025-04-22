@@ -229,33 +229,30 @@ class CpuTrainSampler:
         self.n_target_dists = data.n_perturbations
 
         # Pre-compute mappings for efficiency
-        self._control_to_perturbation_lens = np.array(
-            [len(data.control_to_perturbation[i]) for i in range(self.n_source_dists)]
-        )
-        max_len = np.max(self._control_to_perturbation_lens)
+        # self._control_to_perturbation_lens = np.array(
+        #     [len(data.control_to_perturbation[i]) for i in range(self.n_source_dists)]
+        # )
+        # max_len = np.max(self._control_to_perturbation_lens)
 
         # Create padded arrays for the control_to_perturbation mapping
-        padded_arrays = []
-        for i in range(self.n_source_dists):
-            arr = np.array(data.control_to_perturbation[i], dtype=np.int32)
-            # Pad with the first element if needed
-            if len(arr) < max_len:
-                padding = np.full(max_len - len(arr), arr[0], dtype=np.int32)
-                arr = np.concatenate([arr, padding])
-            padded_arrays.append(arr)
+        # padded_arrays = []
+        # for i in range(self.n_source_dists):
+        #     arr = np.array(data.control_to_perturbation[i], dtype=np.int32)
+        #     # Pad with the first element if needed
+        #     if len(arr) < max_len:
+        #         padding = np.full(max_len - len(arr), -2, dtype=np.int32)
+        #         arr = np.concatenate([arr, padding])
+        #     padded_arrays.append(arr)
 
-        self._control_to_perturbation_matrix = np.stack(padded_arrays)
-        self._control_to_perturbation_keys = list(data.control_to_perturbation.keys())
-        self._control_to_perturbation_idxs = np.arange(len(self._control_to_perturbation_keys), dtype=np.int32)
-
+        # self._control_to_perturbation_matrix = np.stack(padded_arrays)
+        self._control_to_perturbation_keys = sorted(data.control_to_perturbation.keys())
+        # self._control_to_perturbation_idxs = np.arange(len(self._control_to_perturbation_keys), dtype=np.int32)
         # Cache condition data flag
         self._has_condition_data = data.condition_data is not None
 
     def _sample_target_dist_idx(self, source_dist_idx, rng):
         """Sample a target distribution index given the source distribution index."""
-        max_val = self._control_to_perturbation_lens[source_dist_idx]
-        target_dist_idx = rng.integers(0, max_val)
-        return self._control_to_perturbation_matrix[source_dist_idx, target_dist_idx]
+        return rng.choice(self._data.control_to_perturbation[source_dist_idx])
 
     def _get_embeddings(self, idx, condition_data):
         """Get embeddings for a given index."""
@@ -299,7 +296,7 @@ class CpuTrainSampler:
 
         # Get target distribution index
         target_dist_idx = self._sample_target_dist_idx(source_dist_idx, rng)
-
+        # print(f"Source: {source_dist_idx} out of {self.n_source_dists}, Target: {target_dist_idx} out of {self.n_target_dists}")
         # Get target cells
         target_cells_mask = self._data.perturbation_covariates_mask == target_dist_idx
         target_batch_idcs = self._sample_from_mask(rng, target_cells_mask)

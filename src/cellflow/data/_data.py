@@ -150,7 +150,7 @@ class TrainingData(BaseDataMixin):
             k: np.asarray(v) for k, v in self.condition_data.items()
         }
         self.control_to_perturbation = {
-            k: np.asarray(v) for k, v in self.control_to_perturbation.items()
+            k: np.asarray(v, dtype=np.int32) for k, v in self.control_to_perturbation.items()
         }
 
 @dataclass
