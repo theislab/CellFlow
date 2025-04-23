@@ -115,12 +115,6 @@ class CellFlowTrainer:
             condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
             src_inputs = jnp.stack([src[k] for k in keys], axis=0)
 
-            # Define a function that can be vectorized
-       
-            # Check if we can use vmap (all condition dicts have same structure)
-            consistent_structure = all(set(condition[k].keys()) == set(condition_keys) for k in keys)
-            assert consistent_structure, "Condition dictionaries must have the same structure across all keys."
-            # Create a dictionary of batched condition arrays
             batched_conditions = {}
             for cond_key in condition_keys:
                 batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])

@@ -1,4 +1,4 @@
-import jax
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -229,7 +229,7 @@ class TestCellFlow:
         )
         assert isinstance(cf._validation_data, dict)
         assert "val" in cf._validation_data
-        assert isinstance(cf._validation_data["val"].cell_data, jax.Array)
+        assert isinstance(cf._validation_data["val"].cell_data, np.ndarray)
         assert isinstance(cf._validation_data["val"].condition_data, dict)
 
         cond_data = cf._validation_data["val"].condition_data
@@ -269,7 +269,7 @@ class TestCellFlow:
         )
         assert isinstance(cf._validation_data, dict)
         assert "val" in cf._validation_data
-        assert isinstance(cf._validation_data["val"].cell_data, jax.Array)
+        assert isinstance(cf._validation_data["val"].cell_data, np.ndarray)
         assert isinstance(cf._validation_data["val"].condition_data, dict)
         assert cf._validation_data["val"].max_combination_length == cf.train_data.max_combination_length
         cond_data = cf._validation_data["val"].condition_data
