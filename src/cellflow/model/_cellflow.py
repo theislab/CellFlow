@@ -480,7 +480,7 @@ class CellFlow:
             )
         else:
             raise NotImplementedError(f"Solver must be an instance of OTFlowMatching or GENOT, got {type(self.solver)}")
-        self._trainer = CellFlowTrainer(solver=self.solver)  # type: ignore[arg-type]
+        self._trainer = CellFlowTrainer(solver=self.solver, condition_keys= self.train_data.data_manager.condition_keys)  # type: ignore[arg-type]
 
     def train(
         self,

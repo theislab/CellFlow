@@ -121,6 +121,7 @@ class ValidationSampler(BaseValidSampler):
             if val_data.n_conditions_on_train_end is not None
             else val_data.n_perturbations
         )
+        self.condition_keys = val_data.data_manager.condition_keys
         self.rng = np.random.default_rng(seed)
         if self._data.condition_data is None:
             raise NotImplementedError("Validation data must have condition data.")

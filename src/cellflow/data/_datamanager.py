@@ -119,6 +119,7 @@ class DataManager:
         perturb_covar_keys = _flatten_list(self._perturbation_covariates.values()) + list(self._sample_covariates)
         perturb_covar_keys += [col for col in self._split_covariates if col not in perturb_covar_keys]
         self._perturb_covar_keys = [k for k in perturb_covar_keys if k is not None]
+        self.condition_keys = sorted(set(self._split_covariates + self._perturb_covar_keys))
 
     def get_train_data(self, adata: anndata.AnnData) -> Any:
         """Get training data for the model.
@@ -923,7 +924,7 @@ class DataManager:
         for covar in sample_covariates:
             if not isinstance(covar, str):
                 raise ValueError(f"Key should be a string, found {covar} to be of type {type(covar)}.")
-        return list(sample_covariates)
+        return sorted(sample_covariates)
 
     @staticmethod
     def _verify_split_covariates(
@@ -947,7 +948,7 @@ class DataManager:
             raise ValueError(
                 f"Source distribution with split covariate values {source_without_targets} do not have a corresponding target distribution."
             )
-        return data
+        return sorted(data)
 
     @staticmethod
     def _verify_covariate_data(covariate_data: pd.DataFrame, covars) -> None:

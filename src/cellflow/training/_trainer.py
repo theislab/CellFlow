@@ -77,6 +77,7 @@ class CellFlowTrainer:
         self,
         solver: _otfm.OTFlowMatching | _genot.GENOT,
         seed: int = 0,
+        condition_keys: Sequence[str] = ["condition"],
     ):
         if not isinstance(solver, (_otfm.OTFlowMatching | _genot.GENOT)):
             raise NotImplementedError(f"Solver must be an instance of OTFlowMatching or GENOT, got {type(solver)}")
@@ -84,6 +85,7 @@ class CellFlowTrainer:
         self.solver = solver
         self.rng_subsampling = np.random.default_rng(seed)
         self.training_logs: dict[str, Any] = {}
+        self.condition_keys = condition_keys
 
     def _validation_step(
         self,
@@ -93,6 +95,13 @@ class CellFlowTrainer:
         dict[str, dict[str, ArrayLike]],
         dict[str, dict[str, ArrayLike]],
     ]:
+        @jax.jit
+        def predict_single(src_data, cond_dict):
+            return self.solver.predict_j(src_data, cond_dict)
+        batched_predict = jax.vmap(
+            predict_single,
+            in_axes=(0, dict.fromkeys(self.condition_keys, 0))
+        )
         """Compute predictions for validation data."""
         # TODO: Sample fixed number of conditions to validate on
         valid_pred_data: dict[str, dict[str, ArrayLike]] = {}
@@ -107,9 +116,7 @@ class CellFlowTrainer:
             src_inputs = jnp.stack([src[k] for k in keys], axis=0)
 
             # Define a function that can be vectorized
-            @jax.jit
-            def predict_single(src_data, cond_dict):
-                return self.solver.predict_j(src_data, cond_dict)
+       
             # Check if we can use vmap (all condition dicts have same structure)
             consistent_structure = all(set(condition[k].keys()) == set(condition_keys) for k in keys)
             assert consistent_structure, "Condition dictionaries must have the same structure across all keys."
@@ -117,11 +124,7 @@ class CellFlowTrainer:
             batched_conditions = {}
             for cond_key in condition_keys:
                 batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
-            # Create a batched prediction function
-            batched_predict = jax.vmap(
-                predict_single,
-                in_axes=(0, dict.fromkeys(condition_keys, 0))
-            )
+
             # Execute the batched prediction in one go
             pred_targets = batched_predict(src_inputs, batched_conditions)
             pred_targets = np.array(pred_targets)
