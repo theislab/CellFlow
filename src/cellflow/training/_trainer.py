@@ -19,7 +19,8 @@ class CellFlowTrainer:
         dataloader
             Data sampler.
         solver
-            OTFM/GENOT solver with a conditional velocity field.
+            :class:`~cellflow.solvers.OTFlowMatching` solver or :class:`~cellflow.solvers.GENOT`
+            solver with a conditional velocity field.
         seed
             Random seed for subsampling validation data.
 

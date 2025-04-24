@@ -115,7 +115,8 @@ class ComputationCallback(BaseCallback, abc.ABC):
         predicted_data
             Predicted data in nested dictionary format with same keys as ``validation_data``
         solver
-            OTFM/GENOT solver with a conditional velocity field.
+            :class:`~cellflow.solvers.OTFlowMatching` solver or :class:`~cellflow.solvers.GENOT`
+            solver with a conditional velocity field.
 
         Returns
         -------
@@ -128,6 +129,7 @@ class ComputationCallback(BaseCallback, abc.ABC):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at the end of training to compute metrics
 
@@ -137,6 +139,9 @@ class ComputationCallback(BaseCallback, abc.ABC):
             Validation data in nested dictionary format with same keys as ``predicted_data``
         predicted_data
             Predicted data in nested dictionary format with same keys as ``validation_data``
+        solver
+            :class:`~cellflow.solvers.OTFlowMatching` solver or :class:`~cellflow.solvers.GENOT`
+            solver with a conditional velocity field.
 
         Returns
         -------
@@ -180,7 +185,7 @@ class Metrics(ComputationCallback):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
-        _,
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to compute metrics
 
@@ -205,6 +210,7 @@ class Metrics(ComputationCallback):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at the end of training to compute metrics
 
@@ -215,7 +221,7 @@ class Metrics(ComputationCallback):
         predicted_data
             Predicted data in nested dictionary format with same keys as ``validation_data``
         """
-        return self.on_log_iteration(validation_data, predicted_data)
+        return self.on_log_iteration(validation_data, predicted_data, solver)
 
 
 class PCADecodedMetrics(Metrics):
@@ -253,7 +259,7 @@ class PCADecodedMetrics(Metrics):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
-        _,
+        _: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to reconstruct the data and compute metrics on the reconstruction
 
@@ -311,7 +317,7 @@ class VAEDecodedMetrics(Metrics):
         self,
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
-        _,
+        _: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to reconstruct the data and compute metrics on the reconstruction
 
@@ -461,7 +467,8 @@ class CallbackRunner:
         pred_data
             Predicted data in nested dictionary format with same keys as ``valid_data``
         solver
-            OTFM/GENOT solver with a conditional velocity field.
+            :class:`~cellflow.solvers.OTFlowMatching` solver or :class:`~cellflow.solvers.GENOT`
+            solver with a conditional velocity field.
 
         Returns
         -------
@@ -493,7 +500,8 @@ class CallbackRunner:
         pred_data: dict
             Predicted data in nested dictionary format with same keys as ``valid_data``
         solver
-            OTFM/GENOT solver with a conditional velocity field.
+            :class:`~cellflow.solvers.OTFlowMatching` solver or :class:`~cellflow.solvers.GENOT`
+            solver with a conditional velocity field.
 
         Returns
         -------
@@ -502,10 +510,10 @@ class CallbackRunner:
         dict_to_log: dict[str, Any] = {}
 
         for callback in self.computation_callbacks:
-            results = callback.on_log_iteration(valid_data, pred_data, solver)
+            results = callback.on_train_end(valid_data, pred_data, solver)
             dict_to_log.update(results)
 
         for callback in self.logging_callbacks:
-            callback.on_log_iteration(dict_to_log)  # type: ignore[call-arg]
+            callback.on_train_end(dict_to_log)  # type: ignore[call-arg]
 
         return dict_to_log
