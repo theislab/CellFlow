@@ -177,7 +177,8 @@ class ConditionalVelocityField(nn.Module):
                 **self.conditioning_kwargs,
             )
         elif self.conditioning == "concatenation":
-            pass
+            if len(self.conditioning_kwargs):
+                raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
 
@@ -222,6 +223,7 @@ class ConditionalVelocityField(nn.Module):
             out = self.resnet_block(x_encoded, jnp.concatenate((t_encoded, cond_embedding), axis=-1))
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
+
         out = self.decoder(out, training=train)
         return self.output_layer(out), cond_mean, cond_logvar
 
@@ -497,7 +499,8 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
                 **self.conditioning_kwargs,
             )
         elif self.conditioning == "concatenation":
-            pass
+            if len(self.conditioning_kwargs):
+                raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
 

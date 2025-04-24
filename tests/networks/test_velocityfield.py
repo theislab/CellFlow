@@ -153,7 +153,8 @@ class TestVelocityField:
             conditioning_kwargs = {"foo": "bar"}
         else:
             conditioning_kwargs = {"foo": "bar"}
-        _ = velocity_field_cls(
+
+        vf = velocity_field_cls(
             output_dim=5,
             max_combination_length=2,
             condition_mode=condition_mode,
@@ -163,14 +164,11 @@ class TestVelocityField:
             conditioning=conditioning,
             conditioning_kwargs=conditioning_kwargs,
         )
-        with pytest.raises(ValueError, match="Invalid conditioning_kwargs for conditioning type"):
-            _ = velocity_field_cls(
-                output_dim=5,
-                max_combination_length=2,
-                condition_mode=condition_mode,
-                condition_embedding_dim=12,
-                hidden_dims=[2, 2],
-                decoder_dims=[2, 2],
-                conditioning=conditioning,
-                conditioning_kwargs=conditioning_kwargs,
-            )
+        vf_rng = jax.random.PRNGKey(111)
+        opt = optax.adam(1e-3)
+        if conditioning == "concatenation":
+            with pytest.raises(ValueError, match=r".*no conditioning kwargs*"):
+                _ = vf.create_train_state(rng=vf_rng, optimizer=opt, input_dim=5, conditions=cond)
+        else:
+            with pytest.raises(TypeError, match=r".*got an unexpected keyword argument*"):
+                _ = vf.create_train_state(rng=vf_rng, optimizer=opt, input_dim=5, conditions=cond)
