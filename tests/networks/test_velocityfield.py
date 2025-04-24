@@ -31,8 +31,6 @@ class TestVelocityField:
         velocity_field_cls,
         conditioning,
     ):
-        if velocity_field_cls == _velocity_field.GENOTConditionalVelocityField:
-            return None
         linear_projection_before_concatenation = False
         vf = velocity_field_cls(
             output_dim=5,

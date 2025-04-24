@@ -70,6 +70,14 @@ class ConditionalVelocityField(nn.Module):
             Dimensions of the hidden layers.
         hidden_dropout
             Dropout rate for the hidden layers.
+        conditioning
+            Conditioning method, should be one of:
+            - ``'concatenation'``: Concatenate the time, data, and condition embeddings.
+            - ``'film'``: Use FiLM conditioning, i.e. learn FiLM weights from time and condition embedding
+              to scale the data embeddings.
+            - ``'resnet'``: Use residual conditioning.
+        conditioning_kwargs
+            Keyword arguments for the conditioning method.
         decoder_dims
             Dimensions of the output layers.
         decoder_dropout
@@ -156,7 +164,6 @@ class ConditionalVelocityField(nn.Module):
         )
 
         self.output_layer = nn.Dense(self.output_dim)
-        print("hidden_dims are ", self.hidden_dims)
 
         if self.conditioning == "film":
             self.film_block = FilmBlock(
@@ -167,9 +174,12 @@ class ConditionalVelocityField(nn.Module):
         elif self.conditioning == "resnet":
             self.resnet_block = ResNetBlock(
                 input_dim=self.hidden_dims[-1],
-                # cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
                 **self.conditioning_kwargs,
             )
+        elif self.conditioning == "concatenation":
+            pass
+        else:
+            raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
 
     def __call__(
         self,
@@ -366,6 +376,14 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
             Dimensions of the hidden layers.
         hidden_dropout
             Dropout rate for the hidden layers.
+        conditioning
+            Conditioning method, should be one of:
+            - ``'concatenation'``: Concatenate the time, data, and condition embeddings.
+            - ``'film'``: Use FiLM conditioning, i.e. learn FiLM weights from time, x_0, and condition embedding
+              to scale the data embeddings.
+            - ``'resnet'``: Use residual conditioning.
+        conditioning_kwargs
+            Keyword arguments for the conditioning method.
         decoder_dims
             Dimensions of the output layers.
         decoder_dropout
@@ -406,6 +424,8 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
     time_encoder_dropout: float = 0.0
     hidden_dims: Sequence[int] = (1024, 1024, 1024)
     hidden_dropout: float = 0.0
+    conditioning: Literal["concatenation", "film", "resnet"] = "concatenation"
+    conditioning_kwargs: dict[str, Any] = dc_field(default_factory=lambda: {})
     decoder_dims: Sequence[int] = (1024, 1024, 1024)
     decoder_dropout: float = 0.0
     genot_source_dims: Sequence[int] = (1024, 1024, 1024)
@@ -464,6 +484,39 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
 
         self.output_layer = nn.Dense(self.output_dim)
 
+        if self.conditioning == "film":
+            self.film_block = FilmBlock(
+                input_dim=self.hidden_dims[-1],
+                cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
+                **self.conditioning_kwargs,
+            )
+        elif self.conditioning == "resnet":
+            self.resnet_block = ResNetBlock(
+                input_dim=self.hidden_dims[-1],
+                # cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
+                **self.conditioning_kwargs,
+            )
+        elif self.conditioning == "concatenation":
+            pass
+        else:
+            raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
+
+        if self.conditioning == "film":
+            self.film_block = FilmBlock(
+                input_dim=self.hidden_dims[-1],
+                cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
+                **self.conditioning_kwargs,
+            )
+        elif self.conditioning == "resnet":
+            self.resnet_block = ResNetBlock(
+                input_dim=self.hidden_dims[-1],
+                **self.conditioning_kwargs,
+            )
+        elif self.conditioning == "concatenation":
+            pass
+        else:
+            raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
+
     def __call__(
         self,
         t: jnp.ndarray,
@@ -498,8 +551,16 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         elif cond_embedding.shape[0] != x_t.shape[0]:  # type: ignore[attr-defined]
             cond_embedding = jnp.tile(cond_embedding, (x_t.shape[0], 1))
 
-        concatenated = jnp.concatenate((t_encoded, x_encoded, x_0_encoded, cond_embedding), axis=-1)
-        out = self.decoder(concatenated, training=train)
+        if self.conditioning == "concatenation":
+            out = jnp.concatenate((t_encoded, x_encoded, x_0_encoded, cond_embedding), axis=-1)
+        elif self.conditioning == "film":
+            out = self.film_block(x_encoded, jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1))
+        elif self.conditioning == "resnet":
+            out = self.resnet_block(x_encoded, jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1))
+        else:
+            raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
+
+        out = self.decoder(out, training=train)
         return self.output_layer(out), cond_mean, cond_logvar
 
     def create_train_state(

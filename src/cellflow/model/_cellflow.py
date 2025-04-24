@@ -246,6 +246,8 @@ class CellFlow:
         time_encoder_dropout: float = 0.0,
         hidden_dims: Sequence[int] = (2048, 2048, 2048),
         hidden_dropout: float = 0.0,
+        conditioning: Literal["concatenation", "film", "resnet"] = "concatenation",
+        conditioning_kwargs: dict[str, Any] = dc_field(default_factory=lambda: {}),
         decoder_dims: Sequence[int] = (4096, 4096, 4096),
         decoder_dropout: float = 0.0,
         vf_act_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.silu,
@@ -345,6 +347,14 @@ class CellFlow:
             via :attr:`cellflow.networks.ConditionalVelocityField.x_encoder`.
         hidden_dropout
             Dropout rate for :attr:`cellflow.networks.ConditionalVelocityField.x_encoder`.
+        conditioning
+            Conditioning method, should be one of:
+            - ``'concatenation'``: Concatenate the time, data, and condition embeddings.
+            - ``'film'``: Use FiLM conditioning, i.e. learn FiLM weights from time and condition embedding
+              to scale the data embeddings.
+            - ``'resnet'``: Use residual conditioning.
+        conditioning_kwargs
+            Keyword arguments for the conditioning method.
         decoder_dims
             Dimensions of the output layers in
             :attr:`cellflow.networks.ConditionalVelocityField.decoder`.
@@ -442,6 +452,8 @@ class CellFlow:
             time_encoder_dropout=time_encoder_dropout,
             hidden_dims=hidden_dims,
             hidden_dropout=hidden_dropout,
+            conditioning=conditioning,
+            conditioning_kwargs=conditioning_kwargs,
             decoder_dims=decoder_dims,
             decoder_dropout=decoder_dropout,
             layer_norm_before_concatenation=layer_norm_before_concatenation,
