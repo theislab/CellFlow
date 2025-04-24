@@ -501,22 +501,6 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
 
-        if self.conditioning == "film":
-            self.film_block = FilmBlock(
-                input_dim=self.hidden_dims[-1],
-                cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
-                **self.conditioning_kwargs,
-            )
-        elif self.conditioning == "resnet":
-            self.resnet_block = ResNetBlock(
-                input_dim=self.hidden_dims[-1],
-                **self.conditioning_kwargs,
-            )
-        elif self.conditioning == "concatenation":
-            pass
-        else:
-            raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
-
     def __call__(
         self,
         t: jnp.ndarray,

@@ -144,7 +144,9 @@ class ResNetBlock(nn.Module):
 
     def setup(self):
         self.mlp_block_1 = MLPBlock(dims=self.hidden_dims, act_fn=self.act_fn, dropout_rate=self.dropout_rate)
-        self.mlp_block_2 = MLPBlock(dims=self.hidden_dims, act_fn=self.act_fn, dropout_rate=self.dropout_rate)
+        self.mlp_block_2 = MLPBlock(
+            dims=list(self.hidden_dims) + [self.input_dim], act_fn=self.act_fn, dropout_rate=self.dropout_rate
+        )
         self.cond_proj = MLPBlock(dims=self.projection_dims, act_fn=self.act_fn, dropout_rate=self.dropout_rate)
 
     def __call__(self, x: jnp.ndarray, cond: jnp.ndarray, *, training: bool = True) -> jnp.ndarray:
