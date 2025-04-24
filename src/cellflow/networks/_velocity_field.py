@@ -31,13 +31,13 @@ class ConditionalVelocityField(nn.Module):
 
             - ``'deterministic'``: Learns condition encoding point-wise.
             - ``'stochastic'``: Learns a Gaussian distribution for representing conditions.
-        
+
         regularization
             Regularization strength in the latent space:
 
             - For deterministic mode, it is the strength of the L2 regularization.
             - For stochastic mode, it is the strength of the KL divergence regularization.
-        
+
         encode_conditions
                 Processes the embedding of the perturbation conditions if :obj:`True`. If
                 :obj:`False`, directly inputs the embedding of the perturbation conditions to the
@@ -183,7 +183,7 @@ class ConditionalVelocityField(nn.Module):
                 **self.conditioning_kwargs,
             )
         elif self.conditioning == "concatenation":
-            if len(self.conditioning_kwargs):
+            if len(dict(self.conditioning_kwargs)):
                 raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
@@ -345,13 +345,13 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
 
             - ``'deterministic'``: Learns condition encoding point-wise.
             - ``'stochastic'``: Learns a Gaussian distribution for representing conditions.
-        
+
         regularization
             Regularization strength in the latent space:
 
             - For deterministic mode, it is the strength of the L2 regularization.
             - For stochastic mode, it is the strength of the KL divergence regularization.
-        
+
         encode_conditions
                 Processes the embedding of the perturbation conditions if :obj:`True`. If
                 :obj:`False`, directly inputs the embedding of the perturbation conditions to the
@@ -507,11 +507,10 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         elif self.conditioning == "resnet":
             self.resnet_block = ResNetBlock(
                 input_dim=self.hidden_dims[-1],
-                # cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
                 **self.conditioning_kwargs,
             )
         elif self.conditioning == "concatenation":
-            if len(self.conditioning_kwargs):
+            if len(dict(self.conditioning_kwargs)):
                 raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")

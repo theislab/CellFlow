@@ -13,3 +13,7 @@ Networks
     networks.TokenAttentionPooling
     networks.MLPBlock
     networks.SelfAttentionBlock
+    networks.BaseModule
+    networks.FilmBlock
+    networks.ResNetBlock
+    networks.SelfAttentionBlock

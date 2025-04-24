@@ -19,12 +19,14 @@ class TestCellFlow:
     @pytest.mark.parametrize("solver", ["otfm"])  # , "genot"])
     @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
     @pytest.mark.parametrize("regularization", [0.0, 0.1])
+    @pytest.mark.parametrize("conditioning", ["concatenation", "film", "resnet"])
     def test_cellflow_solver(
         self,
         adata_perturbation,
         solver,
         condition_mode,
         regularization,
+        conditioning,
     ):
         if solver == "genot" and ((condition_mode == "stochastic") or (regularization > 0.0)):
             return None
@@ -57,6 +59,7 @@ class TestCellFlow:
                     hidden_dims=(32, 32),
                     decoder_dims=(32, 32),
                     vf_kwargs=vf_kwargs,
+                    conditioning=conditioning,
                 )
             return None
         cf.prepare_model(
@@ -66,6 +69,7 @@ class TestCellFlow:
             hidden_dims=(32, 32),
             decoder_dims=(32, 32),
             vf_kwargs=vf_kwargs,
+            conditioning=conditioning,
         )
         assert cf._trainer is not None
 
