@@ -14,6 +14,9 @@ __all__ = [
     "TokenAttentionPooling",
     "MLPBlock",
     "BaseModule",
+    "FilmBlock",
+    "ResNetBlock",
+    "SelfAttentionBlock",
 ]
 
 

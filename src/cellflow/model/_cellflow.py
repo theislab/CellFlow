@@ -281,11 +281,13 @@ class CellFlow:
 
             - ``'deterministic'``: Learns condition encoding point-wise.
             - ``'stochastic'``: Learns a Gaussian distribution for representing conditions.
+        
         regularization
             Regularization strength in the latent space:
 
             - For deterministic mode, it is the strength of the L2 regularization.
             - For stochastic mode, it is the strength of the VAE regularization.
+        
         pooling
             Pooling method, should be one of:
 
@@ -349,10 +351,12 @@ class CellFlow:
             Dropout rate for :attr:`cellflow.networks.ConditionalVelocityField.x_encoder`.
         conditioning
             Conditioning method, should be one of:
+
             - ``'concatenation'``: Concatenate the time, data, and condition embeddings.
             - ``'film'``: Use FiLM conditioning, i.e. learn FiLM weights from time and condition embedding
               to scale the data embeddings.
             - ``'resnet'``: Use residual conditioning.
+
         conditioning_kwargs
             Keyword arguments for the conditioning method.
         decoder_dims

@@ -28,12 +28,16 @@ class ConditionalVelocityField(nn.Module):
             Maximum number of covariates in a combination.
         condition_mode
             Mode of the encoder, should be one of:
+
             - ``'deterministic'``: Learns condition encoding point-wise.
             - ``'stochastic'``: Learns a Gaussian distribution for representing conditions.
+        
         regularization
             Regularization strength in the latent space:
+
             - For deterministic mode, it is the strength of the L2 regularization.
             - For stochastic mode, it is the strength of the KL divergence regularization.
+        
         encode_conditions
                 Processes the embedding of the perturbation conditions if :obj:`True`. If
                 :obj:`False`, directly inputs the embedding of the perturbation conditions to the
@@ -72,10 +76,12 @@ class ConditionalVelocityField(nn.Module):
             Dropout rate for the hidden layers.
         conditioning
             Conditioning method, should be one of:
+
             - ``'concatenation'``: Concatenate the time, data, and condition embeddings.
             - ``'film'``: Use FiLM conditioning, i.e. learn FiLM weights from time and condition embedding
               to scale the data embeddings.
             - ``'resnet'``: Use residual conditioning.
+
         conditioning_kwargs
             Keyword arguments for the conditioning method.
         decoder_dims
@@ -336,12 +342,16 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
             Maximum number of covariates in a combination.
         condition_mode
             Mode of the encoder, should be one of:
+
             - ``'deterministic'``: Learns condition encoding point-wise.
             - ``'stochastic'``: Learns a Gaussian distribution for representing conditions.
+        
         regularization
             Regularization strength in the latent space:
+
             - For deterministic mode, it is the strength of the L2 regularization.
             - For stochastic mode, it is the strength of the KL divergence regularization.
+        
         encode_conditions
                 Processes the embedding of the perturbation conditions if :obj:`True`. If
                 :obj:`False`, directly inputs the embedding of the perturbation conditions to the
@@ -380,10 +390,12 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
             Dropout rate for the hidden layers.
         conditioning
             Conditioning method, should be one of:
+
             - ``'concatenation'``: Concatenate the time, data, and condition embeddings.
             - ``'film'``: Use FiLM conditioning, i.e. learn FiLM weights from time, x_0, and condition embedding
               to scale the data embeddings.
             - ``'resnet'``: Use residual conditioning.
+
         conditioning_kwargs
             Keyword arguments for the conditioning method.
         decoder_dims
