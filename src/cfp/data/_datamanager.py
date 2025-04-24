@@ -733,7 +733,7 @@ class DataManager:
         }
         perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
 
-        control_to_perturbation = df[~df.control].groupby(["global_control_mask"])["global_pert_mask"].unique()
+        control_to_perturbation = df[~df].groupby(["global_control_mask"])["global_pert_mask"].unique()
         control_to_perturbation = control_to_perturbation.to_dict()
 
         split_covariates_mask = np.asarray(df["split_covariates_mask"].values, dtype=np.int32)
