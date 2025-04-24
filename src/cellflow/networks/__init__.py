@@ -2,7 +2,9 @@ from cellflow.networks._set_encoders import (
     ConditionEncoder,
 )
 from cellflow.networks._utils import (
+    FilmBlock,
     MLPBlock,
+    ResNetBlock,
     SeedAttentionPooling,
     SelfAttention,
     SelfAttentionBlock,
@@ -18,5 +20,8 @@ __all__ = [
     "SelfAttention",
     "SeedAttentionPooling",
     "TokenAttentionPooling",
+    "SelfAttentionBlock",
+    "FilmBlock",
+    "ResNetBlock",
     "SelfAttentionBlock",
 ]
