@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable, Sequence
 from dataclasses import field as dc_field
 from typing import Any, Literal
@@ -129,6 +130,10 @@ class ConditionalVelocityField(nn.Module):
 
     def setup(self):
         """Initialize the network."""
+        if isinstance(self.conditioning_kwargs, dataclasses.Field):
+            conditioning_kwargs = dict(self.conditioning_kwargs.default_factory())
+        else:
+            conditioning_kwargs = dict(self.conditioning_kwargs)
         if self.encode_conditions:
             self.condition_encoder = ConditionEncoder(
                 condition_mode=self.condition_mode,
@@ -175,15 +180,15 @@ class ConditionalVelocityField(nn.Module):
             self.film_block = FilmBlock(
                 input_dim=self.hidden_dims[-1],
                 cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
-                **self.conditioning_kwargs,
+                **conditioning_kwargs,
             )
         elif self.conditioning == "resnet":
             self.resnet_block = ResNetBlock(
                 input_dim=self.hidden_dims[-1],
-                **self.conditioning_kwargs,
+                **conditioning_kwargs,
             )
         elif self.conditioning == "concatenation":
-            if len(dict(self.conditioning_kwargs)):
+            if len(conditioning_kwargs) > 0:
                 raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
@@ -449,6 +454,10 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
 
     def setup(self):
         """Initialize the network."""
+        if isinstance(self.conditioning_kwargs, dataclasses.Field):
+            conditioning_kwargs = dict(self.conditioning_kwargs.default_factory())
+        else:
+            conditioning_kwargs = dict(self.conditioning_kwargs)
         if self.encode_conditions:
             self.condition_encoder = ConditionEncoder(
                 condition_mode=self.condition_mode,
@@ -502,7 +511,7 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
             self.film_block = FilmBlock(
                 input_dim=self.hidden_dims[-1],
                 cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
-                **self.conditioning_kwargs,
+                **conditioning_kwargs,
             )
         elif self.conditioning == "resnet":
             self.resnet_block = ResNetBlock(
@@ -510,7 +519,7 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
                 **self.conditioning_kwargs,
             )
         elif self.conditioning == "concatenation":
-            if len(dict(self.conditioning_kwargs)):
+            if len(conditioning_kwargs) > 0:
                 raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")

@@ -90,6 +90,7 @@ class TestVelocityField:
     def test_velocityfield_conditioning_kwargs(self, condition_mode, velocity_field_cls, conditioning):
         if conditioning == "film":
             conditioning_kwargs = {"act_fn": activation.celu}
+            kwargs = {"conditioning_kwargs": conditioning_kwargs}
         elif conditioning == "resnet":
             conditioning_kwargs = {
                 "hidden_dims": [23, 23],
@@ -97,8 +98,9 @@ class TestVelocityField:
                 "act_fn": activation.celu,
                 "dropout_rate": 0.1,
             }
+            kwargs = {"conditioning_kwargs": conditioning_kwargs}
         else:
-            conditioning_kwargs = {}
+            kwargs = {}
         vf = velocity_field_cls(
             output_dim=5,
             max_combination_length=2,
@@ -107,7 +109,7 @@ class TestVelocityField:
             hidden_dims=[2, 2],
             decoder_dims=[2, 2],
             conditioning=conditioning,
-            conditioning_kwargs=conditioning_kwargs,
+            **kwargs,
         )
         vf_rng = jax.random.PRNGKey(111)
         vf_rng, apply_rng, encoder_noise_rng, dropout_rng = jax.random.split(vf_rng, 4)

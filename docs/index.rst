@@ -28,7 +28,7 @@ CellFlow
         :link: https://www.biorxiv.org/content/10.1101/2025.04.11.648220v1.abstract
         :link-type: url
 
-        Check out our preprint
+        Check out our `preprint <https://www.biorxiv.org/content/10.1101/2025.04.11.648220v1.abstract>`_
 
 .. toctree::
     :maxdepth: 3
