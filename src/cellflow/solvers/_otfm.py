@@ -17,7 +17,7 @@ __all__ = ["OTFlowMatching"]
 
 
 class OTFlowMatching:
-    """(OT) probability_path matching :cite:`lipman:22` extended to the conditional setting.
+    """(OT) flow matching :cite:`lipman:22` extended to the conditional setting.
 
     With an extension to OT-CFM :cite:`tong:23,pooladian:23`, and its
     unbalanced version :cite:`eyring:24`.
