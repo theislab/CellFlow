@@ -29,7 +29,7 @@ class TestTrainer:
         model = _otfm.OTFlowMatching(
             vf=vf,
             match_fn=match_linear,
-            flow=dynamics.ConstantNoiseFlow(0.0),
+            probability_path=dynamics.ConstantNoiseFlow(0.0),
             optimizer=opt,
             conditions=cond,
             rng=vf_rng,
@@ -64,7 +64,7 @@ class TestTrainer:
         model = _otfm.OTFlowMatching(
             vf=vf,
             match_fn=match_linear,
-            flow=dynamics.ConstantNoiseFlow(0.0),
+            probability_path=dynamics.ConstantNoiseFlow(0.0),
             optimizer=opt,
             conditions=cond,
             rng=vf_rng,

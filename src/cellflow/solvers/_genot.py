@@ -29,8 +29,8 @@ class GENOT:
     ----------
     vf
         Vector field parameterized by a neural network.
-    flow
-        Flow between the latent and the target distributions.
+    probability_path
+        Probability path between the latent and the target distributions.
     data_match_fn
         Function to match samples from the source and the target
         distributions. Depending on the data passed :meth:`step_fn`, it has
@@ -58,7 +58,7 @@ class GENOT:
     def __init__(
         self,
         vf: velocity_field.VelocityField,
-        flow: dynamics.BaseFlow,
+        probability_path: dynamics.BaseFlow,
         data_match_fn: DataMatchFn,
         *,
         source_dim: int,
@@ -71,7 +71,7 @@ class GENOT:
         self.vf = vf
         self.condition_encoder_mode = self.vf.condition_mode
         self.condition_encoder_regularization = self.vf.regularization
-        self.flow = flow
+        self.probability_path = probability_path
         self.data_match_fn = jax.jit(data_match_fn)
         self.time_sampler = time_sampler
         self.source_dim = source_dim
@@ -108,7 +108,7 @@ class GENOT:
                 rng: jax.Array,
             ) -> jnp.ndarray:
                 rng_flow, rng_encoder, rng_dropout = jax.random.split(rng, 3)
-                x_t = self.flow.compute_xt(rng_flow, t, latent, target)
+                x_t = self.probability_path.compute_xt(rng_flow, t, latent, target)
                 v_t, mean_cond, logvar_cond = vf_state.apply_fn(
                     {"params": params},
                     t,
@@ -118,7 +118,7 @@ class GENOT:
                     encoder_noise=encoder_noise,
                     rngs={"dropout": rng_dropout, "condition_encoder": rng_encoder},
                 )
-                u_t = self.flow.compute_ut(t, x_t, source, target)
+                u_t = self.probability_path.compute_ut(t, x_t, source, target)
                 flow_matching_loss = jnp.mean((v_t - u_t) ** 2)
                 condition_mean_regularization = 0.5 * jnp.mean(mean_cond**2)
                 condition_var_regularization = -0.5 * jnp.mean(1 + logvar_cond - jnp.exp(logvar_cond))

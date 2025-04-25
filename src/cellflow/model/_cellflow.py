@@ -252,7 +252,7 @@ class CellFlow:
         decoder_dropout: float = 0.0,
         vf_act_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.silu,
         vf_kwargs: dict[str, Any] | None = None,
-        flow: dict[Literal["constant_noise", "bridge"], float] | None = None,
+        probability_path: dict[Literal["constant_noise", "bridge"], float] | None = None,
         match_fn: Callable[[ArrayLike, ArrayLike], ArrayLike] = match_linear,
         optimizer: optax.GradientTransformation = optax.MultiSteps(optax.adam(5e-5), 20),
         solver_kwargs: dict[str, Any] | None = None,
@@ -375,8 +375,8 @@ class CellFlow:
                   of the :class:`cellflow.networks.MLPBlock` processing the source cell.
                 - ``'genot_source_dropout'`` of type :class:`float` indicating the dropout rate
                   for the source cell processing.
-        flow
-            Flow to use for training. Should be a :class:`dict` of the form
+        probability_path
+            Probability path to use for training. Should be a :class:`dict` of the form
 
             - ``'{"constant_noise": noise_val'``
             - ``'{"bridge": noise_val}'``
@@ -434,7 +434,7 @@ class CellFlow:
             vf_kwargs = {}
         covariates_not_pooled = [] if pool_sample_covariates else self._dm.sample_covariates
         solver_kwargs = solver_kwargs or {}
-        flow = flow or {"constant_noise": 0.0}
+        probability_path = probability_path or {"constant_noise": 0.0}
 
         self.vf = self._vf_class(
             output_dim=self._data_dim,
@@ -464,19 +464,21 @@ class CellFlow:
             linear_projection_before_concatenation=linear_projection_before_concatenation,
         )
 
-        flow, noise = next(iter(flow.items()))
-        if flow == "constant_noise":
-            flow = dynamics.ConstantNoiseFlow(noise)
-        elif flow == "bridge":
-            flow = dynamics.BrownianBridge(noise)
+        probability_path, noise = next(iter(probability_path.items()))
+        if probability_path == "constant_noise":
+            probability_path = dynamics.ConstantNoiseFlow(noise)
+        elif probability_path == "bridge":
+            probability_path = dynamics.BrownianBridge(noise)
         else:
-            raise NotImplementedError(f"The key of `flow` must be `'constant_noise'` or `'bridge'` but found {flow}.")
+            raise NotImplementedError(
+                f"The key of `probability_path` must be `'constant_noise'` or `'bridge'` but found {probability_path}."
+            )
 
         if self._solver_class == _otfm.OTFlowMatching:
             self._solver = self._solver_class(
                 vf=self.vf,
                 match_fn=match_fn,
-                flow=flow,
+                probability_path=probability_path,
                 optimizer=optimizer,
                 conditions=self.train_data.condition_data,
                 rng=jax.random.PRNGKey(seed),
@@ -486,7 +488,7 @@ class CellFlow:
             self._solver = self._solver_class(
                 vf=self.vf,
                 data_match_fn=match_fn,
-                flow=flow,
+                probability_path=probability_path,
                 source_dim=self._data_dim,
                 target_dim=self._data_dim,
                 optimizer=optimizer,

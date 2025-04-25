@@ -17,7 +17,7 @@ __all__ = ["OTFlowMatching"]
 
 
 class OTFlowMatching:
-    """(OT) flow matching :cite:`lipman:22` extended to the conditional setting.
+    """(OT) probability_path matching :cite:`lipman:22` extended to the conditional setting.
 
     With an extension to OT-CFM :cite:`tong:23,pooladian:23`, and its
     unbalanced version :cite:`eyring:24`.
@@ -26,13 +26,13 @@ class OTFlowMatching:
     ----------
         vf
             Vector field parameterized by a neural network.
-        flow
-            Flow between the source and the target distributions.
+        probability_path
+            Probability path between the source and the target distributions.
         match_fn
             Function to match samples from the source and the target
             distributions. It has a ``(src, tgt) -> matching`` signature,
             see e.g. :func:`cellflow.utils.match_linear`. If :obj:`None`, no
-            matching is performed, and pure flow matching :cite:`lipman:22`
+            matching is performed, and pure probability_path matching :cite:`lipman:22`
             is applied.
         time_sampler
             Time sampler with a ``(rng, n_samples) -> time`` signature, see e.g.
@@ -44,7 +44,7 @@ class OTFlowMatching:
     def __init__(
         self,
         vf: ConditionalVelocityField,
-        flow: dynamics.BaseFlow,
+        probability_path: dynamics.BaseFlow,
         match_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None,
         time_sampler: Callable[[jax.Array, int], jnp.ndarray] = solver_utils.uniform_sampler,
         **kwargs: Any,
@@ -53,7 +53,7 @@ class OTFlowMatching:
         self.vf = vf
         self.condition_encoder_mode = self.vf.condition_mode
         self.condition_encoder_regularization = self.vf.regularization
-        self.flow = flow
+        self.probability_path = probability_path
         self.time_sampler = time_sampler
         self.match_fn = jax.jit(match_fn)
 
@@ -81,7 +81,7 @@ class OTFlowMatching:
                 rng: jax.Array,
             ) -> jnp.ndarray:
                 rng_flow, rng_encoder, rng_dropout = jax.random.split(rng, 3)
-                x_t = self.flow.compute_xt(rng_flow, t, source, target)
+                x_t = self.probability_path.compute_xt(rng_flow, t, source, target)
                 v_t, mean_cond, logvar_cond = vf_state.apply_fn(
                     {"params": params},
                     t,
@@ -90,7 +90,7 @@ class OTFlowMatching:
                     encoder_noise=encoder_noise,
                     rngs={"dropout": rng_dropout, "condition_encoder": rng_encoder},
                 )
-                u_t = self.flow.compute_ut(t, x_t, source, target)
+                u_t = self.probability_path.compute_ut(t, x_t, source, target)
                 flow_matching_loss = jnp.mean((v_t - u_t) ** 2)
                 condition_mean_regularization = 0.5 * jnp.mean(mean_cond**2)
                 condition_var_regularization = -0.5 * jnp.mean(1 + logvar_cond - jnp.exp(logvar_cond))
