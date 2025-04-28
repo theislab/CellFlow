@@ -482,7 +482,8 @@ class CellFlow:
             raise NotImplementedError(f"Solver must be an instance of OTFlowMatching or GENOT, got {type(self.solver)}")
         perturbation_covariates = self.train_data.data_manager.perturbation_covariates
         condition_keys = sorted(set(k for k, v in perturbation_covariates.items() if v is not None))
-        self._trainer = CellFlowTrainer(solver=self.solver, condition_keys= condition_keys)  # type: ignore[arg-type]
+        sample_covariates = self.train_data.data_manager.sample_covariates
+        self._trainer = CellFlowTrainer(solver=self.solver, condition_keys= sorted(condition_keys + sample_covariates))  # type: ignore[arg-type]
 
     def train(
         self,
@@ -535,7 +536,7 @@ class CellFlow:
         val_seed = 434
         seq = np.random.SeedSequence(val_seed)
         child_seeds = seq.spawn(len(self._validation_data))
-        validation_loaders = {k: ValidationSampler(v, seed=child_seeds[i]) for i, (k, v) in enumerate(self.validation_data.items())}
+        validation_loaders = {k: ValidationSampler(v, seed=child_seeds[i], condition_keys=self.trainer.condition_keys) for i, (k, v) in enumerate(self.validation_data.items())}
 
         self._solver = self.trainer.train(
             dataloader=self._dataloader,
