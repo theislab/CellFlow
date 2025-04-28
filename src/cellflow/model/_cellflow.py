@@ -503,7 +503,6 @@ class CellFlow:
         sample_covariates = self.train_data.data_manager.sample_covariates
         self._trainer = CellFlowTrainer(solver=self.solver, condition_keys= sorted(condition_keys + sample_covariates))  # type: ignore[arg-type]
 
-
     def train(
         self,
         num_iterations: int,
