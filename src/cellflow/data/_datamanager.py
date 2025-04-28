@@ -119,6 +119,7 @@ class DataManager:
         perturb_covar_keys = _flatten_list(self._perturbation_covariates.values()) + list(self._sample_covariates)
         perturb_covar_keys += [col for col in self._split_covariates if col not in perturb_covar_keys]
         self._perturb_covar_keys = [k for k in perturb_covar_keys if k is not None]
+        self.condition_keys = sorted(self._perturb_covar_keys)
 
     def get_train_data(self, adata: anndata.AnnData) -> Any:
         """Get training data for the model.
@@ -346,8 +347,8 @@ class DataManager:
 
         # intialize data containers
         if adata is not None:
-            split_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int32)
-            perturbation_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int32)
+            split_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int64)
+            perturbation_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int64)
             control_mask = covariate_data[self._control_key]
         else:
             split_covariates_mask = None
@@ -687,8 +688,8 @@ class DataManager:
         control_combs = control_combs[control_combs[control_key]].sort_values(by=split_covariates)
         all_combs = all_combs[~all_combs[control_key]].sort_values(by=split_covariates + perturbation_covariates_keys)
 
-        all_combs["global_pert_mask"] = np.arange(len(all_combs), dtype=np.int32)
-        control_combs["global_control_mask"] = np.arange(len(control_combs), dtype=np.int32)
+        all_combs["global_pert_mask"] = np.arange(len(all_combs), dtype=np.int64)
+        control_combs["global_control_mask"] = np.arange(len(control_combs), dtype=np.int64)
 
         control_combs = control_combs.sort_values(by=split_covariates)
         all_combs = all_combs.sort_values(by=split_covariates + perturbation_covariates_keys)
@@ -719,8 +720,8 @@ class DataManager:
         df["perturbation_covariates_mask"] = df["global_pert_mask"]
         df.loc[~df[control_key], "split_covariates_mask"] = -1
         df.loc[df[control_key], "perturbation_covariates_mask"] = -1
-        df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int32)
-        df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int32)
+        df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int64)
+        df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
         split_idx_to_covariates = (
             df[["global_control_mask", *split_covariates]]
             .groupby(["global_control_mask"])
@@ -874,8 +875,8 @@ class DataManager:
     ) -> tuple[ArrayLike, dict[int, tuple[Any]]]:
         # here we assume that adata only contains source cells
         if len(self.split_covariates) == 0:
-            return jnp.full((len(adata),), 0, dtype=jnp.int32), {}
-        split_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int32)
+            return jnp.full((len(adata),), 0, dtype=jnp.int64), {}
+        split_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int64)
         split_idx_to_covariates: dict[int, Any] = {}
         src_counter = 0
         for split_combination in split_cov_combs:
