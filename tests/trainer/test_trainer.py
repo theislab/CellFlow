@@ -7,12 +7,31 @@ from ott.neural.methods.flows import dynamics
 
 import cellflow
 from cellflow.solvers import _otfm
+from cellflow.training import CellFlowTrainer, ComputationCallback, Metrics
 from cellflow.utils import match_linear
 
 x_test = jnp.ones((10, 5)) * 10
 t_test = jnp.ones((10, 1))
 cond = {"pert1": jnp.ones((1, 2, 3))}
 vf_rng = jax.random.PRNGKey(111)
+
+
+class CustomCallback(ComputationCallback):
+    def __init__(self):
+        super().__init__()
+
+    def on_train_begin(self):
+        pass
+
+    def on_log_iteration(self, validation_data, predicted_data, solver):
+        pred_1 = solver.predict(x_test, cond)
+        pred_2 = solver.predict(x_test, cond)
+        return {"diff": np.sum(abs(pred_1 - pred_2), axis=0)}
+
+    def on_train_end(self, validation_data, predicted_data, solver):
+        pred_1 = solver.predict(x_test, cond)
+        pred_2 = solver.predict(x_test, cond)
+        return {"diff": np.sum(abs(pred_1 - pred_2), axis=0)}
 
 
 class TestTrainer:
@@ -35,7 +54,7 @@ class TestTrainer:
             rng=vf_rng,
         )
 
-        trainer = cellflow.training.CellFlowTrainer(solver=model)
+        trainer = CellFlowTrainer(solver=model)
         trainer.train(
             dataloader=dataloader,
             num_iterations=2,
@@ -71,9 +90,9 @@ class TestTrainer:
         )
 
         metric_to_compute = "e_distance"
-        metrics_callback = cellflow.training.Metrics(metrics=[metric_to_compute])
+        metrics_callback = Metrics(metrics=[metric_to_compute])
 
-        trainer = cellflow.training.CellFlowTrainer(solver=model)
+        trainer = CellFlowTrainer(solver=model)
         trainer.train(
             dataloader=dataloader,
             valid_loaders=valid_loader if use_validdata else None,
@@ -95,3 +114,38 @@ class TestTrainer:
         assert out[0].shape == (1, 12)
         assert isinstance(out[1], np.ndarray)
         assert out[1].shape == (1, 12)
+
+    def test_cellflow_trainer_with_custom_callback(self, dataloader, valid_loader):
+        opt = optax.adam(1e-3)
+        vf = cellflow.networks.ConditionalVelocityField(
+            condition_mode="stochastic",
+            output_dim=5,
+            max_combination_length=2,
+            condition_embedding_dim=12,
+            hidden_dims=(32, 32),
+            decoder_dims=(32, 32),
+        )
+        solver = _otfm.OTFlowMatching(
+            vf=vf,
+            match_fn=match_linear,
+            flow=dynamics.ConstantNoiseFlow(0.0),
+            optimizer=opt,
+            conditions=cond,
+            rng=vf_rng,
+        )
+
+        custom_callback = CustomCallback()
+
+        trainer = CellFlowTrainer(solver=solver)
+        trainer.train(
+            dataloader=dataloader,
+            valid_loaders=valid_loader,
+            num_iterations=2,
+            valid_freq=1,
+            callbacks=[custom_callback],
+        )
+
+        logs = trainer.training_logs
+        assert "diff" in logs
+        assert isinstance(logs["diff"][0], np.ndarray)
+        assert logs["diff"][0].shape == (5,)
