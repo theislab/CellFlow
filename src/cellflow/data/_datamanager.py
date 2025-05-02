@@ -347,8 +347,8 @@ class DataManager:
 
         # intialize data containers
         if adata is not None:
-            split_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int32)
-            perturbation_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int32)
+            split_covariates_mask = np.full((len(adata),), -1, dtype=np.int32)
+            perturbation_covariates_mask = np.full((len(adata),), -1, dtype=np.int32)
             control_mask = covariate_data[self._control_key]
         else:
             split_covariates_mask = None
@@ -876,7 +876,7 @@ class DataManager:
         # here we assume that adata only contains source cells
         if len(self.split_covariates) == 0:
             return jnp.full((len(adata),), 0, dtype=jnp.int32), {}
-        split_covariates_mask = np.full((len(adata),), -1, dtype=jnp.int32)
+        split_covariates_mask = np.full((len(adata),), -1, dtype=np.int32)
         split_idx_to_covariates: dict[int, Any] = {}
         src_counter = 0
         for split_combination in split_cov_combs:
