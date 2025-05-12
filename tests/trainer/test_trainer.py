@@ -14,23 +14,28 @@ x_test = jnp.ones((10, 5)) * 10
 t_test = jnp.ones((10, 1))
 cond = {"pert1": jnp.ones((1, 2, 3))}
 vf_rng = jax.random.PRNGKey(111)
+callback_rng = jax.random.PRNGKey(222)
 
 
 class CustomCallback(ComputationCallback):
-    def __init__(self):
+    def __init__(self, rng):
         super().__init__()
+        self.rng = rng
+        self.rng_1, self.rng_2, self.rng = jax.random.split(self.rng, 3)
 
     def on_train_begin(self):
         pass
 
-    def on_log_iteration(self, validation_data, predicted_data, solver):
-        pred_1 = solver.predict(x_test, cond)
-        pred_2 = solver.predict(x_test, cond)
+    def on_log_iteration(self, source_data, validation_data, predicted_data, solver):
+        source_array = source_data["val"]["my_naming_of_pert"]
+        pred_1 = solver.predict(source_array, cond, rng=self.rng_1)
+        pred_2 = solver.predict(source_array, cond, rng=self.rng_2)
         return {"diff": np.sum(abs(pred_1 - pred_2), axis=0)}
 
-    def on_train_end(self, validation_data, predicted_data, solver):
-        pred_1 = solver.predict(x_test, cond)
-        pred_2 = solver.predict(x_test, cond)
+    def on_train_end(self, source_data, validation_data, predicted_data, solver):
+        source_array = source_data["val"]["my_naming_of_pert"]
+        pred_1 = solver.predict(source_array, cond, rng=self.rng_1)
+        pred_2 = solver.predict(source_array, cond, rng=self.rng_2)
         return {"diff": np.sum(abs(pred_1 - pred_2), axis=0)}
 
 
@@ -134,7 +139,7 @@ class TestTrainer:
             rng=vf_rng,
         )
 
-        custom_callback = CustomCallback()
+        custom_callback = CustomCallback(rng=callback_rng)
 
         trainer = CellFlowTrainer(solver=solver)
         trainer.train(
@@ -149,3 +154,4 @@ class TestTrainer:
         assert "diff" in logs
         assert isinstance(logs["diff"][0], np.ndarray)
         assert logs["diff"][0].shape == (5,)
+        assert 0 < np.mean(logs["diff"][0]) < 10

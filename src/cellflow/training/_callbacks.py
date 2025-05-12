@@ -102,6 +102,7 @@ class ComputationCallback(BaseCallback, abc.ABC):
     @abc.abstractmethod
     def on_log_iteration(
         self,
+        source_data: dict[str, dict[str, ArrayLike]],
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
         solver: _otfm.OTFlowMatching | _genot.GENOT,
@@ -110,6 +111,8 @@ class ComputationCallback(BaseCallback, abc.ABC):
 
         Parameters
         ----------
+        source_data
+            Source data in nested dictionary format with same keys as ``validation_data``
         validation_data
             Validation data in nested dictionary format with same keys as ``predicted_data``
         predicted_data
@@ -127,6 +130,7 @@ class ComputationCallback(BaseCallback, abc.ABC):
     @abc.abstractmethod
     def on_train_end(
         self,
+        source_data: dict[str, dict[str, ArrayLike]],
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
         solver: _otfm.OTFlowMatching | _genot.GENOT,
@@ -135,6 +139,8 @@ class ComputationCallback(BaseCallback, abc.ABC):
 
         Parameters
         ----------
+        source_data
+            Source data in nested dictionary format with same keys as ``validation_data``
         validation_data
             Validation data in nested dictionary format with same keys as ``predicted_data``
         predicted_data
@@ -183,6 +189,7 @@ class Metrics(ComputationCallback):
 
     def on_log_iteration(
         self,
+        source_data: dict[str, dict[str, ArrayLike]],
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
         solver: _otfm.OTFlowMatching | _genot.GENOT,
@@ -208,6 +215,7 @@ class Metrics(ComputationCallback):
 
     def on_train_end(
         self,
+        source_data: dict[str, dict[str, ArrayLike]],
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
         solver: _otfm.OTFlowMatching | _genot.GENOT,
@@ -221,7 +229,7 @@ class Metrics(ComputationCallback):
         predicted_data
             Predicted data in nested dictionary format with same keys as ``validation_data``
         """
-        return self.on_log_iteration(validation_data, predicted_data, solver)
+        return self.on_log_iteration(source_data, validation_data, predicted_data, solver)
 
 
 class PCADecodedMetrics(Metrics):
@@ -257,9 +265,10 @@ class PCADecodedMetrics(Metrics):
 
     def on_log_iteration(
         self,
+        _source_data: dict[str, dict[str, ArrayLike]],
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
-        _: _otfm.OTFlowMatching | _genot.GENOT,
+        _solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to reconstruct the data and compute metrics on the reconstruction
 
@@ -315,9 +324,10 @@ class VAEDecodedMetrics(Metrics):
 
     def on_log_iteration(
         self,
+        _source_data: dict[str, dict[str, ArrayLike]],
         validation_data: dict[str, dict[str, ArrayLike]],
         predicted_data: dict[str, dict[str, ArrayLike]],
-        _: _otfm.OTFlowMatching | _genot.GENOT,
+        _solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         """Called at each validation/log iteration to reconstruct the data and compute metrics on the reconstruction
 
@@ -454,6 +464,7 @@ class CallbackRunner:
 
     def on_log_iteration(
         self,
+        source_data: dict[str, dict[str, ArrayLike]],
         valid_data: dict[str, dict[str, ArrayLike]],
         pred_data: dict[str, dict[str, ArrayLike]],
         solver: _otfm.OTFlowMatching | _genot.GENOT,
@@ -462,6 +473,8 @@ class CallbackRunner:
 
         Parameters
         ----------
+        source_data
+            Source data in nested dictionary format with same keys as ``valid_data``
         valid_data
             Validation data in nested dictionary format with same keys as ``pred_data``
         pred_data
@@ -477,7 +490,7 @@ class CallbackRunner:
         dict_to_log: dict[str, Any] = {}
 
         for callback in self.computation_callbacks:
-            results = callback.on_log_iteration(valid_data, pred_data, solver)
+            results = callback.on_log_iteration(source_data, valid_data, pred_data, solver)
             dict_to_log.update(results)
 
         for callback in self.logging_callbacks:
@@ -487,6 +500,7 @@ class CallbackRunner:
 
     def on_train_end(
         self,
+        source_data: dict[str, dict[str, ArrayLike]],
         valid_data: dict[str, dict[str, ArrayLike]],
         pred_data: dict[str, dict[str, ArrayLike]],
         solver: _otfm.OTFlowMatching | _genot.GENOT,
@@ -495,6 +509,8 @@ class CallbackRunner:
 
         Parameters
         ----------
+        source_data
+            Source data in nested dictionary format with same keys as ``valid_data``
         valid_data: dict
             Validation data in nested dictionary format with same keys as ``pred_data``
         pred_data: dict
@@ -510,7 +526,7 @@ class CallbackRunner:
         dict_to_log: dict[str, Any] = {}
 
         for callback in self.computation_callbacks:
-            results = callback.on_train_end(valid_data, pred_data, solver)
+            results = callback.on_train_end(source_data, valid_data, pred_data, solver)
             dict_to_log.update(results)
 
         for callback in self.logging_callbacks:
