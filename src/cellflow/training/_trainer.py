@@ -122,7 +122,9 @@ class CellFlowTrainer:
 
             if ((it - 1) % valid_freq == 0) and (it > 1):
                 # Get predictions from validation data
-                valid_source_data, valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_log_iteration")
+                valid_source_data, valid_true_data, valid_pred_data = self._validation_step(
+                    valid_loaders, mode="on_log_iteration"
+                )
 
                 # Run callbacks
                 metrics = crun.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, self.solver)  # type: ignore[arg-type]
@@ -135,7 +137,9 @@ class CellFlowTrainer:
                 pbar.set_postfix(postfix_dict)
 
         if num_iterations > 0:
-            valid_source_data, valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_train_end")
+            valid_source_data, valid_true_data, valid_pred_data = self._validation_step(
+                valid_loaders, mode="on_train_end"
+            )
             metrics = crun.on_train_end(valid_source_data, valid_true_data, valid_pred_data, self.solver)
             self._update_logs(metrics)
 
