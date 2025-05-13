@@ -202,7 +202,7 @@ class OTFlowMatching:
         x_pred = self._predict_jit(x, condition, rng, **kwargs)
         return np.array(x_pred)
 
-    @jax.jit
+
     def _predict_jit(
         self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any
     ) -> ArrayLike:
@@ -236,13 +236,15 @@ class OTFlowMatching:
         x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))(x, condition, encoder_noise)
         return x_pred
 
+
     def predict_batch(self, x_dict: dict[str, ArrayLike], condition_dict: dict[str, dict[str, ArrayLike]], rng: jax.Array | None = None, **kwargs: Any) -> dict[str, ArrayLike]:
-        batched_predict = jax.vmap(
-            self._predict_jit,
-            in_axes=(0, dict.fromkeys(self.condition_keys, 0))
-        )
         keys = sorted(x_dict.keys())
         condition_keys = sorted(set().union(*(condition_dict[k].keys() for k in keys)))
+        _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
+        batched_predict = jax.vmap(
+            _predict_jit,
+            in_axes=(0, dict.fromkeys(condition_keys, 0))
+        )
         src_inputs = jnp.stack([x_dict[k] for k in keys], axis=0)
         batched_conditions = {}
         for cond_key in condition_keys:
