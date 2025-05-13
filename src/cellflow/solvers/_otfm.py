@@ -199,6 +199,13 @@ class OTFlowMatching:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
+        x_pred = self._predict_jit(x, condition, rng, **kwargs)
+        return np.array(x_pred)
+
+    def _predict_jit(
+        self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any
+    ) -> ArrayLike:
+        """See :meth:`OTFlowMatching.predict`."""
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
         kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
@@ -226,7 +233,10 @@ class OTFlowMatching:
             return result.ys[0]
 
         x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))(x, condition, encoder_noise)
-        return np.array(x_pred)
+        return x_pred
+
+    def predict_batch(self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any) -> ArrayLike:
+        pass
 
     @property
     def is_trained(self) -> bool:
