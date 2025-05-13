@@ -19,7 +19,8 @@ class CellFlowTrainer:
         dataloader
             Data sampler.
         solver
-            OTFM/GENOT solver with a conditional velocity field.
+            :class:`~cellflow.solvers.OTFlowMatching` solver or :class:`~cellflow.solvers.GENOT`
+            solver with a conditional velocity field.
         seed
             Random seed for subsampling validation data.
 
@@ -51,6 +52,7 @@ class CellFlowTrainer:
         """Compute predictions for validation data."""
         # TODO: Sample fixed number of conditions to validate on
 
+        valid_source_data: dict[str, dict[str, ArrayLike]] = {}
         valid_pred_data: dict[str, dict[str, ArrayLike]] = {}
         valid_true_data: dict[str, dict[str, ArrayLike]] = {}
         for val_key, vdl in val_data.items():
@@ -58,10 +60,11 @@ class CellFlowTrainer:
             src = batch["source"]
             condition = batch.get("condition", None)
             true_tgt = batch["target"]
+            valid_source_data[val_key] = src
             valid_pred_data[val_key] = jax.tree.map(self.solver.predict, src, condition)
             valid_true_data[val_key] = true_tgt
 
-        return valid_true_data, valid_pred_data
+        return valid_source_data, valid_true_data, valid_pred_data
 
     def _update_logs(self, logs: dict[str, Any]) -> None:
         """Update training logs."""
@@ -119,10 +122,12 @@ class CellFlowTrainer:
 
             if ((it - 1) % valid_freq == 0) and (it > 1):
                 # Get predictions from validation data
-                valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_log_iteration")
+                valid_source_data, valid_true_data, valid_pred_data = self._validation_step(
+                    valid_loaders, mode="on_log_iteration"
+                )
 
                 # Run callbacks
-                metrics = crun.on_log_iteration(valid_true_data, valid_pred_data)  # type: ignore[arg-type]
+                metrics = crun.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, self.solver)  # type: ignore[arg-type]
                 self._update_logs(metrics)
 
                 # Update progress bar
@@ -132,8 +137,10 @@ class CellFlowTrainer:
                 pbar.set_postfix(postfix_dict)
 
         if num_iterations > 0:
-            valid_true_data, valid_pred_data = self._validation_step(valid_loaders, mode="on_train_end")
-            metrics = crun.on_train_end(valid_true_data, valid_pred_data)
+            valid_source_data, valid_true_data, valid_pred_data = self._validation_step(
+                valid_loaders, mode="on_train_end"
+            )
+            metrics = crun.on_train_end(valid_source_data, valid_true_data, valid_pred_data, self.solver)
             self._update_logs(metrics)
 
         self.solver.is_trained = True
