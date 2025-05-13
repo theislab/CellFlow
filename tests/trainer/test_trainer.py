@@ -1,3 +1,6 @@
+import time
+
+import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -95,3 +98,70 @@ class TestTrainer:
         assert out[0].shape == (1, 12)
         assert isinstance(out[1], np.ndarray)
         assert out[1].shape == (1, 12)
+
+    def test_predict_kwargs_iter(self, dataloader, valid_loader):
+        opt_1 = optax.adam(1e-3)
+        opt_2 = optax.adam(1e-3)
+        vf_1 = cellflow.networks.ConditionalVelocityField(
+            output_dim=5,
+            max_combination_length=2,
+            condition_embedding_dim=12,
+            hidden_dims=(32, 32),
+            decoder_dims=(32, 32),
+        )
+        vf_2 = cellflow.networks.ConditionalVelocityField(
+            output_dim=5,
+            max_combination_length=2,
+            condition_embedding_dim=12,
+            hidden_dims=(32, 32),
+            decoder_dims=(32, 32),
+        )
+        model_1 = _otfm.OTFlowMatching(
+            vf=vf_1,
+            match_fn=match_linear,
+            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            optimizer=opt_1,
+            conditions=cond,
+            rng=vf_rng,
+        )
+        model_2 = _otfm.OTFlowMatching(
+            vf=vf_2,
+            match_fn=match_linear,
+            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            optimizer=opt_2,
+            conditions=cond,
+            rng=vf_rng,
+        )
+
+        metric_to_compute = "e_distance"
+        metrics_callback = cellflow.training.Metrics(metrics=[metric_to_compute])
+
+        predict_kwargs_1 = {"stepsize_controller": diffrax.PIDController(rtol=0.1, atol=0.1)}
+        predict_kwargs_2 = {"stepsize_controller": diffrax.PIDController(rtol=1e-5, atol=1e-5)}
+
+        trainer_1 = cellflow.training.CellFlowTrainer(solver=model_1, predict_kwargs=predict_kwargs_1)
+        trainer_2 = cellflow.training.CellFlowTrainer(solver=model_2, predict_kwargs=predict_kwargs_2)
+
+        start_1 = time.time()
+        trainer_1.train(
+            dataloader=dataloader,
+            valid_loaders=valid_loader,
+            num_iterations=2,
+            valid_freq=1,
+            callbacks=[metrics_callback],
+        )
+        end_1 = time.time()
+        diff_1 = end_1 - start_1
+
+        start_2 = time.time()
+        trainer_2.train(
+            dataloader=dataloader,
+            valid_loaders=valid_loader,
+            num_iterations=2,
+            valid_freq=1,
+            callbacks=[metrics_callback],
+        )
+        end_2 = time.time()
+        diff_2 = end_2 - start_2
+
+        assert diff_2 - diff_1 > 5

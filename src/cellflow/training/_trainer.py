@@ -1,3 +1,4 @@
+import functools
 from collections.abc import Sequence
 from typing import Any, Literal
 
@@ -19,7 +20,12 @@ class CellFlowTrainer:
         dataloader
             Data sampler.
         solver
-            OTFM/GENOT solver with a conditional velocity field.
+            :class:`~cellflow.solvers._otfm.OTFlowMatching` or
+            :class:`~cellflow.solvers._genot.GENOT` solver with a conditional velocity field.
+        predict_kwargs
+            Keyword arguments for the prediction functions
+            :func:`cellflow.solvers._otfm.OTFlowMatching.predict` or
+            :func:`cellflow.solvers._genot.GENOT.predict` used during validation.
         seed
             Random seed for subsampling validation data.
 
@@ -31,12 +37,14 @@ class CellFlowTrainer:
     def __init__(
         self,
         solver: _otfm.OTFlowMatching | _genot.GENOT,
+        predict_kwargs: dict[str, Any] | None = None,
         seed: int = 0,
     ):
         if not isinstance(solver, (_otfm.OTFlowMatching | _genot.GENOT)):
             raise NotImplementedError(f"Solver must be an instance of OTFlowMatching or GENOT, got {type(solver)}")
 
         self.solver = solver
+        self.predict_kwargs = predict_kwargs or {}
         self.rng_subsampling = np.random.default_rng(seed)
         self.training_logs: dict[str, Any] = {}
 
@@ -58,7 +66,11 @@ class CellFlowTrainer:
             src = batch["source"]
             condition = batch.get("condition", None)
             true_tgt = batch["target"]
-            valid_pred_data[val_key] = jax.tree.map(self.solver.predict, src, condition)
+            valid_pred_data[val_key] = jax.tree.map(
+                functools.partial(self.solver.predict, **self.predict_kwargs),
+                src,
+                condition,  # type: ignore[attr-defined]
+            )
             valid_true_data[val_key] = true_tgt
 
         return valid_true_data, valid_pred_data
