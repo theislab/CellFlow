@@ -202,6 +202,7 @@ class OTFlowMatching:
         x_pred = self._predict_jit(x, condition, rng, **kwargs)
         return np.array(x_pred)
 
+    @jax.jit
     def _predict_jit(
         self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any
     ) -> ArrayLike:
@@ -235,8 +236,20 @@ class OTFlowMatching:
         x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))(x, condition, encoder_noise)
         return x_pred
 
-    def predict_batch(self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any) -> ArrayLike:
-        pass
+    def predict_batch(self, x_dict: dict[str, ArrayLike], condition_dict: dict[str, dict[str, ArrayLike]], rng: jax.Array | None = None, **kwargs: Any) -> dict[str, ArrayLike]:
+        batched_predict = jax.vmap(
+            self._predict_jit,
+            in_axes=(0, dict.fromkeys(self.condition_keys, 0))
+        )
+        keys = sorted(x_dict.keys())
+        condition_keys = sorted(set().union(*(condition_dict[k].keys() for k in keys)))
+        src_inputs = jnp.stack([x_dict[k] for k in keys], axis=0)
+        batched_conditions = {}
+        for cond_key in condition_keys:
+            batched_conditions[cond_key] = jnp.stack([condition_dict[k][cond_key] for k in keys])
+
+        pred_targets = batched_predict(src_inputs, batched_conditions)
+        return {k: pred_targets[i] for i, k in enumerate(keys)}
 
     @property
     def is_trained(self) -> bool:
