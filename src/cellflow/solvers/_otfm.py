@@ -223,13 +223,18 @@ class OTFlowMatching:
         Parameters
         ----------
         x
-            Input data of shape [batch_size, ...].
+            A dictionary with keys indicating the name of the condition and values containing
+            the input data as arrays. If ``batched=False`` provide an array of shape [batch_size, ...].
         condition
-            Condition of the input data of shape [batch_size, ...].
+            A dictionary with keys indicating the name of the condition and values containing
+            the condition of input data as arrays. If ``batched=False`` provide an array of shape
+            [batch_size, ...].
         rng
             Random number generator to sample from the latent distribution,
             only used if ``condition_mode='stochastic'``. If :obj:`None`, the
             mean embedding is used.
+        batched
+            Whether to use batched prediction.
         kwargs
             Keyword arguments for :func:`diffrax.diffeqsolve`.
 
