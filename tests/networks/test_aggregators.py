@@ -1,15 +1,9 @@
-# to test mask impact on TokenAttentionPooling:
-
 import jax
 import jax.numpy as jnp
 import pytest
 
 from cellflow.networks._set_encoders import ConditionEncoder
 from cellflow.networks._utils import SeedAttentionPooling, TokenAttentionPooling
-
-
-def _get_masks(conditions):
-    return ConditionEncoder._get_masks
 
 
 class TestAggregator:
