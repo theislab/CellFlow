@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cellflow.data._dataloader import ValidationSampler
+from cellflow.data._data import TrainingData
+from cellflow.data._dataloader import TrainSampler, ValidationSampler
 
 
 @pytest.fixture
@@ -165,6 +166,11 @@ def adata_perturbation_with_nulls(adata_perturbation: ad.AnnData) -> ad.AnnData:
     adata.obs["drug3"] = adata.obs["drug3"].astype("category")
 
     return adata
+
+
+@pytest.fixture()
+def sampler(train_data: TrainingData):
+    return TrainSampler(train_data, batch_size=32)
 
 
 @pytest.fixture()

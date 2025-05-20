@@ -10,7 +10,6 @@ import cloudpickle
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import numpy as np
 import optax
 import pandas as pd
 from ott.neural.methods.flows import dynamics
@@ -18,7 +17,7 @@ from ott.neural.methods.flows import dynamics
 from cellflow import _constants
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
 from cellflow.data._data import ConditionData, TrainingData, ValidationData
-from cellflow.data._dataloader import OOCTrainSampler, PredictionSampler, TrainSampler, ValidationSampler
+from cellflow.data._dataloader import PredictionSampler, TrainSampler, ValidationSampler
 from cellflow.data._datamanager import DataManager
 from cellflow.model._utils import _write_predictions
 from cellflow.networks import _velocity_field
@@ -54,7 +53,7 @@ class CellFlow:
             if solver == "otfm"
             else _velocity_field.GENOTConditionalVelocityField
         )
-        self._dataloader: TrainSampler | OOCTrainSampler | None = None
+        self._dataloader: TrainSampler | None = None
         self._trainer: CellFlowTrainer | None = None
         self._validation_data: dict[str, ValidationData] = {}
         self._solver: _otfm.OTFlowMatching | _genot.GENOT | None = None
@@ -497,7 +496,6 @@ class CellFlow:
         valid_freq: int = 1000,
         callbacks: Sequence[BaseCallback] = [],
         monitor_metrics: Sequence[str] = [],
-        out_of_core_dataloading: bool = False,
     ) -> None:
         """Train the model.
 
@@ -522,9 +520,6 @@ class CellFlow:
               e.g. :class:`~cellflow.training.WandbLogger`.
         monitor_metrics
             Metrics to monitor.
-        out_of_core_dataloading
-            If :obj:`True`, use out-of-core dataloading. Uses the :class:`cellflow.data._dataloader.OOCTrainSampler`
-            to load data that does not fit into GPU memory.
 
         Returns
         -------
@@ -539,10 +534,7 @@ class CellFlow:
         if self.trainer is None:
             raise ValueError("Model not initialized. Please call `prepare_model` first.")
 
-        if out_of_core_dataloading:
-            self._dataloader = OOCTrainSampler(data=self.train_data, batch_size=batch_size)
-        else:
-            self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
+        self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
         validation_loaders = {k: ValidationSampler(v) for k, v in self.validation_data.items()}
 
         self._solver = self.trainer.train(
@@ -626,10 +618,8 @@ class CellFlow:
         batch = pred_loader.sample()
         src = batch["source"]
         condition = batch.get("condition", None)
-        # using jax.tree.map to batch the prediction
-        # because PredictionSampler can return a different number of cells for each condition
         out = jax.tree.map(
-            functools.partial(self.solver.predict, rng=rng, **kwargs),
+            functools.partial(self.solver.predict, **kwargs),
             src,
             condition,  # type: ignore[attr-defined]
         )
@@ -640,10 +630,9 @@ class CellFlow:
                 f"When saving predictions to `adata`, all control cells must be from the same control \
                                 population, but found {len(pred_data.control_to_perturbation)} control populations."
             )
-        out_np = {k: np.array(v) for k, v in out.items()}
         _write_predictions(
             adata=adata,
-            predictions=out_np,
+            predictions=out,
             key_added_prefix=key_added_prefix,
         )
 
@@ -799,7 +788,7 @@ class CellFlow:
         return self._solver
 
     @property
-    def dataloader(self) -> TrainSampler | OOCTrainSampler | None:
+    def dataloader(self) -> TrainSampler | None:
         """The dataloader used for training."""
         return self._dataloader
 
