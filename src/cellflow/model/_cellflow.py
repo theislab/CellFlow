@@ -17,7 +17,7 @@ from ott.neural.methods.flows import dynamics
 from cellflow import _constants
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
 from cellflow.data._data import ConditionData, TrainingData, ValidationData
-from cellflow.data._dataloader import PredictionSampler, TrainSampler, ValidationSampler, OOCTrainSampler
+from cellflow.data._dataloader import OOCTrainSampler, PredictionSampler, TrainSampler, ValidationSampler
 from cellflow.data._datamanager import DataManager
 from cellflow.model._utils import _write_predictions
 from cellflow.networks import _velocity_field
