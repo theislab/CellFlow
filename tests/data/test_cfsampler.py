@@ -1,4 +1,4 @@
-import jax
+import numpy as np
 import pytest
 
 from cellflow.data._dataloader import PredictionSampler, TrainSampler
@@ -28,8 +28,8 @@ class TestTrainSampler:
 
         train_data = dm.get_train_data(adata_perturbation)
         sampler = TrainSampler(data=train_data, batch_size=batch_size)
-        rng_1 = jax.random.PRNGKey(0)
-        rng_2 = jax.random.PRNGKey(1)
+        rng_1 = np.random.default_rng(0)
+        rng_2 = np.random.default_rng(1)
 
         sample_1 = sampler.sample(rng_1)
         sample_2 = sampler.sample(rng_2)
