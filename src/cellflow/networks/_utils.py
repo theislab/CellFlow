@@ -464,7 +464,6 @@ class TokenAttentionPooling(BaseModule):
         token_shape = (len(x), 1)
         class_token = nn.Embed(num_embeddings=1, features=x.shape[-1])(jnp.int32(jnp.zeros(token_shape)))
         z = jnp.concatenate((class_token, x), axis=-2)
-
         token_mask = jnp.ones((x.shape[0], 1, x.shape[1] + 1, x.shape[1] + 1))
         token_mask = token_mask.at[:, :, 1:, 1:].set(mask)
         cls_token_to_data = mask[0, 0, :, :].sum(axis=0) > 0
