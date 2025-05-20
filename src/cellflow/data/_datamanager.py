@@ -619,10 +619,9 @@ class DataManager:
         perturb_covariates = {k: _to_list(v) for k, v in self._perturbation_covariates.items()}
         npartitions = 2  # TODO: make this dynamic
 
-
         # delete later
         covariate_data = covariate_data.copy()
-        covariate_data['cell_index'] = covariate_data.index
+        covariate_data["cell_index"] = covariate_data.index
         covariate_data = covariate_data.reset_index(drop=True)
 
         # Modified process_condition function
@@ -664,7 +663,7 @@ class DataManager:
         control_key = self._control_key
 
         df = covariate_data[split_covariates + perturbation_covariates_keys + [control_key]].copy()
-        cell_idx_key = 'cell_index'
+        cell_idx_key = "cell_index"
         df[cell_idx_key] = df.index
         df = df.set_index(cell_idx_key, drop=False)
         for col in split_covariates + perturbation_covariates_keys:
