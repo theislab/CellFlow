@@ -104,7 +104,8 @@ class CellFlowTrainer:
             The trained model.
         """
         self.training_logs = {"loss": []}
-        rng = jax.random.PRNGKey(0)
+        rng_jax = jax.random.PRNGKey(0)
+        rng_np = np.random.default_rng(0)
 
         # Initiate callbacks
         valid_loaders = valid_loaders or {}
@@ -115,8 +116,8 @@ class CellFlowTrainer:
 
         pbar = tqdm(range(num_iterations))
         for it in pbar:
-            rng, rng_step_fn = jax.random.split(rng, 2)
-            batch = dataloader.sample(rng)
+            rng_jax, rng_step_fn = jax.random.split(rng_jax, 2)
+            batch = dataloader.sample(rng_np)
             loss = self.solver.step_fn(rng_step_fn, batch)
             self.training_logs["loss"].append(float(loss))
 
