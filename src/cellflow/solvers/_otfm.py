@@ -242,6 +242,9 @@ class OTFlowMatching:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
+        if batched and not x:
+            return {}
+
         if batched:
             keys = sorted(x.keys())
             condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
