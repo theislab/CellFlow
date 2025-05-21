@@ -234,6 +234,7 @@ class GENOT:
         condition: dict[str, ArrayLike] | None = None,
         rng: ArrayLike | None = None,
         rng_genot: ArrayLike | None = None,
+        batched: bool = False,
         **kwargs: Any,
     ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
         """Generate the push-forward of ``x`` under condition ``condition``.
@@ -260,6 +261,33 @@ class GENOT:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
+        if batched and not x:
+            return {}
+
+        if batched:
+            keys = sorted(x.keys())
+            condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
+            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
+            batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
+            src_inputs = jnp.stack([x[k] for k in keys], axis=0)
+            batched_conditions = {}
+            for cond_key in condition_keys:
+                batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
+
+            pred_targets = batched_predict(src_inputs, batched_conditions)
+            return {k: pred_targets[i] for i, k in enumerate(keys)}
+        else:
+            x_pred = self._predict_jit(x, condition, rng, rng_genot, **kwargs)
+            return np.array(x_pred)
+
+    def _predict_jit(
+        self,
+        x: ArrayLike,
+        condition: dict[str, ArrayLike] | None = None,
+        rng: ArrayLike | None = None,
+        rng_genot: ArrayLike | None = None,
+        **kwargs: Any,
+    ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
         kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
