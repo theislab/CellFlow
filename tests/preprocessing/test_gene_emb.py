@@ -59,7 +59,7 @@ class TestGeneEmb:
         assert Counter(metadata[metadata.is_protein_coding].gene_id.tolist()) == IS_PROT_CODING
         gene_with_prot_seq = metadata[metadata.protein_sequence.notnull()].gene_id.tolist()
         assert Counter(gene_with_prot_seq) == IS_PROT_CODING
-        
+
     @pytest.skip(reason="temporarily disabled")
     def test_legacy_emb(self, adata_test_legacy):
         """Test if we can reproduce the original embeddings we used."""
