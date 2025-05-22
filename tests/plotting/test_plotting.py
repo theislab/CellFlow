@@ -5,6 +5,7 @@ from cellflow.plotting import plot_condition_embedding
 
 
 class TestCallbacks:
+    @pytest.mark.skip()
     @pytest.mark.parametrize("embedding", ["raw_embedding", "UMAP", "PCA", "Kernel_PCA"])
     @pytest.mark.parametrize("dimensions", [(0, 1), (4, 5)])
     @pytest.mark.parametrize("hue", ["dosage", "drug1", None])

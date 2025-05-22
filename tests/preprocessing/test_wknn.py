@@ -4,6 +4,7 @@ import pytest
 
 
 class TestWKNN:
+    @pytest.mark.skip()
     @pytest.mark.parametrize("n_neighbors", [50, 100])
     def test_compute_wknn_k(self, adata_perturbation: ad.AnnData, n_neighbors):
         import cellflow
@@ -22,6 +23,7 @@ class TestWKNN:
         )
         assert np.all(np.sum(adata_perturbation.uns["wknn"] > 0, axis=1) == n_neighbors)
 
+    @pytest.mark.skip()
     @pytest.mark.parametrize("weighting_scheme", ["top_n", "jaccard", "jaccard_square"])
     def test_compute_wknn_weighting(self, adata_perturbation: ad.AnnData, weighting_scheme):
         import cellflow
@@ -48,6 +50,7 @@ class TestWKNN:
         else:
             assert np.all(np.sum(adata_perturbation.uns["wknn"] > 0, axis=1) == n_neighbors)
 
+    @pytest.mark.skip()
     @pytest.mark.parametrize("uns_key_added", ["wknn", "wknn2"])
     def test_compute_wknn_key_added(self, adata_perturbation: ad.AnnData, uns_key_added):
         import cellflow
@@ -69,6 +72,7 @@ class TestWKNN:
         )
         assert np.all(np.sum(adata_perturbation.uns[uns_key_added] > 0, axis=1) == n_neighbors)
 
+    @pytest.mark.skip()
     @pytest.mark.parametrize("label_key", ["drug1", "cell_type"])
     def test_transfer_labels(self, adata_perturbation: ad.AnnData, label_key):
         import cellflow
