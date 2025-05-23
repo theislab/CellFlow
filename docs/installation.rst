@@ -1,6 +1,6 @@
 Installation
 ============
-:mod:`cellflow` requires Python version >= 3.10 to run.
+:mod:`cellflow` requires Python version >= 3.11 to run.
 
 PyPI
 ----

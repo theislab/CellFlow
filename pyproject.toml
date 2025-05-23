@@ -20,10 +20,9 @@ authors = [
   { name = "Daniil Bobrovskiy" },
   { name = "Guillaume Huguet" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -188,7 +187,7 @@ sort = "Miss"
 legacy_tox_ini = """
 [tox]
 min_version = 4.0
-env_list = lint-code,py{3.10,3.11,3.12,3.13}
+env_list = lint-code,py{3.11,3.12,3.13,3.14}
 skip_missing_interpreters = true
 
 [testenv]
@@ -280,7 +279,7 @@ commands = biber --tool --output_file={tox_root}{/}docs{/}references.bib --nolog
 
 [tool.mypy]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
-python_version = "3.10"
+python_version = "3.11"
 plugins = "numpy.typing.mypy_plugin"
 
 ignore_errors = false
