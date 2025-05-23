@@ -187,7 +187,7 @@ sort = "Miss"
 legacy_tox_ini = """
 [tox]
 min_version = 4.0
-env_list = lint-code,py{3.11,3.12,3.13,3.14}
+env_list = lint-code,py{3.11,3.12,3.13}
 skip_missing_interpreters = true
 
 [testenv]
