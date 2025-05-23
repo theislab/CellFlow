@@ -285,7 +285,6 @@ class GENOT:
         x: ArrayLike,
         condition: dict[str, ArrayLike] | None = None,
         rng: ArrayLike | None = None,
-        rng_genot: ArrayLike | None = None,
         **kwargs: Any,
     ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
         kwargs.setdefault("dt0", None)
@@ -296,8 +295,7 @@ class GENOT:
         use_mean = rng is None or self.condition_encoder_mode == "deterministic"
         rng = utils.default_prng_key(rng)
         encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
-        rng_genot = utils.default_prng_key(rng_genot)
-        latent = self.latent_noise_fn(rng_genot, (x.shape[0],))
+        latent = self.latent_noise_fn(rng, (x.shape[0],))
 
         def vf(t: float, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
             params = self.vf_state.params
