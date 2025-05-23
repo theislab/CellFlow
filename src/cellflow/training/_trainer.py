@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, Literal
 
+import anndata as ad
 import jax
 import numpy as np
 from numpy.typing import ArrayLike
@@ -8,7 +9,7 @@ from tqdm import tqdm
 
 from cellflow.data._dataloader import TrainSampler, ValidationSampler
 from cellflow.solvers import _genot, _otfm
-from cellflow.training._callbacks import BaseCallback, CallbackRunner
+from cellflow.training._callbacks import BaseCallback, CallbackRunner, PCADecodedMetrics2
 
 
 class CellFlowTrainer:
@@ -31,12 +32,14 @@ class CellFlowTrainer:
     def __init__(
         self,
         solver: _otfm.OTFlowMatching | _genot.GENOT,
+        validation_adata: dict[str, ad.AnnData],
         seed: int = 0,
     ):
         if not isinstance(solver, (_otfm.OTFlowMatching | _genot.GENOT)):
             raise NotImplementedError(f"Solver must be an instance of OTFlowMatching or GENOT, got {type(solver)}")
 
         self.solver = solver
+        self.validation_adata = validation_adata
         self.rng_subsampling = np.random.default_rng(seed)
         self.training_logs: dict[str, Any] = {}
 
@@ -102,6 +105,10 @@ class CellFlowTrainer:
         """
         self.training_logs = {"loss": []}
         rng = jax.random.PRNGKey(0)
+
+        for callback in callbacks:
+            if isinstance(callback, PCADecodedMetrics2):
+                callback.add_validation_adata(self.validation_adata)
 
         # Initiate callbacks
         valid_loaders = valid_loaders or {}
