@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 from tqdm import tqdm
 
-from cellflow.data._dataloader import TrainSampler, ValidationSampler
+from cellflow.data._dataloader import OOCTrainSampler, TrainSampler, ValidationSampler
 from cellflow.solvers import _genot, _otfm
 from cellflow.training._callbacks import BaseCallback, CallbackRunner
 
@@ -75,7 +75,7 @@ class CellFlowTrainer:
 
     def train(
         self,
-        dataloader: TrainSampler,
+        dataloader: TrainSampler | OOCTrainSampler,
         num_iterations: int,
         valid_freq: int,
         valid_loaders: dict[str, ValidationSampler] | None = None,
@@ -104,7 +104,8 @@ class CellFlowTrainer:
             The trained model.
         """
         self.training_logs = {"loss": []}
-        rng = jax.random.PRNGKey(0)
+        rng_jax = jax.random.PRNGKey(0)
+        rng_np = np.random.default_rng(0)
 
         # Initiate callbacks
         valid_loaders = valid_loaders or {}
@@ -114,9 +115,12 @@ class CellFlowTrainer:
         crun.on_train_begin()
 
         pbar = tqdm(range(num_iterations))
+        sampler = dataloader
+        if isinstance(dataloader, OOCTrainSampler):
+            dataloader.set_sampler(num_iterations=num_iterations)
         for it in pbar:
-            rng, rng_step_fn = jax.random.split(rng, 2)
-            batch = dataloader.sample(rng)
+            rng_jax, rng_step_fn = jax.random.split(rng_jax, 2)
+            batch = sampler.sample(rng_np)
             loss = self.solver.step_fn(rng_step_fn, batch)
             self.training_logs["loss"].append(float(loss))
 
