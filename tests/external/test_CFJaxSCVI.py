@@ -5,7 +5,6 @@ from cellflow.external import CFJaxSCVI
 
 
 class TestCFJaxSCVI:
-    @pytest.mark.skip()
     @pytest.mark.parametrize("gene_likelihood", ["nb", "poisson", "normal"])
     def test_jax_scvi(self, gene_likelihood: str, n_latent=5):
         adata = synthetic_iid()

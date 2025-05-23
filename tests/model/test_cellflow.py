@@ -16,7 +16,6 @@ perturbation_covariate_comb_args = [
 
 
 class TestCellFlow:
-    @pytest.mark.skip(reason="temporarily disabled")
     @pytest.mark.parametrize("solver", ["otfm"])  # , "genot"])
     @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
     @pytest.mark.parametrize("regularization", [0.0, 0.1])
@@ -132,7 +131,6 @@ class TestCellFlow:
         assert cond_embed_var.shape[0] == conds.shape[0]
         assert cond_embed_var.shape[1] == condition_embedding_dim
 
-    @pytest.mark.skip(reason="temporarily disabled")
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
     @pytest.mark.parametrize("perturbation_covariate_reps", [{}, {"drug": "drug"}])
     def test_cellflow_covar_reps(
@@ -198,7 +196,6 @@ class TestCellFlow:
         assert out[0].shape[0] == len(covs)
         assert out[0].shape[1] == condition_embedding_dim
 
-    @pytest.mark.skip(reason="temporarily disabled")
     @pytest.mark.parametrize("split_covariates", [[], ["cell_type"]])
     @pytest.mark.parametrize("perturbation_covariates", perturbation_covariate_comb_args)
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 2])
@@ -247,7 +244,6 @@ class TestCellFlow:
             assert cond_data[k].ndim == 3
             assert cond_data[k].shape[1] == cf.train_data.max_combination_length
 
-    @pytest.mark.skip()
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 1])
     @pytest.mark.parametrize("n_conditions_on_train_end", [None, 0, 1])
@@ -305,7 +301,6 @@ class TestCellFlow:
         assert cf._dataloader is not None
         assert f"val_{metric_to_compute}_mean" in cf._trainer.training_logs
 
-    @pytest.mark.skip()
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
     @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
     @pytest.mark.parametrize("regularization", [0.0, 0.1])
@@ -383,7 +378,6 @@ class TestCellFlow:
                 adata_pred_cell_type_2, sample_rep="X", covariate_data=cov_data_cell_type_1, max_steps=3, throw=False
             )
 
-    @pytest.mark.skip()
     def test_raise_otfm_vf_kwargs_passed(self, adata_perturbation):
         vf_kwargs = {"genot_source_dims": (32, 32), "genot_source_dropouts": 0.1}
         cf = cellflow.model.CellFlow(adata_perturbation, solver="otfm")
@@ -404,7 +398,6 @@ class TestCellFlow:
                 vf_kwargs=vf_kwargs,
             )
 
-    @pytest.mark.skip()
     @pytest.mark.parametrize(
         "sample_covariate_and_reps",
         [(None, None), (["cell_type"], {"cell_type": "cell_type"})],
