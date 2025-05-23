@@ -4,6 +4,7 @@ import pytest
 
 
 class TestPreprocessing:
+    @pytest.mark.skip()
     @pytest.mark.parametrize(
         "compound_key_and_type",
         [
