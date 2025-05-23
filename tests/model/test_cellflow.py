@@ -247,7 +247,6 @@ class TestCellFlow:
             assert cond_data[k].ndim == 3
             assert cond_data[k].shape[1] == cf.train_data.max_combination_length
 
-    @pytest.mark.skip()
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 1])
     @pytest.mark.parametrize("n_conditions_on_train_end", [None, 0, 1])
