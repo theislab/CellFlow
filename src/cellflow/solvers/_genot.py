@@ -319,7 +319,7 @@ class GENOT:
             return sol.ys[0]
 
         x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None, None]))(latent, x, condition, encoder_noise)
-        return np.array(x_pred)
+        return x_pred
 
     @property
     def is_trained(self) -> bool:

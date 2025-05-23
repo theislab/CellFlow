@@ -4,10 +4,11 @@ import time
 import jax
 import numpy as np
 import optax
+import pytest
 from ott.neural.methods.flows import dynamics
 
 import cellflow
-from cellflow.solvers import _otfm
+from cellflow.solvers import _genot, _otfm
 from cellflow.utils import match_linear
 
 src = {
@@ -22,23 +23,41 @@ vf_rng = jax.random.PRNGKey(111)
 
 
 class TestSolver:
-    def test_predict_batch(self, dataloader, valid_loader):
+    @pytest.mark.parametrize("solver_class", ["otfm", "genot"])
+    def test_predict_batch(self, dataloader, solver_class):
+        if solver_class == "otfm":
+            vf_class = cellflow.networks.ConditionalVelocityField
+        else:
+            vf_class = cellflow.networks.GENOTConditionalVelocityField
+
         opt = optax.adam(1e-3)
-        vf = cellflow.networks.ConditionalVelocityField(
+        vf = vf_class(
             output_dim=5,
             max_combination_length=2,
             condition_embedding_dim=12,
             hidden_dims=(32, 32),
             decoder_dims=(32, 32),
         )
-        solver = _otfm.OTFlowMatching(
-            vf=vf,
-            match_fn=match_linear,
-            probability_path=dynamics.ConstantNoiseFlow(0.0),
-            optimizer=opt,
-            conditions={"drug": np.random.rand(2, 1, 3)},
-            rng=vf_rng,
-        )
+        if solver_class == "otfm":
+            solver = _otfm.OTFlowMatching(
+                vf=vf,
+                match_fn=match_linear,
+                probability_path=dynamics.ConstantNoiseFlow(0.0),
+                optimizer=opt,
+                conditions={"drug": np.random.rand(2, 1, 3)},
+                rng=vf_rng,
+            )
+        else:
+            solver = _genot.GENOT(
+                vf=vf,
+                data_match_fn=match_linear,
+                probability_path=dynamics.ConstantNoiseFlow(0.0),
+                optimizer=opt,
+                source_dim=5,
+                target_dim=5,
+                conditions={"drug": np.random.rand(2, 1, 3)},
+                rng=vf_rng,
+            )
 
         trainer = cellflow.training.CellFlowTrainer(solver=solver)
         trainer.train(
