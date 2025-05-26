@@ -310,7 +310,13 @@ class PCADecodedMetrics(Metrics):
         valid_true_data_decoded = jtu.tree_map(self.reconstruct_data, valid_true_data)
         predicted_data_decoded = jtu.tree_map(self.reconstruct_data, valid_pred_data)
 
-        metrics = super().on_log_iteration(valid_true_data_decoded, predicted_data_decoded)
+        metrics = super().on_log_iteration(
+            valid_source_data={},
+            valid_true_data=valid_true_data_decoded,
+            valid_pred_data=predicted_data_decoded,
+            solver=solver,
+        )
+
         metrics = {f"{self.log_prefix}{k}": v for k, v in metrics.items()}
         return metrics
 
@@ -382,7 +388,12 @@ class VAEDecodedMetrics(Metrics):
         valid_true_data_decoded = jtu.tree_map(self.reconstruct_data, valid_true_data_in_anndata)
         predicted_data_decoded = jtu.tree_map(self.reconstruct_data, predicted_data_in_anndata)
 
-        metrics = super().on_log_iteration(valid_true_data_decoded, predicted_data_decoded)
+        metrics = super().on_log_iteration(
+            valid_source_data={},
+            valid_true_data=valid_true_data_decoded,
+            valid_pred_data=predicted_data_decoded,
+            solver=solver,
+        )
         metrics = {f"{self.log_prefix}{k}": v for k, v in metrics.items()}
         return metrics
 
