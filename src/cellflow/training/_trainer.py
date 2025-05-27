@@ -61,7 +61,7 @@ class CellFlowTrainer:
             condition = batch.get("condition", None)
             true_tgt = batch["target"]
             valid_source_data[val_key] = src
-            valid_pred_data[val_key] = jax.tree.map(self.solver.predict, src, condition)
+            valid_pred_data[val_key] = self.solver.predict(src, condition=condition, batched=True)
             valid_true_data[val_key] = true_tgt
 
         return valid_source_data, valid_true_data, valid_pred_data

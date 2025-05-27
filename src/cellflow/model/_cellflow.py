@@ -1,4 +1,3 @@
-import functools
 import os
 import types
 from collections.abc import Callable, Sequence
@@ -618,11 +617,7 @@ class CellFlow:
         batch = pred_loader.sample()
         src = batch["source"]
         condition = batch.get("condition", None)
-        out = jax.tree.map(
-            functools.partial(self.solver.predict, rng=rng, **kwargs),
-            src,
-            condition,  # type: ignore[attr-defined]
-        )
+        out = self.solver.predict(src, condition=condition, rng=rng, batched=True, **kwargs)
         if key_added_prefix is None:
             return out
         if len(pred_data.control_to_perturbation) > 1:
