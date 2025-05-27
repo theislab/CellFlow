@@ -5,6 +5,7 @@ from cellflow.training._callbacks import (
     LoggingCallback,
     Metrics,
     PCADecodedMetrics,
+    PCADecodedMetrics2,
     VAEDecodedMetrics,
     WandbLogger,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "WandbLogger",
     "CallbackRunner",
     "PCADecodedMetrics",
+    "PCADecodedMetrics2",
     "PCADecoder",
     "VAEDecodedMetrics",
 ]
