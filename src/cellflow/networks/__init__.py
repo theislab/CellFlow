@@ -12,9 +12,12 @@ from cellflow.networks._utils import (
 )
 from cellflow.networks._velocity_field import ConditionalVelocityField, GENOTConditionalVelocityField
 
+from cellflow.networks._marginal_mlp import MLPMarginal
+
 __all__ = [
     "ConditionalVelocityField",
     "GENOTConditionalVelocityField",
+    "MLPMarginal",
     "ConditionEncoder",
     "MLPBlock",
     "SelfAttention",
