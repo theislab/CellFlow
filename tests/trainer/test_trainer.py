@@ -6,8 +6,9 @@ import pytest
 from ott.neural.methods.flows import dynamics
 
 import cellflow
+from cellflow.networks._marginal_mlp import MLPMarginal
 from cellflow.solvers import _otfm
-from cellflow.training import CellFlowTrainer, ComputationCallback, Metrics
+from cellflow.training import CellFlowTrainer, ComputationCallback, Metrics, MetricsWithAddedLoss
 from cellflow.utils import match_linear
 
 x_test = jnp.ones((10, 5)) * 10
@@ -155,3 +156,43 @@ class TestTrainer:
         assert isinstance(logs["diff"][0], np.ndarray)
         assert logs["diff"][0].shape == (5,)
         assert 0 < np.mean(logs["diff"][0]) < 10
+
+    def test_cellflow_trainer_with_rescaling(self, dataloader,
+                                                valid_loader):
+        opt = optax.adam(1e-3)
+        vf = cellflow.networks.ConditionalVelocityField(
+            output_dim=5,
+            max_combination_length=2,
+            condition_embedding_dim=12,
+            hidden_dims=(32, 32),
+            decoder_dims=(32, 32),
+        )
+
+        mlp_eta = MLPMarginal(hidden_dim=16)
+        mlp_xi = MLPMarginal(hidden_dim=16)
+        metric_to_compute = "e_distance"
+        metrics_callback = MetricsWithAddedLoss(metrics=[metric_to_compute])
+
+        solver = _otfm.OTFlowMatching(
+            vf=vf,
+            match_fn=match_linear,
+            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            optimizer=opt,
+            mlp_eta=mlp_eta,
+            mlp_xi=mlp_xi,
+            conditions=cond,
+            rng=vf_rng,
+        )
+
+        trainer = CellFlowTrainer(solver=solver)
+        trainer.train(
+            dataloader=dataloader,
+            valid_loaders=valid_loader,
+            num_iterations=2,
+            valid_freq=1,
+            callbacks=[metrics_callback],
+        )
+
+        assert "loss_eta" in trainer.training_logs
+        assert "loss_xi" in trainer.training_logs
+

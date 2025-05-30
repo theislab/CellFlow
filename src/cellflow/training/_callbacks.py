@@ -21,6 +21,7 @@ __all__ = [
     "LoggingCallback",
     "ComputationCallback",
     "Metrics",
+    "MetricsWithAddedLoss",
     "WandbLogger",
     "CallbackRunner",
     "PCADecodedMetrics",
@@ -248,6 +249,76 @@ class Metrics(ComputationCallback):
             Computed metrics between the true validation data and predicted validation data as a dictionary
         """
         return self.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, solver)
+    
+class MetricsWithAddedLoss(ComputationCallback):
+    """
+    Callback to compute metrics on validation data and log marginal losses during training.
+
+    Parameters
+    ----------
+    metrics
+        List of metrics to compute.
+    metric_aggregations
+        List of aggregation functions to use for each metric.
+    """
+
+    def __init__(
+        self,
+        metrics: list[Literal["r_squared", "mmd", "sinkhorn_div", "e_distance"]],
+        metric_aggregations: list[Literal["mean", "median"]] = None,
+    ):
+        self.metrics = metrics
+        self.metric_aggregation = ["mean"] if metric_aggregations is None else metric_aggregations
+        for metric in metrics:
+            if metric not in metric_to_func:
+                raise ValueError(f"Metric {metric} not supported. Supported metrics: {list(metric_to_func.keys())}")
+
+    def _compute_metrics(
+        self,
+        valid_true_data: dict[str, dict[str, ArrayLike]],
+        valid_pred_data: dict[str, dict[str, ArrayLike]],
+    ) -> dict[str, float]:
+        metrics = {}
+        for metric in self.metrics:
+            for k in valid_true_data.keys():
+                out = jtu.tree_map(metric_to_func[metric], valid_true_data[k], valid_pred_data[k])
+                out_flattened = jt.flatten(out)[0]
+                for agg_fn in self.metric_aggregation:
+                    metrics[f"{k}_{metric}_{agg_fn}"] = agg_fn_to_func[agg_fn](out_flattened)
+        return metrics
+
+    def _log_losses(self, solver) -> dict[str, float]:
+        loss_logs = {}
+        for loss_name in ["loss_eta", "loss_xi"]:
+            if loss_name in solver.metrics and len(solver.metrics[loss_name]) > 0:
+                loss_logs[loss_name] = float(solver.metrics[loss_name][-1])
+        return loss_logs
+    
+    def on_train_begin(self, *args: Any, **kwargs: Any) -> Any:
+        """Called at the beginning of training."""
+        pass
+
+    def on_log_iteration(
+        self,
+        valid_source_data: dict[str, dict[str, ArrayLike]],
+        valid_true_data: dict[str, dict[str, ArrayLike]],
+        valid_pred_data: dict[str, dict[str, ArrayLike]],
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
+    ) -> dict[str, float]:
+        return {
+            **self._compute_metrics(valid_true_data, valid_pred_data),
+            **self._log_losses(solver)
+        }
+
+    def on_train_end(
+        self,
+        valid_source_data: dict[str, dict[str, ArrayLike]],
+        valid_true_data: dict[str, dict[str, ArrayLike]],
+        valid_pred_data: dict[str, dict[str, ArrayLike]],
+        solver: _otfm.OTFlowMatching | _genot.GENOT,
+    ) -> dict[str, float]:
+        return self.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, solver)
+
 
 
 class PCADecodedMetrics(Metrics):
