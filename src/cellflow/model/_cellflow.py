@@ -1,4 +1,3 @@
-import functools
 import os
 import types
 from collections.abc import Callable, Sequence
@@ -10,6 +9,7 @@ import cloudpickle
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import pandas as pd
 from ott.neural.methods.flows import dynamics
@@ -618,11 +618,7 @@ class CellFlow:
         batch = pred_loader.sample()
         src = batch["source"]
         condition = batch.get("condition", None)
-        out = jax.tree.map(
-            functools.partial(self.solver.predict, rng=rng, **kwargs),
-            src,
-            condition,  # type: ignore[attr-defined]
-        )
+        out = self.solver.predict(src, condition=condition, rng=rng, batched=True, **kwargs)
         if key_added_prefix is None:
             return out
         if len(pred_data.control_to_perturbation) > 1:
@@ -630,9 +626,10 @@ class CellFlow:
                 f"When saving predictions to `adata`, all control cells must be from the same control \
                                 population, but found {len(pred_data.control_to_perturbation)} control populations."
             )
+        out_np = {k: np.array(v) for k, v in out.items()}
         _write_predictions(
             adata=adata,
-            predictions=out,
+            predictions=out_np,
             key_added_prefix=key_added_prefix,
         )
 
