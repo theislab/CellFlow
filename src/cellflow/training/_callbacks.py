@@ -249,7 +249,8 @@ class Metrics(ComputationCallback):
             Computed metrics between the true validation data and predicted validation data as a dictionary
         """
         return self.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, solver)
-    
+
+
 class MetricsWithAddedLoss(ComputationCallback):
     """
     Callback to compute metrics on validation data and log marginal losses during training.
@@ -293,7 +294,7 @@ class MetricsWithAddedLoss(ComputationCallback):
             if loss_name in solver.metrics and len(solver.metrics[loss_name]) > 0:
                 loss_logs[loss_name] = float(solver.metrics[loss_name][-1])
         return loss_logs
-    
+
     def on_train_begin(self, *args: Any, **kwargs: Any) -> Any:
         """Called at the beginning of training."""
         pass
@@ -305,10 +306,7 @@ class MetricsWithAddedLoss(ComputationCallback):
         valid_pred_data: dict[str, dict[str, ArrayLike]],
         solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
-        return {
-            **self._compute_metrics(valid_true_data, valid_pred_data),
-            **self._log_losses(solver)
-        }
+        return {**self._compute_metrics(valid_true_data, valid_pred_data), **self._log_losses(solver)}
 
     def on_train_end(
         self,
@@ -318,7 +316,6 @@ class MetricsWithAddedLoss(ComputationCallback):
         solver: _otfm.OTFlowMatching | _genot.GENOT,
     ) -> dict[str, float]:
         return self.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, solver)
-
 
 
 class PCADecodedMetrics(Metrics):

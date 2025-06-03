@@ -157,8 +157,7 @@ class TestTrainer:
         assert logs["diff"][0].shape == (5,)
         assert 0 < np.mean(logs["diff"][0]) < 10
 
-    def test_cellflow_trainer_with_rescaling(self, dataloader,
-                                                valid_loader):
+    def test_cellflow_trainer_with_rescaling(self, dataloader, valid_loader):
         opt = optax.adam(1e-3)
         vf = cellflow.networks.ConditionalVelocityField(
             output_dim=5,
@@ -197,7 +196,3 @@ class TestTrainer:
         assert "loss_xi" in trainer.training_logs
         assert len(trainer.training_logs["loss_eta"]) > 0
         assert len(trainer.training_logs["loss_xi"]) > 0
-
-
-
-

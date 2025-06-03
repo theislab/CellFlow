@@ -1,12 +1,12 @@
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any
 
 import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
-from flax.training import train_state
 import optax
+from flax.training import train_state
 from ott.neural.methods.flows import dynamics
 from ott.solvers import utils as solver_utils
 
@@ -48,8 +48,8 @@ class OTFlowMatching:
         probability_path: dynamics.BaseFlow,
         match_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None,
         time_sampler: Callable[[jax.Array, int], jnp.ndarray] = solver_utils.uniform_sampler,
-        mlp_eta: Optional[Any] = None,
-        mlp_xi: Optional[Any] = None,
+        mlp_eta: Any | None = None,
+        mlp_xi: Any | None = None,
         **kwargs: Any,
     ):
         self._is_trained: bool = False
@@ -65,8 +65,8 @@ class OTFlowMatching:
         self.mlp_xi = mlp_xi
 
         self.vf_state = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
-        self.eta_state : Optional[train_state.TrainState] = None
-        self.xi_state : Optional[train_state.TrainState] = None
+        self.eta_state: train_state.TrainState | None = None
+        self.xi_state: train_state.TrainState | None = None
 
         self.vf_step_fn = self._get_vf_step_fn()
         self.rescaling_step_fn = self._get_rescaling_step_fn()
@@ -112,19 +112,19 @@ class OTFlowMatching:
                 else:
                     encoder_loss = 0.0
                 return flow_matching_loss + encoder_loss
-            
-            
+
             grad_fn = jax.value_and_grad(vf_loss_fn)
             loss, grads = grad_fn(vf_state.params, time, source, target, conditions, encoder_noise, rng)
             return vf_state.apply_gradients(grads=grads), loss
 
         return vf_step_fn
+
     def _get_rescaling_step_fn(self) -> Callable:  # type: ignore[type-arg]
         @jax.jit
         def rescaling_step_fn(
             rng: jax.Array,
-            eta_state: Optional[train_state.TrainState],
-            xi_state: Optional[train_state.TrainState],
+            eta_state: train_state.TrainState | None,
+            xi_state: train_state.TrainState | None,
             x_eta: jnp.ndarray,
             y_xi: jnp.ndarray,
             a: jnp.ndarray,
@@ -139,8 +139,11 @@ class OTFlowMatching:
                 a: jnp.ndarray,
                 expectation_reweighting: float,
             ) -> tuple[float, jnp.ndarray]:
-                eta_predictions = apply_fn_eta({"params": params_eta},  x)
-                loss = optax.l2_loss(eta_predictions[:, 0], a).mean() + optax.l2_loss(jnp.mean(eta_predictions),expectation_reweighting).mean()
+                eta_predictions = apply_fn_eta({"params": params_eta}, x)
+                loss = (
+                    optax.l2_loss(eta_predictions[:, 0], a).mean()
+                    + optax.l2_loss(jnp.mean(eta_predictions), expectation_reweighting).mean()
+                )
                 return loss, eta_predictions
 
             def loss_b_fn(
@@ -151,11 +154,14 @@ class OTFlowMatching:
                 expectation_reweighting: float,
             ) -> tuple[float, jnp.ndarray]:
                 xi_predictions = apply_fn_xi({"params": params_xi}, x)
-                loss = optax.l2_loss(xi_predictions[:,0], b).mean() + optax.l2_loss(jnp.mean(xi_predictions), expectation_reweighting).mean()
+                loss = (
+                    optax.l2_loss(xi_predictions[:, 0], b).mean()
+                    + optax.l2_loss(jnp.mean(xi_predictions), expectation_reweighting).mean()
+                )
                 return loss, xi_predictions
 
             if eta_state is not None:
-                grad_a_fn = jax.value_and_grad(loss_a_fn, argnums=0,    has_aux=True)
+                grad_a_fn = jax.value_and_grad(loss_a_fn, argnums=0, has_aux=True)
                 (loss_a, eta_predictions), grads_eta = grad_a_fn(
                     eta_state.params,
                     eta_state.apply_fn,
@@ -163,14 +169,14 @@ class OTFlowMatching:
                     a,
                     expectation_reweighting_eta,
                 )
-                new_eta_state = eta_state.apply_gradients   (grads=grads_eta)
+                new_eta_state = eta_state.apply_gradients(grads=grads_eta)
             else:
                 loss_a = 0.0
                 eta_predictions = jnp.zeros_like(x_eta)
                 new_eta_state = None
- 
+
             if xi_state is not None:
-                grad_b_fn = jax.value_and_grad(loss_b_fn, argnums=0,    has_aux=True)
+                grad_b_fn = jax.value_and_grad(loss_b_fn, argnums=0, has_aux=True)
                 (loss_b, xi_predictions), grads_xi = grad_b_fn(
                     xi_state.params,
                     xi_state.apply_fn,
@@ -184,11 +190,9 @@ class OTFlowMatching:
                 xi_predictions = jnp.zeros_like(y_xi)
                 new_xi_state = None
 
-            return new_eta_state, new_xi_state, loss_a, loss_b,     eta_predictions, xi_predictions
+            return new_eta_state, new_xi_state, loss_a, loss_b, eta_predictions, xi_predictions
 
         return rescaling_step_fn
-    
-
 
     def step_fn(
         self,
@@ -221,7 +225,6 @@ class OTFlowMatching:
         encoder_noise = jax.random.normal(rng_encoder_noise, (n, self.vf.condition_embedding_dim))
         # TODO: test whether it's better to sample the same noise for all samples or different ones
 
- 
         if self.match_fn is not None:
             tmat = self.match_fn(src, tgt)
             a, b = tmat.sum(axis=0), tmat.sum(axis=1)
@@ -231,12 +234,12 @@ class OTFlowMatching:
         if self.mlp_eta is not None and self.eta_state is None:
             opt_eta = self.kwargs.get("opt_eta", optax.adamw(learning_rate=1e-4, weight_decay=1e-10))
             self.eta_state = self.mlp_eta.create_train_state(
-            rng,
-            opt_eta,
-            input_dim=src.shape[-1],
-        )
+                rng,
+                opt_eta,
+                input_dim=src.shape[-1],
+            )
         if self.mlp_xi is not None and self.xi_state is None:
-            opt_xi = self.kwargs.get("opt_xi", optax.adamw  (learning_rate=1e-4, weight_decay=1e-10))
+            opt_xi = self.kwargs.get("opt_xi", optax.adamw(learning_rate=1e-4, weight_decay=1e-10))
             self.xi_state = self.mlp_xi.create_train_state(
                 rng,
                 opt_xi,
@@ -247,11 +250,11 @@ class OTFlowMatching:
         if self.match_fn is not None:
             tmat = self.match_fn(src, tgt)
             a, b = tmat.sum(axis=0), tmat.sum(axis=1)
-            src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample,  tmat)
+            src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample, tmat)
             src, tgt = src[src_ixs], tgt[tgt_ixs]
 
         # Use the new rescaling step function
-        self.eta_state, self.xi_state, loss_a, loss_b,  eta_predictions, xi_predictions = self.rescaling_step_fn(
+        self.eta_state, self.xi_state, loss_a, loss_b, eta_predictions, xi_predictions = self.rescaling_step_fn(
             rng,
             self.eta_state,
             self.xi_state,
@@ -260,12 +263,11 @@ class OTFlowMatching:
             a * len(src),
             b * len(tgt),
             integration_eta,
-            integration_xi, 
-        )    
+            integration_xi,
+        )
 
-        self.metrics["loss_xi"].append(loss_b)       
+        self.metrics["loss_xi"].append(loss_b)
         self.metrics["loss_eta"].append(loss_a)
-
 
         self.vf_state, vf_loss = self.vf_step_fn(
             rng_step_fn,
@@ -279,6 +281,7 @@ class OTFlowMatching:
         self.metrics["loss"].append(vf_loss)
 
         return vf_loss + loss_a + loss_b
+
     def get_condition_embedding(self, condition: dict[str, ArrayLike], return_as_numpy=True) -> ArrayLike:
         """Get learnt embeddings of the conditions.
 
