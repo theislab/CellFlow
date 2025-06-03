@@ -195,4 +195,9 @@ class TestTrainer:
 
         assert "loss_eta" in trainer.training_logs
         assert "loss_xi" in trainer.training_logs
+        assert len(trainer.training_logs["loss_eta"]) > 0
+        assert len(trainer.training_logs["loss_xi"]) > 0
+
+
+
 

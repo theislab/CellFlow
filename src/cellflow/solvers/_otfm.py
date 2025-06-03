@@ -154,7 +154,6 @@ class OTFlowMatching:
                 loss = optax.l2_loss(xi_predictions[:,0], b).mean() + optax.l2_loss(jnp.mean(xi_predictions), expectation_reweighting).mean()
                 return loss, xi_predictions
 
-            # Handle eta loss and gradients
             if eta_state is not None:
                 grad_a_fn = jax.value_and_grad(loss_a_fn, argnums=0,    has_aux=True)
                 (loss_a, eta_predictions), grads_eta = grad_a_fn(
@@ -169,8 +168,7 @@ class OTFlowMatching:
                 loss_a = 0.0
                 eta_predictions = jnp.zeros_like(x_eta)
                 new_eta_state = None
-
-            # Handle xi loss and gradients  
+ 
             if xi_state is not None:
                 grad_b_fn = jax.value_and_grad(loss_b_fn, argnums=0,    has_aux=True)
                 (loss_b, xi_predictions), grads_xi = grad_b_fn(
