@@ -1,9 +1,10 @@
-from typing import Callable
-from flax import linen as nn
-from flax.training import train_state
-import optax
+from collections.abc import Callable
+
 import jax
 import jax.numpy as jnp
+import optax
+from flax import linen as nn
+from flax.training import train_state
 
 
 class Block(nn.Module):
@@ -33,7 +34,7 @@ class Block(nn.Module):
             x = nn.Dense(self.dim, name=f"fc{i}")(x)
             x = self.act_fn(x)
         return nn.Dense(self.out_dim, name="fc_final")(x)
-    
+
 
 class MLPMarginal(nn.Module):
     """
@@ -62,14 +63,12 @@ class MLPMarginal(nn.Module):
         z = x
         z = Block(dim=self.hidden_dim, out_dim=1, num_layers=self.num_layers, act_fn=self.act_fn)(z)
         return nn.softplus(z)
-    
+
     def create_train_state(
-         self,
-         rng: jax.Array,
-         optimizer: optax.OptState,
-         input_dim: int,
-     ) -> train_state.TrainState:
+        self,
+        rng: jax.Array,
+        optimizer: optax.OptState,
+        input_dim: int,
+    ) -> train_state.TrainState:
         params = self.init(rng, jnp.ones((1, input_dim)))["params"]
-        return train_state.TrainState.create(
-            apply_fn=self.apply, params=params, tx=optimizer
-        )
+        return train_state.TrainState.create(apply_fn=self.apply, params=params, tx=optimizer)

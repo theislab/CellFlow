@@ -1,3 +1,4 @@
+from cellflow.networks._marginal_mlp import MLPMarginal
 from cellflow.networks._set_encoders import (
     ConditionEncoder,
 )
@@ -11,8 +12,6 @@ from cellflow.networks._utils import (
     TokenAttentionPooling,
 )
 from cellflow.networks._velocity_field import ConditionalVelocityField, GENOTConditionalVelocityField
-
-from cellflow.networks._marginal_mlp import MLPMarginal
 
 __all__ = [
     "ConditionalVelocityField",

@@ -246,7 +246,6 @@ class OTFlowMatching:
                 input_dim=tgt.shape[-1],
             )
 
-    
         self.eta_state, self.xi_state, loss_a, loss_b, eta_predictions, xi_predictions = self.rescaling_step_fn(
             rng,
             self.eta_state,
