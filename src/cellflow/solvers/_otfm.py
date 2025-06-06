@@ -243,14 +243,6 @@ class OTFlowMatching:
                 input_dim=tgt.shape[-1],
             )
 
-        # Handle matching if needed
-        if self.match_fn is not None:
-            tmat = self.match_fn(src, tgt)
-            a, b = tmat.sum(axis=0), tmat.sum(axis=1)
-            src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample,  tmat)
-            src, tgt = src[src_ixs], tgt[tgt_ixs]
-
-        # Use the new rescaling step function
         self.eta_state, self.xi_state, loss_a, loss_b,  eta_predictions, xi_predictions = self.rescaling_step_fn(
             rng,
             self.eta_state,
