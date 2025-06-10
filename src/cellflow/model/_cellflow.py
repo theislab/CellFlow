@@ -256,6 +256,8 @@ class CellFlow:
         solver_kwargs: dict[str, Any] | None = None,
         layer_norm_before_concatenation: bool = False,
         linear_projection_before_concatenation: bool = False,
+        mlp_eta: Any | None = None,
+        mlp_xi: Any | None = None,
         seed=0,
     ) -> None:
         """Prepare the model for training.
@@ -470,6 +472,8 @@ class CellFlow:
                 probability_path=probability_path,
                 optimizer=optimizer,
                 conditions=self.train_data.condition_data,
+                mlp_eta=mlp_eta,
+                mlp_xi=mlp_xi,
                 rng=jax.random.PRNGKey(seed),
                 **solver_kwargs,
             )
