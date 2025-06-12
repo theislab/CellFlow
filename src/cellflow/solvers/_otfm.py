@@ -234,7 +234,9 @@ class OTFlowMatching:
             only used if ``condition_mode='stochastic'``. If :obj:`None`, the
             mean embedding is used.
         batched
-            Whether to use batched prediction.
+            Whether to use batched prediction. This is only supported if the input has
+            the same number of cells for each condition. For example, this works when using
+            :class:`~cellflow.data.ValidationSampler` to sample the validation data.
         kwargs
             Keyword arguments for :func:`diffrax.diffeqsolve`.
 
@@ -250,6 +252,10 @@ class OTFlowMatching:
             condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
             _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
             batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
+            # assert that the number of cells is the same for each condition
+            n_cells = x[keys[0]].shape[0]
+            for k in keys:
+                assert x[k].shape[0] == n_cells, "The number of cells must be the same for each condition"
             src_inputs = jnp.stack([x[k] for k in keys], axis=0)
             batched_conditions = {}
             for cond_key in condition_keys:
