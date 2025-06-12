@@ -1,4 +1,5 @@
 import os
+import functools
 import types
 from collections.abc import Callable, Sequence
 from dataclasses import field as dc_field
@@ -625,7 +626,13 @@ class CellFlow:
         batch = pred_loader.sample()
         src = batch["source"]
         condition = batch.get("condition", None)
-        out = self.solver.predict(src, condition=condition, rng=rng, batched=True, **kwargs)
+        # using jax.tree.map to batch the prediction
+        # because PredictionSampler can return a different number of cells for each condition
+        out = jax.tree.map(
+            functools.partial(self.solver.predict, rng=rng, **kwargs),
+            src,
+            condition,  # type: ignore[attr-defined]
+        )
         if key_added_prefix is None:
             return out
         if len(pred_data.control_to_perturbation) > 1:
