@@ -1,5 +1,5 @@
-import os
 import functools
+import os
 import types
 from collections.abc import Callable, Sequence
 from dataclasses import field as dc_field
