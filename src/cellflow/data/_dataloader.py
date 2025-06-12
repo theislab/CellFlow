@@ -293,7 +293,11 @@ class OOCTrainSampler:
 
     def sample(self, rng=None) -> dict[str, Any]:
         if self._iterator is None:
-            raise ValueError("Sampler not set")
+            raise ValueError(
+                "Sampler not set use `set_sampler` to set the sampler with"
+                "the number of iterations. Without the number of iterations,"
+                " the sampler will not be able to sample the data."
+            )
         if rng is not None:
             del rng
         return next(self._iterator)
