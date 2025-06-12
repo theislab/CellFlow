@@ -52,7 +52,7 @@ class TrainSampler:
 
         # Handle case with no valid indices (should not happen in practice)
         if len(valid_indices) == 0:
-            return rng.choice(self._data_idcs, self.batch_size, replace=True)
+            raise ValueError("No valid indices found in the mask")
 
         # Sample from valid indices with equal probability
         batch_idcs = rng.choice(valid_indices, self.batch_size, replace=True)
