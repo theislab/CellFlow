@@ -44,6 +44,7 @@ class TestTrainSampler:
         assert sample_1["condition"]["dosage"].shape[0] == 1
         assert sample_2["condition"]["dosage"].shape[0] == 1
 
+
 class TestOOCTrainSampler:
     @pytest.mark.parametrize("batch_size", [1, 31])
     def test_sampling_no_combinations(self, adata_perturbation, batch_size: int):
