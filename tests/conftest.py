@@ -168,10 +168,6 @@ def adata_perturbation_with_nulls(adata_perturbation: ad.AnnData) -> ad.AnnData:
     return adata
 
 
-@pytest.fixture()
-def sampler(train_data: TrainingData):
-    return TrainSampler(train_data, batch_size=32)
-
 
 @pytest.fixture()
 def adata_pca() -> ad.AnnData:
