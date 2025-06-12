@@ -291,8 +291,9 @@ class OOCTrainSampler:
             sampler=self.inner, seed=self.seed, num_iterations=num_iterations, prefetch_factor=self.prefetch_factor
         )
 
-    def sample(self, rng) -> dict[str, Any]:
+    def sample(self, rng=None) -> dict[str, Any]:
         if self._iterator is None:
             raise ValueError("Sampler not set")
-        del rng
+        if rng is not None:
+            del rng
         return next(self._iterator)
