@@ -290,7 +290,7 @@ class MetricsWithAddedLoss(ComputationCallback):
 
     def _log_losses(self, solver) -> dict[str, float]:
         loss_logs = {}
-        for loss_name in ["loss_eta", "loss_xi"]:
+        for loss_name in ["loss", "loss_eta", "loss_xi"]:
             if loss_name in solver.metrics and len(solver.metrics[loss_name]) > 0:
                 loss_logs[loss_name] = float(solver.metrics[loss_name][-1])
         return loss_logs
