@@ -1,6 +1,7 @@
 import abc
 import queue
 import threading
+from collections.abc import Generator
 from typing import Any, Literal
 
 import jax
@@ -38,14 +39,14 @@ class TrainSampler:
         """Sample a target distribution index given the source distribution index."""
         return rng.choice(self._data.control_to_perturbation[source_dist_idx])
 
-    def _get_embeddings(self, idx, condition_data):
+    def _get_embeddings(self, idx, condition_data) -> dict[str, np.ndarray]:
         """Get embeddings for a given index."""
         result = {}
         for key, arr in condition_data.items():
             result[key] = np.expand_dims(arr[idx], 0)
         return result
 
-    def _sample_from_mask(self, rng, mask):
+    def _sample_from_mask(self, rng, mask) -> np.ndarray:
         """Sample indices according to a mask."""
         # Convert mask to probability distribution
         valid_indices = np.where(mask)[0]
@@ -236,7 +237,7 @@ class PredictionSampler(BaseValidSampler):
 
 def prefetch_to_device(
     sampler: TrainSampler, seed: int, num_iterations: int, prefetch_factor: int = 2, num_workers: int = 4
-):
+) -> Generator[dict[str, Any], None, None]:
     seq = np.random.SeedSequence(seed)
     random_generators = [np.random.default_rng(s) for s in seq.spawn(num_workers)]
 
@@ -244,7 +245,7 @@ def prefetch_to_device(
     sem = threading.Semaphore(num_iterations)
     stop_event = threading.Event()
 
-    def worker(rng):
+    def worker(rng: np.random.Generator):
         while not stop_event.is_set() and sem.acquire(blocking=False):
             batch = sampler.sample(rng)
             batch = jax.device_put(batch, jax.devices()[0], donate=True)
@@ -286,7 +287,7 @@ class OOCTrainSampler:
         self.seed = seed
         self._iterator = None
 
-    def set_sampler(self, num_iterations: int):
+    def set_sampler(self, num_iterations: int) -> None:
         self._iterator = prefetch_to_device(
             sampler=self.inner, seed=self.seed, num_iterations=num_iterations, prefetch_factor=self.prefetch_factor
         )
