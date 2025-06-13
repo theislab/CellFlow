@@ -210,8 +210,8 @@ class DataManager:
             is stored or ``'X'`` to use :attr:`~anndata.AnnData.X`.
         covariate_data
             A :class:`~pandas.DataFrame` with columns defining the covariates as
-            in :meth:`cellflow.model.CellFlow.prepare_data` and stored in
-            :attr:`cellflow.model.CellFlow.data_manager`.
+            in :meth:`cfp.model.CellFlow.prepare_data` and stored in
+            :attr:`cfp.model.CellFlow.data_manager`.
         rep_dict
             Dictionary with representations of the covariates.
             If not provided, :attr:`~anndata.AnnData.uns` is used.
@@ -421,7 +421,7 @@ class DataManager:
             control_to_perturbation[src_counter] = np.array(conditional_distributions)
             src_counter += 1
 
-        # convert outputs to numpy arrays
+        # convert outputs to jax arrays
         if self.is_conditional:
             for pert_cov, emb in condition_data.items():
                 condition_data[pert_cov] = np.array(emb)
@@ -694,6 +694,8 @@ class DataManager:
         all_combs = all_combs.drop(columns=[control_key])
         control_combs = control_combs.drop(columns=[control_key])
 
+        # cell_index_key = "cell_index"
+        # df = df.reset_index(drop=False).rename(columns={"index": cell_index_key})
         # Use left joins that preserve the original DataFrame's structure
         # First merge with control_combs
         df = df.merge(control_combs, on=split_covariates, how="left")
