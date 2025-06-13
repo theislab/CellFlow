@@ -1,16 +1,16 @@
 repos:
   # Hooks that are run everywhere
   - repo: https://github.com/biomejs/pre-commit
-    rev: v2.0.0-beta.3
+    rev: v2.0.0-beta.5
     hooks:
       - id: biome-format
   # Hooks that are run for scripts
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: v2.5.1
+    rev: v2.6.0
     hooks:
       - id: pyproject-fmt
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.9
+    rev: v0.11.11
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]

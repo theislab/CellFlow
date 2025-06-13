@@ -174,31 +174,10 @@ class OTFlowMatching:
             return np.asarray(cond_mean), np.asarray(cond_logvar)
         return cond_mean, cond_logvar
 
-    def predict(
+    def _predict_jit(
         self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any
     ) -> ArrayLike:
-        """Predict the translated source ``x`` under condition ``condition``.
-
-        This function solves the ODE learnt with
-        the :class:`~cellflow.networks.ConditionalVelocityField`.
-
-        Parameters
-        ----------
-        x
-            Input data of shape [batch_size, ...].
-        condition
-            Condition of the input data of shape [batch_size, ...].
-        rng
-            Random number generator to sample from the latent distribution,
-            only used if ``condition_mode='stochastic'``. If :obj:`None`, the
-            mean embedding is used.
-        kwargs
-            Keyword arguments for :func:`diffrax.diffeqsolve`.
-
-        Returns
-        -------
-        The push-forward distribution of ``x`` under condition ``condition``.
-        """
+        """See :meth:`OTFlowMatching.predict`."""
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
         kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
@@ -226,7 +205,67 @@ class OTFlowMatching:
             return result.ys[0]
 
         x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))(x, condition, encoder_noise)
-        return np.array(x_pred)
+        return x_pred
+
+    def predict(
+        self,
+        x: ArrayLike | dict[str, ArrayLike],
+        condition: dict[str, ArrayLike] | dict[str, dict[str, ArrayLike]],
+        rng: jax.Array | None = None,
+        batched: bool = False,
+        **kwargs: Any,
+    ) -> ArrayLike | dict[str, ArrayLike]:
+        """Predict the translated source ``x`` under condition ``condition``.
+
+        This function solves the ODE learnt with
+        the :class:`~cellflow.networks.ConditionalVelocityField`.
+
+        Parameters
+        ----------
+        x
+            A dictionary with keys indicating the name of the condition and values containing
+            the input data as arrays. If ``batched=False`` provide an array of shape [batch_size, ...].
+        condition
+            A dictionary with keys indicating the name of the condition and values containing
+            the condition of input data as arrays. If ``batched=False`` provide an array of shape
+            [batch_size, ...].
+        rng
+            Random number generator to sample from the latent distribution,
+            only used if ``condition_mode='stochastic'``. If :obj:`None`, the
+            mean embedding is used.
+        batched
+            Whether to use batched prediction. This is only supported if the input has
+            the same number of cells for each condition. For example, this works when using
+            :class:`~cellflow.data.ValidationSampler` to sample the validation data.
+        kwargs
+            Keyword arguments for :func:`diffrax.diffeqsolve`.
+
+        Returns
+        -------
+        The push-forward distribution of ``x`` under condition ``condition``.
+        """
+        if batched and not x:
+            return {}
+
+        if batched:
+            keys = sorted(x.keys())
+            condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
+            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
+            batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
+            # assert that the number of cells is the same for each condition
+            n_cells = x[keys[0]].shape[0]
+            for k in keys:
+                assert x[k].shape[0] == n_cells, "The number of cells must be the same for each condition"
+            src_inputs = jnp.stack([x[k] for k in keys], axis=0)
+            batched_conditions = {}
+            for cond_key in condition_keys:
+                batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
+
+            pred_targets = batched_predict(src_inputs, batched_conditions)
+            return {k: pred_targets[i] for i, k in enumerate(keys)}
+        else:
+            x_pred = self._predict_jit(x, condition, rng, **kwargs)
+            return np.array(x_pred)
 
     @property
     def is_trained(self) -> bool:

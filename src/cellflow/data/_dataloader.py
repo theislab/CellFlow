@@ -1,4 +1,7 @@
 import abc
+import queue
+import threading
+from collections.abc import Generator
 from typing import Any, Literal
 
 import jax
@@ -7,7 +10,7 @@ import numpy as np
 
 from cellflow.data._data import PredictionData, TrainingData, ValidationData
 
-__all__ = ["TrainSampler", "ValidationSampler", "PredictionSampler"]
+__all__ = ["TrainSampler", "ValidationSampler", "PredictionSampler", "OOCTrainSampler"]
 
 
 class TrainSampler:
@@ -24,53 +27,75 @@ class TrainSampler:
 
     def __init__(self, data: TrainingData, batch_size: int = 1024):
         self._data = data
-        self._data_idcs = jnp.arange(data.cell_data.shape[0])
+        self._data_idcs = np.arange(data.cell_data.shape[0])
         self.batch_size = batch_size
         self.n_source_dists = data.n_controls
         self.n_target_dists = data.n_perturbations
-        self.conditional_samplings = [
-            lambda key, i=i: jax.random.choice(key, self._data.control_to_perturbation[i])
-            for i in range(self.n_source_dists)
-        ]
-        self.get_embeddings = lambda idx: {
-            pert_cov: jnp.expand_dims(arr[idx], 0) for pert_cov, arr in self._data.condition_data.items()
-        }
 
-        @jax.jit
-        def _sample(rng: jax.Array) -> Any:
-            rng_1, rng_2, rng_3, rng_4 = jax.random.split(rng, 4)
-            source_dist_idx = jax.random.choice(rng_1, self.n_source_dists)
-            source_cells_mask = self._data.split_covariates_mask == source_dist_idx
-            src_cond_p = source_cells_mask / jnp.count_nonzero(source_cells_mask)
-            source_batch_idcs = jax.random.choice(rng_2, self._data_idcs, [self.batch_size], replace=True, p=src_cond_p)
+        self._control_to_perturbation_keys = sorted(data.control_to_perturbation.keys())
+        self._has_condition_data = data.condition_data is not None
 
-            source_batch = self._data.cell_data[source_batch_idcs]
+    def _sample_target_dist_idx(self, source_dist_idx, rng):
+        """Sample a target distribution index given the source distribution index."""
+        return rng.choice(self._data.control_to_perturbation[source_dist_idx])
 
-            target_dist_idx = jax.lax.switch(source_dist_idx, self.conditional_samplings, rng_3)
-            target_cells_mask = self._data.perturbation_covariates_mask == target_dist_idx
-            tgt_cond_p = target_cells_mask / jnp.count_nonzero(target_cells_mask)
-            target_batch_idcs = jax.random.choice(
-                rng_4,
-                self._data_idcs,
-                [self.batch_size],
-                replace=True,
-                p=tgt_cond_p,
-            )
-            target_batch = self._data.cell_data[target_batch_idcs]
-            if self._data.condition_data is None:
-                return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
+    def _get_embeddings(self, idx, condition_data) -> dict[str, np.ndarray]:
+        """Get embeddings for a given index."""
+        result = {}
+        for key, arr in condition_data.items():
+            result[key] = np.expand_dims(arr[idx], 0)
+        return result
 
-            condition_batch = self.get_embeddings(target_dist_idx)
+    def _sample_from_mask(self, rng, mask) -> np.ndarray:
+        """Sample indices according to a mask."""
+        # Convert mask to probability distribution
+        valid_indices = np.where(mask)[0]
+
+        # Handle case with no valid indices (should not happen in practice)
+        if len(valid_indices) == 0:
+            raise ValueError("No valid indices found in the mask")
+
+        # Sample from valid indices with equal probability
+        batch_idcs = rng.choice(valid_indices, self.batch_size, replace=True)
+        return batch_idcs
+
+    def sample(self, rng) -> dict[str, Any]:
+        """Sample a batch of data.
+
+        Parameters
+        ----------
+        seed : int, optional
+            Random seed
+
+        Returns
+        -------
+        Dictionary with source and target data
+        """
+        # Sample source distribution index
+        source_dist_idx = rng.integers(0, self.n_source_dists)
+
+        # Get source cells
+        source_cells_mask = self._data.split_covariates_mask == source_dist_idx
+        source_batch_idcs = self._sample_from_mask(rng, source_cells_mask)
+        source_batch = self._data.cell_data[source_batch_idcs]
+
+        target_dist_idx = self._sample_target_dist_idx(source_dist_idx, rng)
+        target_cells_mask = self._data.perturbation_covariates_mask == target_dist_idx
+        target_batch_idcs = self._sample_from_mask(rng, target_cells_mask)
+        target_batch = self._data.cell_data[target_batch_idcs]
+
+        if not self._has_condition_data:
+            return {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
+        else:
+            condition_batch = self._get_embeddings(target_dist_idx, self._data.condition_data)
             return {
                 "src_cell_data": source_batch,
                 "tgt_cell_data": target_batch,
                 "condition": condition_batch,
             }
 
-        self.sample = _sample
-
     @property
-    def data(self) -> TrainingData:
+    def data(self):
         """The training data."""
         return self._data
 
@@ -208,3 +233,72 @@ class PredictionSampler(BaseValidSampler):
     def data(self) -> PredictionData:
         """The training data."""
         return self._data
+
+
+def prefetch_to_device(
+    sampler: TrainSampler, seed: int, num_iterations: int, prefetch_factor: int = 2, num_workers: int = 4
+) -> Generator[dict[str, Any], None, None]:
+    seq = np.random.SeedSequence(seed)
+    random_generators = [np.random.default_rng(s) for s in seq.spawn(num_workers)]
+
+    q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=prefetch_factor * num_workers)
+    sem = threading.Semaphore(num_iterations)
+    stop_event = threading.Event()
+
+    def worker(rng: np.random.Generator):
+        while not stop_event.is_set() and sem.acquire(blocking=False):
+            batch = sampler.sample(rng)
+            batch = jax.device_put(batch, jax.devices()[0], donate=True)
+            jax.block_until_ready(batch)
+            while not stop_event.is_set():
+                try:
+                    q.put(batch, timeout=1.0)
+                    break  # Batch successfully put into the queue; break out of retry loop
+                except queue.Full:
+                    continue
+
+        return
+
+    # Start multiple worker threads
+    ts = []
+    for i in range(num_workers):
+        t = threading.Thread(target=worker, daemon=True, name=f"worker-{i}", args=(random_generators[i],))
+        t.start()
+        ts.append(t)
+
+    try:
+        for _ in range(num_iterations):
+            # Yield batches from the queue; will block waiting for available batch
+            yield q.get()
+    finally:
+        # When the generator is closed or garbage collected, clean up the worker threads
+        stop_event.set()  # Signal all workers to exit
+        for t in ts:
+            t.join()  # Wait for all worker threads to finish
+
+
+class OOCTrainSampler:
+    def __init__(
+        self, data: TrainingData, seed: int, batch_size: int = 1024, num_workers: int = 4, prefetch_factor: int = 2
+    ):
+        self.inner = TrainSampler(data=data, batch_size=batch_size)
+        self.num_workers = num_workers
+        self.prefetch_factor = prefetch_factor
+        self.seed = seed
+        self._iterator = None
+
+    def set_sampler(self, num_iterations: int) -> None:
+        self._iterator = prefetch_to_device(
+            sampler=self.inner, seed=self.seed, num_iterations=num_iterations, prefetch_factor=self.prefetch_factor
+        )
+
+    def sample(self, rng=None) -> dict[str, Any]:
+        if self._iterator is None:
+            raise ValueError(
+                "Sampler not set. Use `set_sampler` to set the sampler with"
+                "the number of iterations. Without the number of iterations,"
+                " the sampler will not be able to sample the data."
+            )
+        if rng is not None:
+            del rng
+        return next(self._iterator)
