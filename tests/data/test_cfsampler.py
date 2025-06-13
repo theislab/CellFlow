@@ -1,7 +1,7 @@
-import jax
+import numpy as np
 import pytest
 
-from cellflow.data._dataloader import PredictionSampler, TrainSampler
+from cellflow.data._dataloader import OOCTrainSampler, PredictionSampler, TrainSampler
 from cellflow.data._datamanager import DataManager
 
 
@@ -28,11 +28,49 @@ class TestTrainSampler:
 
         train_data = dm.get_train_data(adata_perturbation)
         sampler = TrainSampler(data=train_data, batch_size=batch_size)
-        rng_1 = jax.random.PRNGKey(0)
-        rng_2 = jax.random.PRNGKey(1)
+        rng_1 = np.random.default_rng(0)
+        rng_2 = np.random.default_rng(1)
 
         sample_1 = sampler.sample(rng_1)
         sample_2 = sampler.sample(rng_2)
+
+        assert "src_cell_data" in sample_1
+        assert "tgt_cell_data" in sample_1
+        assert "condition" in sample_1
+        assert sample_1["src_cell_data"].shape[0] == batch_size
+        assert sample_2["src_cell_data"].shape[0] == batch_size
+        assert sample_1["tgt_cell_data"].shape[0] == batch_size
+        assert sample_2["tgt_cell_data"].shape[0] == batch_size
+        assert sample_1["condition"]["dosage"].shape[0] == 1
+        assert sample_2["condition"]["dosage"].shape[0] == 1
+
+
+class TestOOCTrainSampler:
+    @pytest.mark.parametrize("batch_size", [1, 31])
+    def test_sampling_no_combinations(self, adata_perturbation, batch_size: int):
+        sample_rep = "X"
+        split_covariates = ["cell_type"]
+        control_key = "control"
+        perturbation_covariates = {
+            "drug": ("drug1", "drug2"),
+            "dosage": ("dosage_a", "dosage_b"),
+        }
+        perturbation_covariate_reps = {"drug": "drug"}
+
+        dm = DataManager(
+            adata_perturbation,
+            sample_rep=sample_rep,
+            split_covariates=split_covariates,
+            control_key=control_key,
+            perturbation_covariates=perturbation_covariates,
+            perturbation_covariate_reps=perturbation_covariate_reps,
+        )
+
+        train_data = dm.get_train_data(adata_perturbation)
+        sampler = OOCTrainSampler(data=train_data, batch_size=batch_size, seed=0)
+        sampler.set_sampler(num_iterations=2)
+        sample_1 = sampler.sample()
+        sample_2 = sampler.sample()
 
         assert "src_cell_data" in sample_1
         assert "tgt_cell_data" in sample_1
