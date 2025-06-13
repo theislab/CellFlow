@@ -16,8 +16,6 @@ class CellFlowTrainer:
 
     Parameters
     ----------
-        dataloader
-            Data sampler.
         solver
             :class:`~cellflow.solvers.OTFlowMatching` solver or :class:`~cellflow.solvers.GENOT`
             solver with a conditional velocity field.
