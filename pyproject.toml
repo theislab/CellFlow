@@ -41,6 +41,7 @@ dependencies = [
   "scanpy",
   "scikit-learn==1.5.1",
   "session-info",
+  "dask",
 ]
 
 optional-dependencies.dev = [
