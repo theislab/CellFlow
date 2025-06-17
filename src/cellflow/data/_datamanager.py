@@ -571,20 +571,6 @@ class DataManager:
         if adata is None and covariate_data is None:
             raise ValueError("Either `adata` or `covariate_data` must be provided.")
         covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
-        if (
-            # len(self._split_covariates) == 0
-            # or len(self._perturbation_covariates) == 0
-            # or len(self._sample_covariates) == 0
-            # or not self.is_conditional
-            adata is None
-        ):
-            return self._get_condition_data_old(
-                split_cov_combs=split_cov_combs,
-                adata=adata,
-                covariate_data=covariate_data,
-                rep_dict=rep_dict,
-                condition_id_key=condition_id_key,
-            )
         if rep_dict is None:
             rep_dict = adata.uns if adata is not None else {}
         # check if all perturbation/split covariates and control cells are present in the input
@@ -624,22 +610,7 @@ class DataManager:
         covariate_data["cell_index"] = covariate_data.index
         covariate_data = covariate_data.reset_index(drop=True)
 
-        # Modified process_condition function
-        def process_condition(tgt_idx, tgt_cond):
-            """Process a single condition and return its embeddings with identifying info.
-
-            Parameters
-            ----------
-            idx : int
-                The index or identifier for this condition
-            tgt_cond : pd.Series
-                The condition data
-
-            Returns
-            -------
-            tuple
-                (idx, embedding_dict, split_combination_info)
-            """
+        def _process_condition(tgt_idx, tgt_cond):
             embedding = DataManager._get_perturbation_covariates_static(
                 condition_data=tgt_cond,
                 rep_dict=rep_dict,
@@ -653,9 +624,7 @@ class DataManager:
                 sample_covariates=self._sample_covariates,
             )
             return tgt_idx, embedding
-        print("self._sample_covariates", self._sample_covariates)
-        print("self._split_covariates", self._split_covariates)
-        print("self._perturbation_covariates", self._perturbation_covariates)
+
         comb_keys = self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
 
 
@@ -695,20 +664,9 @@ class DataManager:
         all_combs = all_combs.drop(columns=[control_key])
         control_combs = control_combs.drop(columns=[control_key])
 
-        # Use left joins that preserve the original DataFrame's structure
-        # First merge with control_combs
-        print("control_combs", control_combs)
-        print("df", df)
-        print("comb_keys", comb_keys)
-        print("perturbation_covariates_keys", perturbation_covariates_keys)
-        print("control_key", control_key)
-
-        if len(comb_keys) > 0:
+        if len(self._split_covariates) > 0:
             df = df.merge(control_combs, on=comb_keys, how="left")
         else:
-            df["global_control_mask"] = -1
-
-        if not len(self.split_covariates) > 0:
             df["global_control_mask"] = -1
 
         # Then merge with all_combs
@@ -766,7 +724,7 @@ class DataManager:
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
             tgt_cond = tgt_cond[self._perturb_covar_keys]
             delayed_results.append(
-                dask.delayed(process_condition)(
+                dask.delayed(_process_condition)(
                     tgt_idx,
                     tgt_cond,
                 )
