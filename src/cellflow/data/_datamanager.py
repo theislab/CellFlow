@@ -11,7 +11,6 @@ import scipy.sparse as sp
 import sklearn.preprocessing as preprocessing
 from dask.diagnostics import ProgressBar
 from pandas.api.types import is_numeric_dtype
-from tqdm import tqdm
 
 from cellflow._logging import logger
 from cellflow._types import ArrayLike
@@ -485,7 +484,6 @@ class DataManager:
 
         comb_keys = self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
 
-
         perturbation_covariates_keys = self.perturb_covar_keys
         perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in comb_keys]
         control_key = self._control_key
@@ -543,10 +541,7 @@ class DataManager:
         df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int64)
         df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
         split_idx_to_covariates = (
-            df[["global_control_mask", *comb_keys]]
-            .groupby(["global_control_mask"])
-            .first()
-            .to_dict(orient="index")
+            df[["global_control_mask", *comb_keys]].groupby(["global_control_mask"]).first().to_dict(orient="index")
         )
         split_idx_to_covariates = {k: tuple(v[s] for s in comb_keys) for k, v in split_idx_to_covariates.items()}
 
@@ -575,9 +570,7 @@ class DataManager:
 
         # Create delayed tasks with tracking information
 
-        perturb_covar_df = df[~df[control_key]][comb_keys + perturbation_covariates_keys].drop_duplicates(
-            keep="first"
-        )
+        perturb_covar_df = df[~df[control_key]][comb_keys + perturbation_covariates_keys].drop_duplicates(keep="first")
         for _, tgt_cond in perturb_covar_df.iterrows():
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
             tgt_cond = tgt_cond[self._perturb_covar_keys]
