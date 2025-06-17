@@ -8,10 +8,10 @@ import dask.delayed
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from tqdm import tqdm
 import sklearn.preprocessing as preprocessing
 from dask.diagnostics import ProgressBar
 from pandas.api.types import is_numeric_dtype
+from tqdm import tqdm
 
 from cellflow._logging import logger
 from cellflow._types import ArrayLike
@@ -526,7 +526,7 @@ class DataManager:
             control_combs, all_combs, df = dask.compute(control_combs, all_combs, ddf)
 
         control_combs = control_combs[control_combs[control_key]].sort_values(by=comb_keys)
-        all_combs_keys = (comb_keys + perturbation_covariates_keys) 
+        all_combs_keys = comb_keys + perturbation_covariates_keys
         # if len(self._split_covariates) > 0 else (perturbation_covariates_keys + comb_keys)
         print("all_combs_keys", all_combs_keys)
         all_combs = all_combs[~all_combs[control_key]].sort_values(by=all_combs_keys)
@@ -561,9 +561,14 @@ class DataManager:
         df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int64)
         df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
         split_idx_to_covariates = (
-            df[["global_control_mask", *self._split_covariates]].groupby(["global_control_mask"]).first().to_dict(orient="index")
+            df[["global_control_mask", *self._split_covariates]]
+            .groupby(["global_control_mask"])
+            .first()
+            .to_dict(orient="index")
         )
-        split_idx_to_covariates = {k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()}
+        split_idx_to_covariates = {
+            k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()
+        }
 
         perturbation_idx_to_covariates = (
             df[["global_pert_mask", *perturbation_covariates_keys, *comb_keys]]
@@ -1000,7 +1005,6 @@ class DataManager:
             control_to_perturbation=control_to_perturbation,
             max_combination_length=self._max_combination_length,
         )
-
 
     def _get_primary_covar_encoder(
         self,

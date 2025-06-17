@@ -24,30 +24,38 @@ perturbation_covariate_comb_args = [
 
 
 def compare_train_data(a, b):
-    assert (a.perturbation_covariates_mask == b.perturbation_covariates_mask).all(), f"perturbation_covariates_mask {a.perturbation_covariates_mask}, {b.perturbation_covariates_mask}"
-    assert (a.split_covariates_mask == b.split_covariates_mask).all(), f"split_covariates_mask {a.split_covariates_mask}, {b.split_covariates_mask}"
+    assert (a.perturbation_covariates_mask == b.perturbation_covariates_mask).all(), (
+        f"perturbation_covariates_mask {a.perturbation_covariates_mask}, {b.perturbation_covariates_mask}"
+    )
+    assert (a.split_covariates_mask == b.split_covariates_mask).all(), (
+        f"split_covariates_mask {a.split_covariates_mask}, {b.split_covariates_mask}"
+    )
     # compare split_idx_to_covariates and perturbation_idx_to_covariates dicts
     assert a.split_idx_to_covariates.keys() == b.split_idx_to_covariates.keys(), "split_idx_to_covariates"
     for k in a.split_idx_to_covariates.keys():
-        assert (a.split_idx_to_covariates[k] == b.split_idx_to_covariates[k]), f"split_idx_to_covariates[{k}] {a.split_idx_to_covariates[k]}, {b.split_idx_to_covariates[k]}"
-    assert a.perturbation_idx_to_covariates.keys() == b.perturbation_idx_to_covariates.keys(), "perturbation_idx_to_covariates"
+        assert a.split_idx_to_covariates[k] == b.split_idx_to_covariates[k], (
+            f"split_idx_to_covariates[{k}] {a.split_idx_to_covariates[k]}, {b.split_idx_to_covariates[k]}"
+        )
+    assert a.perturbation_idx_to_covariates.keys() == b.perturbation_idx_to_covariates.keys(), (
+        "perturbation_idx_to_covariates"
+    )
     for k in a.perturbation_idx_to_covariates.keys():
         elem_a = a.perturbation_idx_to_covariates[k]
         elem_a = elem_a.tolist() if isinstance(elem_a, np.ndarray) else elem_a
         elem_b = b.perturbation_idx_to_covariates[k]
         elem_b = elem_b.tolist() if isinstance(elem_b, np.ndarray) else elem_b
-        assert (elem_a == elem_b), f"perturbation_idx_to_covariates[{k}] {elem_a}, {elem_b}"
+        assert elem_a == elem_b, f"perturbation_idx_to_covariates[{k}] {elem_a}, {elem_b}"
     assert a.control_to_perturbation.keys() == b.control_to_perturbation.keys(), "control_to_perturbation"
     for k in a.control_to_perturbation.keys():
-        assert (a.control_to_perturbation[k] == b.control_to_perturbation[k]).all().all(), f"control_to_perturbation[{k}]"
+        assert (a.control_to_perturbation[k] == b.control_to_perturbation[k]).all().all(), (
+            f"control_to_perturbation[{k}]"
+        )
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
     for k in a.condition_data.keys():
         assert (a.condition_data[k] == b.condition_data[k]).all(), f"condition_data[{k}]"
 
 
 class TestDataManager:
-   
-
     @pytest.mark.parametrize("sample_rep", ["X", "X_pca"])
     @pytest.mark.parametrize("split_covariates", [[], ["cell_type"]])
     @pytest.mark.parametrize("perturbation_covariates", perturbation_covariates_args)
@@ -62,9 +70,6 @@ class TestDataManager:
         perturbation_covariate_reps,
         sample_covariates,
     ):
-        from cellflow.data._data import TrainingData
-        from cellflow.data._datamanager import DataManager
-
         dm = DataManager(
             adata_perturbation,
             sample_rep=sample_rep,
@@ -92,9 +97,6 @@ class TestDataManager:
 
         compare_train_data(old, new)
 
-
-
-
     @pytest.mark.parametrize("split_covariates", [[], ["cell_type"]])
     @pytest.mark.parametrize("perturbation_covariates", perturbation_covariate_comb_args)
     @pytest.mark.parametrize("perturbation_covariate_reps", [{}, {"drug": "drug"}])
@@ -105,8 +107,6 @@ class TestDataManager:
         perturbation_covariates,
         perturbation_covariate_reps,
     ):
-        from cellflow.data._datamanager import DataManager
-
         dm = DataManager(
             adata_perturbation,
             sample_rep="X",
@@ -128,7 +128,6 @@ class TestDataManager:
         compare_train_data(old, new)
 
 
-
 class TestValidationData:
     @pytest.mark.parametrize("sample_rep", ["X", "X_pca"])
     @pytest.mark.parametrize("split_covariates", [[], ["cell_type"]])
@@ -142,8 +141,6 @@ class TestValidationData:
         perturbation_covariates,
         perturbation_covariate_reps,
     ):
-        from cellflow.data._datamanager import DataManager
-
         control_key = "control"
         sample_covariates = ["cell_type"]
         sample_covariate_reps = {"cell_type": "cell_type"}
