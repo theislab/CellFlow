@@ -8,6 +8,7 @@ import dask.delayed
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from tqdm import tqdm
 import sklearn.preprocessing as preprocessing
 from dask.diagnostics import ProgressBar
 from pandas.api.types import is_numeric_dtype
@@ -428,6 +429,22 @@ class DataManager:
         if adata is None and covariate_data is None:
             raise ValueError("Either `adata` or `covariate_data` must be provided.")
         covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
+        if (
+            len(self._split_covariates) == 0
+            or len(self._perturbation_covariates) == 0
+            or len(self._sample_covariates) == 0
+            or not self.is_conditional
+            or adata is None
+        ):
+            print("old")
+            return self._get_condition_data_old(
+                split_cov_combs=split_cov_combs,
+                adata=adata,
+                covariate_data=covariate_data,
+                rep_dict=rep_dict,
+                condition_id_key=condition_id_key,
+            )
+
         if rep_dict is None:
             rep_dict = adata.uns if adata is not None else {}
         # check if all perturbation/split covariates and control cells are present in the input
@@ -509,7 +526,10 @@ class DataManager:
             control_combs, all_combs, df = dask.compute(control_combs, all_combs, ddf)
 
         control_combs = control_combs[control_combs[control_key]].sort_values(by=comb_keys)
-        all_combs = all_combs[~all_combs[control_key]].sort_values(by=comb_keys + perturbation_covariates_keys)
+        all_combs_keys = (comb_keys + perturbation_covariates_keys) 
+        # if len(self._split_covariates) > 0 else (perturbation_covariates_keys + comb_keys)
+        print("all_combs_keys", all_combs_keys)
+        all_combs = all_combs[~all_combs[control_key]].sort_values(by=all_combs_keys)
 
         all_combs["global_pert_mask"] = np.arange(len(all_combs), dtype=np.int64)
         control_combs["global_control_mask"] = np.arange(len(control_combs), dtype=np.int64)
@@ -523,7 +543,7 @@ class DataManager:
         if len(self._split_covariates) > 0:
             df = df.merge(control_combs, on=comb_keys, how="left")
         else:
-            df["global_control_mask"] = -1
+            df["global_control_mask"] = 0
 
         # Then merge with all_combs
         df = df.merge(
@@ -541,9 +561,9 @@ class DataManager:
         df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int64)
         df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
         split_idx_to_covariates = (
-            df[["global_control_mask", *comb_keys]].groupby(["global_control_mask"]).first().to_dict(orient="index")
+            df[["global_control_mask", *self._split_covariates]].groupby(["global_control_mask"]).first().to_dict(orient="index")
         )
-        split_idx_to_covariates = {k: tuple(v[s] for s in comb_keys) for k, v in split_idx_to_covariates.items()}
+        split_idx_to_covariates = {k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()}
 
         perturbation_idx_to_covariates = (
             df[["global_pert_mask", *perturbation_covariates_keys, *comb_keys]]
@@ -838,6 +858,149 @@ class DataManager:
             return obs_max_combination_length
         else:
             return max_combination_length
+
+    def _get_condition_data_old(
+        self,
+        split_cov_combs: np.ndarray | list[list[Any]],
+        adata: anndata.AnnData | None,
+        covariate_data: pd.DataFrame | None = None,
+        rep_dict: dict[str, Any] | None = None,
+        condition_id_key: str | None = None,
+    ) -> ReturnData:
+        # for prediction: adata is None, covariate_data is provided
+        # for training/validation: adata is provided and used to get cell masks, covariate_data is None
+        if adata is None and covariate_data is None:
+            raise ValueError("Either `adata` or `covariate_data` must be provided.")
+        covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
+        if rep_dict is None:
+            rep_dict = adata.uns if adata is not None else {}
+        # check if all perturbation/split covariates and control cells are present in the input
+        self._verify_covariate_data(
+            covariate_data,
+            {covar: _to_list(covar) for covar in self._sample_covariates},
+        )
+        self._verify_control_data(adata)
+        self._verify_covariate_data(covariate_data, _to_list(self._split_covariates))
+
+        # extract unique combinations of perturbation covariates
+        if condition_id_key is not None:
+            self._verify_condition_id_key(covariate_data, condition_id_key)
+            select_keys = self._perturb_covar_keys + [condition_id_key]
+        else:
+            select_keys = self._perturb_covar_keys
+        perturb_covar_df = covariate_data[select_keys].drop_duplicates()
+        if condition_id_key is not None:
+            perturb_covar_df = perturb_covar_df.set_index(condition_id_key)
+        else:
+            perturb_covar_df = perturb_covar_df.reset_index()
+
+        # get indices of cells belonging to each unique condition
+        _perturb_covar_df, _covariate_data = (
+            perturb_covar_df[self._perturb_covar_keys],
+            covariate_data[self._perturb_covar_keys],
+        )
+        _perturb_covar_df["row_id"] = range(len(perturb_covar_df))
+        _covariate_data["cell_index"] = _covariate_data.index
+        _perturb_covar_merged = _perturb_covar_df.merge(_covariate_data, on=self._perturb_covar_keys, how="inner")
+        perturb_covar_to_cells = _perturb_covar_merged.groupby("row_id")["cell_index"].apply(list).to_list()
+
+        # intialize data containers
+        if adata is not None:
+            split_covariates_mask = np.full((len(adata),), -1, dtype=np.int32)
+            perturbation_covariates_mask = np.full((len(adata),), -1, dtype=np.int32)
+            control_mask = covariate_data[self._control_key]
+        else:
+            split_covariates_mask = None
+            perturbation_covariates_mask = None
+            control_mask = np.ones((len(covariate_data),))
+
+        condition_data: dict[str, list[np.ndarray]] = (
+            {i: [] for i in self._covar_to_idx.keys()} if self.is_conditional else {}
+        )
+
+        control_to_perturbation: dict[int, np.ndarray] = {}
+        split_idx_to_covariates: dict[int, tuple[Any]] = {}
+        perturbation_idx_to_covariates: dict[int, tuple[Any]] = {}
+        perturbation_idx_to_id: dict[int, Any] = {}
+
+        src_counter = 0
+        tgt_counter = 0
+
+        # iterate over unique split covariate combinations
+        for split_combination in split_cov_combs:
+            # get masks for split covariates; for prediction, it's done outside this method
+            if adata is not None:
+                split_covariates_mask, split_idx_to_covariates, split_cov_mask = self._get_split_combination_mask(
+                    covariate_data=adata.obs,
+                    split_covariates_mask=split_covariates_mask,  # type: ignore[arg-type]
+                    split_combination=split_combination,
+                    split_idx_to_covariates=split_idx_to_covariates,
+                    control_mask=control_mask,
+                    src_counter=src_counter,
+                )
+            conditional_distributions = []
+
+            # iterate over target conditions
+            filter_dict = dict(zip(self.split_covariates, split_combination, strict=False))
+            pc_df = perturb_covar_df[
+                (perturb_covar_df[list(filter_dict.keys())] == list(filter_dict.values())).all(axis=1)
+            ]
+            pc_df = pc_df.sort_values(by=self._perturb_covar_keys)
+            pbar = tqdm(pc_df.iterrows(), total=pc_df.shape[0])
+
+            for i, tgt_cond in pbar:
+                tgt_cond = tgt_cond[self._perturb_covar_keys]
+                # for train/validation, only extract covariate combinations that are present in adata
+                if adata is not None:
+                    mask = covariate_data.index.isin(perturb_covar_to_cells[i])
+                    mask *= (1 - control_mask) * split_cov_mask
+                    mask = np.array(mask == 1)
+                    if mask.sum() == 0:
+                        continue
+                    # map unique condition id to target id
+                    perturbation_covariates_mask[mask] = tgt_counter  # type: ignore[index]
+
+                # map target id to unique conditions and their ids
+                conditional_distributions.append(tgt_counter)
+                perturbation_idx_to_covariates[tgt_counter] = tgt_cond.values
+                if condition_id_key is not None:
+                    perturbation_idx_to_id[tgt_counter] = i
+
+                # get embeddings for conditions
+                if self.is_conditional:
+                    embedding = self._get_perturbation_covariates(
+                        condition_data=tgt_cond,
+                        rep_dict=rep_dict,
+                        perturb_covariates={k: _to_list(v) for k, v in self._perturbation_covariates.items()},
+                    )
+                    for pert_cov, emb in embedding.items():
+                        condition_data[pert_cov].append(emb)
+
+                tgt_counter += 1
+
+            # map source (control) to target condition ids
+            control_to_perturbation[src_counter] = np.array(conditional_distributions)
+            src_counter += 1
+
+        # convert outputs to numpy arrays
+        if self.is_conditional:
+            for pert_cov, emb in condition_data.items():
+                condition_data[pert_cov] = np.array(emb)
+        split_covariates_mask = np.asarray(split_covariates_mask) if split_covariates_mask is not None else None
+        perturbation_covariates_mask = (
+            np.asarray(perturbation_covariates_mask) if perturbation_covariates_mask is not None else None
+        )
+        return ReturnData(
+            split_covariates_mask=split_covariates_mask,
+            split_idx_to_covariates=split_idx_to_covariates,
+            perturbation_covariates_mask=perturbation_covariates_mask,
+            perturbation_idx_to_covariates=perturbation_idx_to_covariates,
+            perturbation_idx_to_id=perturbation_idx_to_id,
+            condition_data=condition_data,  # type: ignore[arg-type]
+            control_to_perturbation=control_to_perturbation,
+            max_combination_length=self._max_combination_length,
+        )
+
 
     def _get_primary_covar_encoder(
         self,

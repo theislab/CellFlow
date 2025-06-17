@@ -5,7 +5,6 @@ from collections.abc import Generator
 from typing import Any, Literal
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 
 from cellflow.data._data import PredictionData, TrainingData, ValidationData
@@ -111,14 +110,14 @@ class BaseValidSampler(abc.ABC):
         cov_combination = self._data.perturbation_idx_to_covariates[cond_idx]  # type: ignore[attr-defined]
         return tuple(cov_combination[i] for i in range(len(cov_combination)))
 
-    def _get_perturbation_to_control(self, data: ValidationData | PredictionData) -> dict[int, int]:
+    def _get_perturbation_to_control(self, data: ValidationData | PredictionData) -> dict[int, np.ndarray]:
         d = {}
         for k, v in data.control_to_perturbation.items():
             for el in v:
                 d[el] = k
         return d
 
-    def _get_condition_data(self, cond_idx: int) -> jnp.ndarray:
+    def _get_condition_data(self, cond_idx: int) -> dict[str, np.ndarray]:
         return {k: v[[cond_idx], ...] for k, v in self._data.condition_data.items()}  # type: ignore[attr-defined]
 
 

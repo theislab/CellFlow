@@ -162,8 +162,8 @@ class ValidationData(BaseDataMixin):
         int, tuple[str, ...]
     ]  # (n_targets,), dictionary explaining perturbation_covariates_mask
     perturbation_idx_to_id: dict[int, Any]
-    condition_data: dict[str, ArrayLike]  # (n_targets,) all embeddings for conditions
-    control_to_perturbation: dict[int, jax.Array]  # mapping from control idx to target distribution idcs
+    condition_data: dict[str, np.ndarray]  # (n_targets,) all embeddings for conditions
+    control_to_perturbation: dict[int, np.ndarray]  # mapping from control idx to target distribution idcs
     max_combination_length: int
     null_value: Any
     data_manager: Any
