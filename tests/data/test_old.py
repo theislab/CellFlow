@@ -22,34 +22,67 @@ perturbation_covariate_comb_args = [
     },
 ]
 
+def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
+
+    uniq_a = np.unique(a)
+    uniq_b = np.unique(b)
+
+    #get first occurence of each unique value
+    a_ = [
+        (e, next(i for i, x in enumerate(a) if x == e))
+        for e in uniq_a
+    ]
+    b_ = [
+        (e,next(i for i, x in enumerate(b) if x == e))
+        for e in uniq_b
+    ]
+
+    a_ = sorted(a_, key=lambda x: x[1])
+    b_ = sorted(b_, key=lambda x: x[1])
+
+    a1 = [aa[1] for aa in a_]
+    b1 = [bb[1] for bb in b_]
+    assert a1 == b1, f"{name}: a: {a1}, b: {b1}, can't be mapped"
+
+    a2b = {aa[0]: bb[0] for aa, bb in zip(a_, b_)}
+
+    for k,v in a2b.items():
+        a_idx = np.argwhere(a == k)
+        b_idx = np.argwhere(b == v)
+        assert a_idx.shape == b_idx.shape, f"{name}: a: {a_idx.shape}, b: {b_idx.shape}"
+        assert (a_idx == b_idx).all(), f"{name}: a: {a_idx}, b: {b_idx}"
+
+    return a2b
+
 
 def compare_train_data(a, b):
-    assert (a.perturbation_covariates_mask == b.perturbation_covariates_mask).all(), (
-        f"perturbation_covariates_mask {a.perturbation_covariates_mask}, {b.perturbation_covariates_mask}"
-    )
-    assert (a.split_covariates_mask == b.split_covariates_mask).all(), (
-        f"split_covariates_mask {a.split_covariates_mask}, {b.split_covariates_mask}"
-    )
-    # compare split_idx_to_covariates and perturbation_idx_to_covariates dicts
+    a2b_perturbation = compare_masks(a.perturbation_covariates_mask, b.perturbation_covariates_mask, "perturbation_covariates_mask")
+    a2b_split = compare_masks(a.split_covariates_mask, b.split_covariates_mask, "split_covariates_mask")
     assert a.split_idx_to_covariates.keys() == b.split_idx_to_covariates.keys(), "split_idx_to_covariates"
     for k in a.split_idx_to_covariates.keys():
-        assert a.split_idx_to_covariates[k] == b.split_idx_to_covariates[k], (
-            f"split_idx_to_covariates[{k}] {a.split_idx_to_covariates[k]}, {b.split_idx_to_covariates[k]}"
+        b_k = a2b_split[k]
+        assert a.split_idx_to_covariates[k] == b.split_idx_to_covariates[b_k], (
+            f"split_idx_to_covariates[{k}] {a.split_idx_to_covariates[k]}, {b.split_idx_to_covariates[b_k]}"
         )
     assert a.perturbation_idx_to_covariates.keys() == b.perturbation_idx_to_covariates.keys(), (
         "perturbation_idx_to_covariates"
     )
     for k in a.perturbation_idx_to_covariates.keys():
+        b_k = a2b_perturbation[k]
         elem_a = a.perturbation_idx_to_covariates[k]
         elem_a = elem_a.tolist() if isinstance(elem_a, np.ndarray) else elem_a
-        elem_b = b.perturbation_idx_to_covariates[k]
+        elem_b = b.perturbation_idx_to_covariates[b_k]
         elem_b = elem_b.tolist() if isinstance(elem_b, np.ndarray) else elem_b
         assert elem_a == elem_b, f"perturbation_idx_to_covariates[{k}] {elem_a}, {elem_b}"
     assert a.control_to_perturbation.keys() == b.control_to_perturbation.keys(), "control_to_perturbation"
     for k in a.control_to_perturbation.keys():
-        assert (a.control_to_perturbation[k] == b.control_to_perturbation[k]).all().all(), (
-            f"control_to_perturbation[{k}]"
-        )
+        elem_a = a.control_to_perturbation[k]
+        elem_a = elem_a.tolist() if isinstance(elem_a, np.ndarray) else elem_a
+        elem_b = b.control_to_perturbation[k]
+        elem_b = elem_b.tolist() if isinstance(elem_b, np.ndarray) else elem_b
+        assert len(elem_a) == len(elem_b), f"control_to_perturbation[{k}] {elem_a}, {elem_b}"
+        for a_elem, b_elem in zip(elem_a, elem_b):
+            assert a2b_perturbation[a_elem] == b_elem, f"control_to_perturbation[{k}] {a_elem}, {b_elem}, a2b_perturbation[a_elem] {a2b_perturbation[a_elem]}"
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
     for k in a.condition_data.keys():
         assert (a.condition_data[k] == b.condition_data[k]).all(), f"condition_data[{k}]"
@@ -86,6 +119,10 @@ class TestDataManager:
         assert dm._perturbation_covariates == perturbation_covariates
         assert dm._sample_covariates == sample_covariates
 
+
+        print("dm.perturb_covar_keys", dm.perturb_covar_keys)
+        print("dm.sample_covariates", dm.sample_covariates)
+        print("dm.split_covariates", dm.split_covariates)
         old = dm._get_condition_data_old(
             split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation,
@@ -94,6 +131,7 @@ class TestDataManager:
             split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation,
         )
+        print(old.control_to_perturbation, new.control_to_perturbation)
 
         compare_train_data(old, new)
 

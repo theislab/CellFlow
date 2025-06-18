@@ -364,7 +364,7 @@ class DataManager:
 
             if not is_categorical:
                 prim_arr *= value
-
+            print("prim_arr", prim_arr)
             prim_arr = check_shape_fn(prim_arr)
             perturb_covar_emb[primary_group].append(prim_arr)
 
@@ -386,7 +386,7 @@ class DataManager:
                     linked_arr = np.asarray(rep_dict[rep_key][cov_name])
                 else:
                     linked_arr = np.asarray(condition_data[linked_cov])
-
+                print("linked_arr", linked_arr)
                 linked_arr = check_shape_fn(linked_arr)
                 perturb_covar_emb[linked_group].append(linked_arr)
 
@@ -410,7 +410,7 @@ class DataManager:
                 cov_arr = np.asarray(rep_dict[rep_key][value])
             else:
                 cov_arr = np.asarray(value)
-
+            print("cov_arr", cov_arr)
             cov_arr = check_shape_fn(cov_arr)
             sample_covar_emb[sample_cov] = np.tile(cov_arr, (max_combination_length, 1))
 
@@ -429,21 +429,20 @@ class DataManager:
         if adata is None and covariate_data is None:
             raise ValueError("Either `adata` or `covariate_data` must be provided.")
         covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
-        if (
-            len(self._split_covariates) == 0
-            or len(self._perturbation_covariates) == 0
-            or len(self._sample_covariates) == 0
-            or not self.is_conditional
-            or adata is None
-        ):
-            print("old")
-            return self._get_condition_data_old(
-                split_cov_combs=split_cov_combs,
-                adata=adata,
-                covariate_data=covariate_data,
-                rep_dict=rep_dict,
-                condition_id_key=condition_id_key,
-            )
+        # if (
+        #     len(self._split_covariates) == 0
+        #     or len(self._perturbation_covariates) == 0
+        #     or len(self._sample_covariates) == 0
+        #     or not self.is_conditional
+        #     or adata is None
+        # ):
+        #     return self._get_condition_data_old(
+        #         split_cov_combs=split_cov_combs,
+        #         adata=adata,
+        #         covariate_data=covariate_data,
+        #         rep_dict=rep_dict,
+        #         condition_id_key=condition_id_key,
+        #     )
 
         if rep_dict is None:
             rep_dict = adata.uns if adata is not None else {}
@@ -499,7 +498,10 @@ class DataManager:
             )
             return tgt_idx, embedding
 
-        comb_keys = self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
+        comb_keys =  self._split_covariates
+        if len(self._split_covariates) == 0:
+            comb_keys = self._sample_covariates
+        # self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
 
         perturbation_covariates_keys = self.perturb_covar_keys
         perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in comb_keys]
@@ -1076,7 +1078,11 @@ class DataManager:
 
     @staticmethod
     def _check_shape(arr: float | ArrayLike) -> ArrayLike:
+        # <U11 if 
+        # if isinstance(arr, np.ndarray) and arr.dtype == np.dtype("<U11"):
+            # arr = arr.astype(float)
         if not hasattr(arr, "shape") or len(arr.shape) == 0:
+            # if not numeric cast
             return np.ones((1, 1)) * arr
         if arr.ndim == 1:  # type: ignore[union-attr]
             return np.expand_dims(arr, 0)

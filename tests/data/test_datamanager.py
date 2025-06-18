@@ -159,6 +159,7 @@ class TestDataManager:
         from cellflow.data._data import TrainingData
         from cellflow.data._datamanager import DataManager
 
+
         dm = DataManager(
             adata_perturbation,
             sample_rep=sample_rep,
@@ -168,6 +169,8 @@ class TestDataManager:
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=sample_covariates,
         )
+
+
         assert isinstance(dm, DataManager)
         assert dm._sample_rep == sample_rep
         assert dm._control_key == "control"
@@ -222,7 +225,6 @@ class TestDataManager:
             sample_covariates=["cell_type"],
             sample_covariate_reps={"cell_type": "cell_type"},
         )
-
         train_data = dm.get_train_data(adata_perturbation)
 
         assert ((train_data.perturbation_covariates_mask == -1) + (train_data.split_covariates_mask == -1)).all()
