@@ -498,7 +498,7 @@ class DataManager:
             )
             return tgt_idx, embedding
 
-        comb_keys =  self._split_covariates
+        comb_keys = self._split_covariates
         if len(self._split_covariates) == 0:
             comb_keys = self._sample_covariates
         # self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
@@ -1078,9 +1078,9 @@ class DataManager:
 
     @staticmethod
     def _check_shape(arr: float | ArrayLike) -> ArrayLike:
-        # <U11 if 
+        # <U11 if
         # if isinstance(arr, np.ndarray) and arr.dtype == np.dtype("<U11"):
-            # arr = arr.astype(float)
+        # arr = arr.astype(float)
         if not hasattr(arr, "shape") or len(arr.shape) == 0:
             # if not numeric cast
             return np.ones((1, 1)) * arr

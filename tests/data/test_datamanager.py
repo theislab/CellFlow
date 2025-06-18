@@ -159,7 +159,6 @@ class TestDataManager:
         from cellflow.data._data import TrainingData
         from cellflow.data._datamanager import DataManager
 
-
         dm = DataManager(
             adata_perturbation,
             sample_rep=sample_rep,
@@ -169,7 +168,6 @@ class TestDataManager:
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=sample_covariates,
         )
-
 
         assert isinstance(dm, DataManager)
         assert dm._sample_rep == sample_rep

@@ -22,20 +22,14 @@ perturbation_covariate_comb_args = [
     },
 ]
 
-def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
 
+def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
     uniq_a = np.unique(a)
     uniq_b = np.unique(b)
 
-    #get first occurence of each unique value
-    a_ = [
-        (e, next(i for i, x in enumerate(a) if x == e))
-        for e in uniq_a
-    ]
-    b_ = [
-        (e,next(i for i, x in enumerate(b) if x == e))
-        for e in uniq_b
-    ]
+    # get first occurence of each unique value
+    a_ = [(e, next(i for i, x in enumerate(a) if x == e)) for e in uniq_a]
+    b_ = [(e, next(i for i, x in enumerate(b) if x == e)) for e in uniq_b]
 
     a_ = sorted(a_, key=lambda x: x[1])
     b_ = sorted(b_, key=lambda x: x[1])
@@ -44,9 +38,9 @@ def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
     b1 = [bb[1] for bb in b_]
     assert a1 == b1, f"{name}: a: {a1}, b: {b1}, can't be mapped"
 
-    a2b = {aa[0]: bb[0] for aa, bb in zip(a_, b_)}
+    a2b = {aa[0]: bb[0] for aa, bb in zip(a_, b_, strict=False)}
 
-    for k,v in a2b.items():
+    for k, v in a2b.items():
         a_idx = np.argwhere(a == k)
         b_idx = np.argwhere(b == v)
         assert a_idx.shape == b_idx.shape, f"{name}: a: {a_idx.shape}, b: {b_idx.shape}"
@@ -56,7 +50,9 @@ def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
 
 
 def compare_train_data(a, b):
-    a2b_perturbation = compare_masks(a.perturbation_covariates_mask, b.perturbation_covariates_mask, "perturbation_covariates_mask")
+    a2b_perturbation = compare_masks(
+        a.perturbation_covariates_mask, b.perturbation_covariates_mask, "perturbation_covariates_mask"
+    )
     a2b_split = compare_masks(a.split_covariates_mask, b.split_covariates_mask, "split_covariates_mask")
     assert a.split_idx_to_covariates.keys() == b.split_idx_to_covariates.keys(), "split_idx_to_covariates"
     for k in a.split_idx_to_covariates.keys():
@@ -81,8 +77,10 @@ def compare_train_data(a, b):
         elem_b = b.control_to_perturbation[k]
         elem_b = elem_b.tolist() if isinstance(elem_b, np.ndarray) else elem_b
         assert len(elem_a) == len(elem_b), f"control_to_perturbation[{k}] {elem_a}, {elem_b}"
-        for a_elem, b_elem in zip(elem_a, elem_b):
-            assert a2b_perturbation[a_elem] == b_elem, f"control_to_perturbation[{k}] {a_elem}, {b_elem}, a2b_perturbation[a_elem] {a2b_perturbation[a_elem]}"
+        for a_elem, b_elem in zip(elem_a, elem_b, strict=False):
+            assert a2b_perturbation[a_elem] == b_elem, (
+                f"control_to_perturbation[{k}] {a_elem}, {b_elem}, a2b_perturbation[a_elem] {a2b_perturbation[a_elem]}"
+            )
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
     for k in a.condition_data.keys():
         assert (a.condition_data[k] == b.condition_data[k]).all(), f"condition_data[{k}]"
@@ -118,7 +116,6 @@ class TestDataManager:
         assert dm._split_covariates == split_covariates
         assert dm._perturbation_covariates == perturbation_covariates
         assert dm._sample_covariates == sample_covariates
-
 
         print("dm.perturb_covar_keys", dm.perturb_covar_keys)
         print("dm.sample_covariates", dm.sample_covariates)
