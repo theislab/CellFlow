@@ -22,6 +22,12 @@ perturbation_covariate_comb_args = [
     },
 ]
 
+def compare_masks(a: np.ndarray, b: np.ndarray, name: str, strict=True):
+
+    if strict:
+        assert a.shape == b.shape, f"{name}: a: {a.shape}, b: {b.shape}"
+        assert (a == b).all(), f"{name}: a: {a}, b: {b}"
+        return {}
 
 def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
     uniq_a = np.unique(a)
@@ -56,7 +62,10 @@ def compare_train_data(a, b):
     a2b_split = compare_masks(a.split_covariates_mask, b.split_covariates_mask, "split_covariates_mask")
     assert a.split_idx_to_covariates.keys() == b.split_idx_to_covariates.keys(), "split_idx_to_covariates"
     for k in a.split_idx_to_covariates.keys():
-        b_k = a2b_split[k]
+        if a2b_split:
+            b_k = a2b_split[k]
+        else:
+            b_k = k
         assert a.split_idx_to_covariates[k] == b.split_idx_to_covariates[b_k], (
             f"split_idx_to_covariates[{k}] {a.split_idx_to_covariates[k]}, {b.split_idx_to_covariates[b_k]}"
         )
@@ -64,7 +73,10 @@ def compare_train_data(a, b):
         "perturbation_idx_to_covariates"
     )
     for k in a.perturbation_idx_to_covariates.keys():
-        b_k = a2b_perturbation[k]
+        if a2b_perturbation:
+            b_k = a2b_perturbation[k]
+        else:
+            b_k = k
         elem_a = a.perturbation_idx_to_covariates[k]
         elem_a = elem_a.tolist() if isinstance(elem_a, np.ndarray) else elem_a
         elem_b = b.perturbation_idx_to_covariates[b_k]
@@ -77,10 +89,11 @@ def compare_train_data(a, b):
         elem_b = b.control_to_perturbation[k]
         elem_b = elem_b.tolist() if isinstance(elem_b, np.ndarray) else elem_b
         assert len(elem_a) == len(elem_b), f"control_to_perturbation[{k}] {elem_a}, {elem_b}"
-        for a_elem, b_elem in zip(elem_a, elem_b, strict=False):
-            assert a2b_perturbation[a_elem] == b_elem, (
-                f"control_to_perturbation[{k}] {a_elem}, {b_elem}, a2b_perturbation[a_elem] {a2b_perturbation[a_elem]}"
-            )
+        for a_elem, b_elem in zip(elem_a, elem_b):
+            error_str = f"control_to_perturbation[{k}] {a_elem}, {b_elem}, {a.control_to_perturbation}, {b.control_to_perturbation}"
+            if a2b_perturbation:
+                error_str += f", a2b_perturbation[{a_elem}] {a2b_perturbation[a_elem]}"
+            assert a_elem == b_elem, error_str
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
     for k in a.condition_data.keys():
         assert (a.condition_data[k] == b.condition_data[k]).all(), f"condition_data[{k}]"

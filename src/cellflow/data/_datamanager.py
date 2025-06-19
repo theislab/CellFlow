@@ -364,7 +364,6 @@ class DataManager:
 
             if not is_categorical:
                 prim_arr *= value
-            print("prim_arr", prim_arr)
             prim_arr = check_shape_fn(prim_arr)
             perturb_covar_emb[primary_group].append(prim_arr)
 
@@ -386,7 +385,6 @@ class DataManager:
                     linked_arr = np.asarray(rep_dict[rep_key][cov_name])
                 else:
                     linked_arr = np.asarray(condition_data[linked_cov])
-                print("linked_arr", linked_arr)
                 linked_arr = check_shape_fn(linked_arr)
                 perturb_covar_emb[linked_group].append(linked_arr)
 
@@ -410,7 +408,6 @@ class DataManager:
                 cov_arr = np.asarray(rep_dict[rep_key][value])
             else:
                 cov_arr = np.asarray(value)
-            print("cov_arr", cov_arr)
             cov_arr = check_shape_fn(cov_arr)
             sample_covar_emb[sample_cov] = np.tile(cov_arr, (max_combination_length, 1))
 
@@ -527,10 +524,15 @@ class DataManager:
         with ProgressBar():
             control_combs, all_combs, df = dask.compute(control_combs, all_combs, ddf)
 
+        if len(self.split_covariates) > 0 and len(self.sample_covariates) == 0:
+            all_combs_keys = comb_keys + perturbation_covariates_keys
+        elif len(self.sample_covariates) > 0 and len(self.split_covariates) == 0:
+            all_combs_keys = self.perturb_covar_keys
+        else:
+            all_combs_keys = comb_keys + perturbation_covariates_keys
+
         control_combs = control_combs[control_combs[control_key]].sort_values(by=comb_keys)
-        all_combs_keys = comb_keys + perturbation_covariates_keys
         # if len(self._split_covariates) > 0 else (perturbation_covariates_keys + comb_keys)
-        print("all_combs_keys", all_combs_keys)
         all_combs = all_combs[~all_combs[control_key]].sort_values(by=all_combs_keys)
 
         all_combs["global_pert_mask"] = np.arange(len(all_combs), dtype=np.int64)
@@ -586,7 +588,7 @@ class DataManager:
 
         control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
         control_to_perturbation = control_to_perturbation.to_dict()
-        control_to_perturbation = {k: np.array(v, dtype=np.int32) for k, v in control_to_perturbation.items()}
+        control_to_perturbation = {k: np.array(sorted(v), dtype=np.int32) for k, v in control_to_perturbation.items()}
         df.set_index("cell_index", inplace=True)
         df = df.reindex(covariate_data.index)
         split_covariates_mask = np.asarray(df["split_covariates_mask"].values, dtype=np.int32)
