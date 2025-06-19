@@ -22,12 +22,13 @@ perturbation_covariate_comb_args = [
     },
 ]
 
-def compare_masks(a: np.ndarray, b: np.ndarray, name: str, strict=True):
 
+def compare_masks(a: np.ndarray, b: np.ndarray, name: str, strict=True):
     if strict:
         assert a.shape == b.shape, f"{name}: a: {a.shape}, b: {b.shape}"
         assert (a == b).all(), f"{name}: a: {a}, b: {b}"
         return {}
+
 
 def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
     uniq_a = np.unique(a)
@@ -89,7 +90,7 @@ def compare_train_data(a, b):
         elem_b = b.control_to_perturbation[k]
         elem_b = elem_b.tolist() if isinstance(elem_b, np.ndarray) else elem_b
         assert len(elem_a) == len(elem_b), f"control_to_perturbation[{k}] {elem_a}, {elem_b}"
-        for a_elem, b_elem in zip(elem_a, elem_b):
+        for a_elem, b_elem in zip(elem_a, elem_b, strict=False):
             error_str = f"control_to_perturbation[{k}] {a_elem}, {b_elem}, {a.control_to_perturbation}, {b.control_to_perturbation}"
             if a2b_perturbation:
                 error_str += f", a2b_perturbation[{a_elem}] {a2b_perturbation[a_elem]}"
