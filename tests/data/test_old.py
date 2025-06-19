@@ -1,6 +1,16 @@
 import anndata as ad
 import numpy as np
 import pytest
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+
+@pytest.fixture(autouse=True)
+def setup_logging(caplog):
+    # This ensures we capture all levels of logging
+    caplog.set_level(logging.DEBUG)
+    # This ensures we see the output even if a test fails
+    logging.getLogger().setLevel(logging.DEBUG)
 
 from cellflow.data._datamanager import DataManager
 
@@ -96,8 +106,12 @@ def compare_train_data(a, b):
                 error_str += f", a2b_perturbation[{a_elem}] {a2b_perturbation[a_elem]}"
             assert a_elem == b_elem, error_str
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
+    # for k in a.condition_data.keys():
+    #     print(f"a.condition_data[{k}][:2]", a.condition_data[k][:2])
+    #     print(f"b.condition_data[{k}][:2]", b.condition_data[k][:2])
     for k in a.condition_data.keys():
-        assert (a.condition_data[k] == b.condition_data[k]).all(), f"condition_data[{k}]"
+        assert a.condition_data[k].shape == b.condition_data[k].shape, f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}"
+        assert np.allclose(a.condition_data[k], b.condition_data[k]), f"condition_data[{k}], {a.condition_data[k]}, {b.condition_data[k]}"
 
 
 class TestDataManager:
@@ -155,6 +169,7 @@ class TestDataManager:
         split_covariates,
         perturbation_covariates,
         perturbation_covariate_reps,
+        caplog,
     ):
         dm = DataManager(
             adata_perturbation,

@@ -137,7 +137,7 @@ def adata_perturbation() -> ad.AnnData:
     for drug in adata.obs["drug1"].cat.categories:
         drug_emb[drug] = np.random.randn(5, 1)
     adata.uns["drug"] = drug_emb
-
+    print(adata.uns["drug"])
     cell_type_emb = {}
     for cell_type in adata.obs["cell_type"].cat.categories:
         cell_type_emb[cell_type] = np.random.randn(3, 1)

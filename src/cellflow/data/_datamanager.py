@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from typing import Any
-
+from collections import OrderedDict
 import anndata
 import dask
 import dask.dataframe as dd
@@ -20,7 +20,12 @@ from cellflow.data._data import ConditionData, PredictionData, ReturnData, Train
 from ._utils import _flatten_list, _to_list
 
 __all__ = ["DataManager"]
-
+import logging
+logging.basicConfig(level=logging.DEBUG)
+handler = logging.StreamHandler()
+handler.setLevel(logging.DEBUG)
+logger.addHandler(handler)
+logging.getLogger().setLevel(logging.DEBUG)
 
 class DataManager:
     """Data manager for handling perturbation data.
@@ -88,12 +93,12 @@ class DataManager:
         self._adata = adata
         self._sample_rep = self._verify_sample_rep(sample_rep)
         self._control_key = control_key
-        self._perturbation_covariates = self._verify_perturbation_covariates(perturbation_covariates)
-        self._perturbation_covariate_reps = self._verify_perturbation_covariate_reps(
+        self._perturbation_covariates = OrderedDict(self._verify_perturbation_covariates(perturbation_covariates))
+        self._perturbation_covariate_reps = OrderedDict(self._verify_perturbation_covariate_reps(
             adata,
             perturbation_covariate_reps,
             self._perturbation_covariates,
-        )
+        ))
         self._sample_covariates = self._verify_sample_covariates(sample_covariates)
         self._sample_covariate_reps = self._verify_sample_covariate_reps(
             adata, sample_covariate_reps, self._sample_covariates
@@ -109,7 +114,7 @@ class DataManager:
             self._perturbation_covariate_reps,
         )
         self._linked_perturb_covars = self._get_linked_perturbation_covariates(self._perturbation_covariates)
-        sample_cov_groups = {covar: _to_list(covar) for covar in self._sample_covariates}
+        sample_cov_groups = OrderedDict({covar: _to_list(covar) for covar in self._sample_covariates})
         covariate_groups = self._perturbation_covariates | sample_cov_groups
         self._covariate_reps = (self._perturbation_covariate_reps or {}) | (self._sample_covariate_reps or {})
 
@@ -340,9 +345,7 @@ class DataManager:
         -------
         Dictionary with perturbation covariate embeddings.
         """
-        check_shape_fn = DataManager._check_shape
 
-        pad_to_max_length_fn = DataManager._pad_to_max_length
 
         primary_group, primary_covars = next(iter(perturb_covariates.items()))
 
@@ -364,7 +367,7 @@ class DataManager:
 
             if not is_categorical:
                 prim_arr *= value
-            prim_arr = check_shape_fn(prim_arr)
+            prim_arr = DataManager._check_shape(prim_arr)
             perturb_covar_emb[primary_group].append(prim_arr)
 
             for linked_covar in linked_perturb_covars[primary_cov].items():
@@ -372,7 +375,7 @@ class DataManager:
 
                 if linked_cov is None:
                     linked_arr = np.full((1, 1), null_value)
-                    linked_arr = check_shape_fn(linked_arr)
+                    linked_arr = DataManager._check_shape(linked_arr)
                     perturb_covar_emb[linked_group].append(linked_arr)
                     continue
 
@@ -385,11 +388,11 @@ class DataManager:
                     linked_arr = np.asarray(rep_dict[rep_key][cov_name])
                 else:
                     linked_arr = np.asarray(condition_data[linked_cov])
-                linked_arr = check_shape_fn(linked_arr)
+                linked_arr = DataManager._check_shape(linked_arr)
                 perturb_covar_emb[linked_group].append(linked_arr)
 
         perturb_covar_emb = {
-            k: pad_to_max_length_fn(
+            k: DataManager._pad_to_max_length(
                 np.concatenate(v, axis=0),
                 max_combination_length,
                 null_value,
@@ -408,10 +411,15 @@ class DataManager:
                 cov_arr = np.asarray(rep_dict[rep_key][value])
             else:
                 cov_arr = np.asarray(value)
-            cov_arr = check_shape_fn(cov_arr)
+            cov_arr = DataManager._check_shape(cov_arr)
             sample_covar_emb[sample_cov] = np.tile(cov_arr, (max_combination_length, 1))
 
         return perturb_covar_emb | sample_covar_emb
+
+    def _log_perturbation_details(self, stage: str, tgt_idx: int, tgt_cond: pd.Series, embeddings: dict[str, np.ndarray]) -> None:
+        logger.info(f"{stage} tgt_idx: {tgt_idx}, tgt_cond: {dict(tgt_cond)}")
+        for pert_cov, emb in embeddings.items():
+            logger.info(f"{stage} > {pert_cov} embedding first few values: {emb.flatten()[:3]}, sum: {emb.sum()}")
 
     def _get_condition_data(
         self,
@@ -446,10 +454,10 @@ class DataManager:
         # check if all perturbation/split covariates and control cells are present in the input
         self._verify_covariate_data(
             covariate_data,
-            {covar: _to_list(covar) for covar in self._sample_covariates},
+            OrderedDict({covar: sorted(_to_list(covar)) for covar in self._sample_covariates}),
         )
         self._verify_control_data(adata)
-        self._verify_covariate_data(covariate_data, _to_list(self._split_covariates))
+        self._verify_covariate_data(covariate_data, sorted(_to_list(self._split_covariates)))
 
         # extract unique combinations of perturbation covariates
         if condition_id_key is not None:
@@ -472,14 +480,12 @@ class DataManager:
         condition_data: dict[str, list[np.ndarray]] = (
             {i: [] for i in self._covar_to_idx.keys()} if self.is_conditional else {}
         )
-        perturb_covariates = {k: _to_list(v) for k, v in self._perturbation_covariates.items()}
+        perturb_covariates = OrderedDict({k: sorted(_to_list(v)) for k, v in self._perturbation_covariates.items()})
         npartitions = 2  # TODO: make this dynamic
-
         # delete later
         covariate_data = covariate_data.copy()
         covariate_data["cell_index"] = covariate_data.index
         covariate_data = covariate_data.reset_index(drop=True)
-
         def _process_condition(tgt_idx, tgt_cond):
             embedding = DataManager._get_perturbation_covariates_static(
                 condition_data=tgt_cond,
@@ -493,7 +499,7 @@ class DataManager:
                 linked_perturb_covars=self._linked_perturb_covars,
                 sample_covariates=self._sample_covariates,
             )
-            return tgt_idx, embedding
+            return tgt_idx, tgt_cond, embedding
 
         comb_keys = self._split_covariates
         if len(self._split_covariates) == 0:
@@ -539,7 +545,7 @@ class DataManager:
         control_combs["global_control_mask"] = np.arange(len(control_combs), dtype=np.int64)
 
         control_combs = control_combs.sort_values(by=comb_keys)
-        all_combs = all_combs.sort_values(by=comb_keys + perturbation_covariates_keys)
+        all_combs = all_combs.sort_values(by=all_combs_keys)
 
         all_combs = all_combs.drop(columns=[control_key])
         control_combs = control_combs.drop(columns=[control_key])
@@ -556,7 +562,7 @@ class DataManager:
             how="left",
         )
 
-        df = df.sort_values(by=[*comb_keys, *perturbation_covariates_keys])
+        df = df.sort_values(by=all_combs_keys)
 
         df["split_covariates_mask"] = df["global_control_mask"]
         df["perturbation_covariates_mask"] = df["global_pert_mask"]
@@ -575,7 +581,7 @@ class DataManager:
         }
 
         perturbation_idx_to_covariates = (
-            df[["global_pert_mask", *perturbation_covariates_keys, *comb_keys]]
+            df[["global_pert_mask", *all_combs_keys]]
             .groupby(["global_pert_mask"])
             .first()
             .to_dict(orient="index")
@@ -598,8 +604,7 @@ class DataManager:
         delayed_results = []
 
         # Create delayed tasks with tracking information
-
-        perturb_covar_df = df[~df[control_key]][comb_keys + perturbation_covariates_keys].drop_duplicates(keep="first")
+        perturb_covar_df = df[~df[control_key]][all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
         for _, tgt_cond in perturb_covar_df.iterrows():
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
             tgt_cond = tgt_cond[self._perturb_covar_keys]
@@ -616,12 +621,19 @@ class DataManager:
         # Create a mapping from target counter to result
         # sort results by tgt_idx
         results = sorted(results, key=lambda x: x[0])
-        for _, embeddings in results:
+        for tgt_idx, tgt_cond, embeddings in results:
+            embeddings2 = self._get_perturbation_covariates(
+                condition_data=tgt_cond,
+                rep_dict=rep_dict,
+                perturb_covariates=perturb_covariates,
+            )
+            self._log_perturbation_details('new', tgt_idx, tgt_cond, embeddings)
             for pert_cov, emb in embeddings.items():
                 condition_data[pert_cov].append(emb)
+                assert np.allclose(emb, embeddings2[pert_cov]), f"Embedding mismatch for {pert_cov}, {tgt_idx}, {tgt_cond}"
 
         for pert_cov, emb in condition_data.items():
-            condition_data[pert_cov] = np.array(emb)
+            condition_data[pert_cov] = np.stack(emb)
 
         res = ReturnData(
             split_covariates_mask=split_covariates_mask,
@@ -756,7 +768,7 @@ class DataManager:
         lengths = [len(covs) for covs in data.values()]
         if len(set(lengths)) != 1:
             raise ValueError(f"Length of perturbation covariate groups must match, found lengths {lengths}.")
-        return {k: list(el) for k, el in data.items()}
+        return {k: sorted(el) for k, el in data.items()}
 
     @staticmethod
     def _verify_sample_covariates(
@@ -771,7 +783,7 @@ class DataManager:
         for covar in sample_covariates:
             if not isinstance(covar, str):
                 raise ValueError(f"Key should be a string, found {covar} to be of type {type(covar)}.")
-        return list(sample_covariates)
+        return sorted(sample_covariates)
 
     @staticmethod
     def _verify_split_covariates(
@@ -795,7 +807,7 @@ class DataManager:
             raise ValueError(
                 f"Source distribution with split covariate values {source_without_targets} do not have a corresponding target distribution."
             )
-        return data
+        return sorted(data)
 
     @staticmethod
     def _verify_covariate_data(covariate_data: pd.DataFrame, covars) -> None:
@@ -805,13 +817,14 @@ class DataManager:
 
     @staticmethod
     def _get_linked_perturbation_covariates(perturb_covariates: dict[str, list[str]]) -> dict[str, dict[Any, Any]]:
+        perturb_covariates = OrderedDict(perturb_covariates)
         primary_group, primary_covars = next(iter(perturb_covariates.items()))
         linked_perturb_covars: dict[str, dict[Any, Any]] = {k: {} for k in primary_covars}
         for cov_group, covars in list(perturb_covariates.items())[1:]:
             for primary_cov, linked_cov in zip(primary_covars, covars, strict=False):
                 linked_perturb_covars[primary_cov][cov_group] = linked_cov
 
-        return linked_perturb_covars
+        return OrderedDict(linked_perturb_covars)
 
     @staticmethod
     def _verify_perturbation_covariate_reps(
@@ -849,7 +862,7 @@ class DataManager:
                 raise ValueError(
                     f"Sample covariate representation '{value}' in `adata.uns` should be of type `dict`, found {type(adata.uns[value])}."
                 )
-        return sample_covariate_reps
+        return OrderedDict(sample_covariate_reps)
 
     @staticmethod
     def _get_max_combination_length(
@@ -886,11 +899,10 @@ class DataManager:
         # check if all perturbation/split covariates and control cells are present in the input
         self._verify_covariate_data(
             covariate_data,
-            {covar: _to_list(covar) for covar in self._sample_covariates},
+            OrderedDict({covar: sorted(_to_list(covar)) for covar in self._sample_covariates}),
         )
         self._verify_control_data(adata)
-        self._verify_covariate_data(covariate_data, _to_list(self._split_covariates))
-
+        self._verify_covariate_data(covariate_data, sorted(_to_list(self._split_covariates)))
         # extract unique combinations of perturbation covariates
         if condition_id_key is not None:
             self._verify_condition_id_key(covariate_data, condition_id_key)
@@ -923,7 +935,7 @@ class DataManager:
             perturbation_covariates_mask = None
             control_mask = np.ones((len(covariate_data),))
 
-        condition_data: dict[str, list[np.ndarray]] = (
+        condition_data_temp: dict[str, list[tuple[int, np.ndarray]]] = (
             {i: [] for i in self._covar_to_idx.keys()} if self.is_conditional else {}
         )
 
@@ -956,6 +968,7 @@ class DataManager:
             ]
             pc_df = pc_df.sort_values(by=self._perturb_covar_keys)
             pbar = tqdm(pc_df.iterrows(), total=pc_df.shape[0])
+            perturb_covariates = OrderedDict({k: sorted(_to_list(v)) for k, v in self._perturbation_covariates.items()})
 
             for i, tgt_cond in pbar:
                 tgt_cond = tgt_cond[self._perturb_covar_keys]
@@ -980,21 +993,24 @@ class DataManager:
                     embedding = self._get_perturbation_covariates(
                         condition_data=tgt_cond,
                         rep_dict=rep_dict,
-                        perturb_covariates={k: _to_list(v) for k, v in self._perturbation_covariates.items()},
+                        perturb_covariates=perturb_covariates,
                     )
+                    self._log_perturbation_details('old', tgt_counter, tgt_cond, embedding)
                     for pert_cov, emb in embedding.items():
-                        condition_data[pert_cov].append(emb)
+                        condition_data_temp[pert_cov].append((tgt_counter, emb))
 
                 tgt_counter += 1
 
             # map source (control) to target condition ids
-            control_to_perturbation[src_counter] = np.array(conditional_distributions)
+            control_to_perturbation[src_counter] = np.array(sorted(conditional_distributions))
             src_counter += 1
-
         # convert outputs to numpy arrays
+
         if self.is_conditional:
-            for pert_cov, emb in condition_data.items():
-                condition_data[pert_cov] = np.array(emb)
+            condition_data = {}
+            for pert_cov, emb_list in condition_data_temp.items():
+                emb_list = sorted(emb_list, key=lambda x: x[0])
+                condition_data[pert_cov] = np.stack([emb for _, emb in emb_list])
         split_covariates_mask = np.asarray(split_covariates_mask) if split_covariates_mask is not None else None
         perturbation_covariates_mask = (
             np.asarray(perturbation_covariates_mask) if perturbation_covariates_mask is not None else None
@@ -1080,11 +1096,7 @@ class DataManager:
 
     @staticmethod
     def _check_shape(arr: float | ArrayLike) -> ArrayLike:
-        # <U11 if
-        # if isinstance(arr, np.ndarray) and arr.dtype == np.dtype("<U11"):
-        # arr = arr.astype(float)
         if not hasattr(arr, "shape") or len(arr.shape) == 0:
-            # if not numeric cast
             return np.ones((1, 1)) * arr
         if arr.ndim == 1:  # type: ignore[union-attr]
             return np.expand_dims(arr, 0)
@@ -1109,7 +1121,7 @@ class DataManager:
         for idx, cov_group in enumerate(covariate_groups):
             idx_to_covar[idx] = cov_group
         covar_to_idx = {v: k for k, v in idx_to_covar.items()}
-        return covar_to_idx
+        return OrderedDict(covar_to_idx)
 
     @staticmethod
     def _pad_to_max_length(arr: np.ndarray, max_combination_length: int, null_value: Any) -> np.ndarray:
@@ -1124,8 +1136,8 @@ class DataManager:
         rep_dict: dict[str, dict[str, ArrayLike]],
         perturb_covariates: Any,  # TODO: check if we can save as attribtue
     ) -> dict[str, np.ndarray]:
+        perturb_covariates = OrderedDict(perturb_covariates)
         primary_group, primary_covars = next(iter(perturb_covariates.items()))
-
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         for primary_cov in primary_covars:
             value = condition_data[primary_cov]
@@ -1147,7 +1159,6 @@ class DataManager:
 
             prim_arr = self._check_shape(prim_arr)
             perturb_covar_emb[primary_group].append(prim_arr)
-
             for linked_covar in self._linked_perturb_covars[primary_cov].items():
                 linked_group, linked_cov = list(linked_covar)
 
@@ -1156,9 +1167,7 @@ class DataManager:
                     linked_arr = self._check_shape(linked_arr)
                     perturb_covar_emb[linked_group].append(linked_arr)
                     continue
-
                 cov_name = condition_data[linked_cov]
-
                 if linked_group in self._covariate_reps:
                     rep_key = self._covariate_reps[linked_group]
                     if cov_name not in rep_dict[rep_key]:
@@ -1192,7 +1201,6 @@ class DataManager:
 
             cov_arr = self._check_shape(cov_arr)
             sample_covar_emb[sample_cov] = np.tile(cov_arr, (self._max_combination_length, 1))
-
         return perturb_covar_emb | sample_covar_emb
 
     @property
