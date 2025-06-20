@@ -1,6 +1,7 @@
+from collections import OrderedDict
 from collections.abc import Sequence
 from typing import Any
-from collections import OrderedDict
+
 import anndata
 import dask
 import dask.dataframe as dd
@@ -21,11 +22,13 @@ from ._utils import _flatten_list, _to_list
 
 __all__ = ["DataManager"]
 import logging
+
 logging.basicConfig(level=logging.DEBUG)
 handler = logging.StreamHandler()
 handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 logging.getLogger().setLevel(logging.DEBUG)
+
 
 class DataManager:
     """Data manager for handling perturbation data.
@@ -94,11 +97,13 @@ class DataManager:
         self._sample_rep = self._verify_sample_rep(sample_rep)
         self._control_key = control_key
         self._perturbation_covariates = OrderedDict(self._verify_perturbation_covariates(perturbation_covariates))
-        self._perturbation_covariate_reps = OrderedDict(self._verify_perturbation_covariate_reps(
-            adata,
-            perturbation_covariate_reps,
-            self._perturbation_covariates,
-        ))
+        self._perturbation_covariate_reps = OrderedDict(
+            self._verify_perturbation_covariate_reps(
+                adata,
+                perturbation_covariate_reps,
+                self._perturbation_covariates,
+            )
+        )
         self._sample_covariates = self._verify_sample_covariates(sample_covariates)
         self._sample_covariate_reps = self._verify_sample_covariate_reps(
             adata, sample_covariate_reps, self._sample_covariates
@@ -345,14 +350,12 @@ class DataManager:
         -------
         Dictionary with perturbation covariate embeddings.
         """
-
-
         primary_group, primary_covars = next(iter(perturb_covariates.items()))
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         for primary_cov in primary_covars:
             # print(f"primary_cov: {primary_cov}, is_categorical: {is_categorical}, primary_group: {primary_group}")
             value = condition_data[primary_cov]
-            cov_name = value if is_categorical else primary_cov # drug a
+            cov_name = value if is_categorical else primary_cov  # drug a
             if primary_group in covariate_reps:
                 # print(f"primary_group in covariate_reps: {primary_group}, covariate_reps: {covariate_reps}")
                 rep_key = covariate_reps[primary_group]
@@ -403,7 +406,6 @@ class DataManager:
         }
         return perturb_covar_emb
 
-
     @staticmethod
     def _get_sample_covariates_embedding(
         condition_data: pd.DataFrame,
@@ -427,9 +429,10 @@ class DataManager:
             sample_covar_emb[sample_cov] = np.tile(cov_arr, (max_combination_length, 1))
 
         return perturb_covar_emb | sample_covar_emb
-    
 
-    def _log_perturbation_details(self, stage: str, tgt_idx: int, tgt_cond: pd.Series, embeddings: dict[str, np.ndarray]) -> None:
+    def _log_perturbation_details(
+        self, stage: str, tgt_idx: int, tgt_cond: pd.Series, embeddings: dict[str, np.ndarray]
+    ) -> None:
         logger.debug(f"{stage} tgt_idx: {tgt_idx}, tgt_cond: {dict(tgt_cond)}")
         for pert_cov, emb in embeddings.items():
             logger.debug(f"{stage} > {pert_cov} embedding first few values: {emb.flatten()[:3]}, sum: {emb.sum()}")
@@ -499,6 +502,7 @@ class DataManager:
         covariate_data = covariate_data.copy()
         covariate_data["cell_index"] = covariate_data.index
         covariate_data = covariate_data.reset_index(drop=True)
+
         def _process_condition(tgt_idx, tgt_cond):
             embedding = DataManager._get_perturbation_covariates_static(
                 condition_data=tgt_cond,
@@ -594,10 +598,7 @@ class DataManager:
         }
 
         perturbation_idx_to_covariates = (
-            df[["global_pert_mask", *all_combs_keys]]
-            .groupby(["global_pert_mask"])
-            .first()
-            .to_dict(orient="index")
+            df[["global_pert_mask", *all_combs_keys]].groupby(["global_pert_mask"]).first().to_dict(orient="index")
         )
         perturbation_idx_to_covariates = {
             int(k): [v[s] for s in [*perturbation_covariates_keys, *comb_keys]]
@@ -617,7 +618,9 @@ class DataManager:
         delayed_results = []
 
         # Create delayed tasks with tracking information
-        perturb_covar_df = df[~df[control_key]][all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+        perturb_covar_df = (
+            df[~df[control_key]][all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+        )
         for _, tgt_cond in perturb_covar_df.iterrows():
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
             tgt_cond = tgt_cond[self._perturb_covar_keys]
@@ -640,7 +643,7 @@ class DataManager:
                 rep_dict=rep_dict,
                 perturb_covariates=perturb_covariates,
             )
-            self._log_perturbation_details('new', tgt_idx, tgt_cond, embeddings)
+            self._log_perturbation_details("new", tgt_idx, tgt_cond, embeddings)
             for pert_cov, emb in embeddings.items():
                 condition_data[pert_cov].append(emb)
                 # np.testing.assert_array_equal(emb, embeddings2[pert_cov], err_msg="new embedding mismatch")
@@ -1007,7 +1010,7 @@ class DataManager:
                         rep_dict=rep_dict,
                         perturb_covariates=perturb_covariates,
                     )
-                    self._log_perturbation_details('old', tgt_counter, tgt_cond, embedding)
+                    self._log_perturbation_details("old", tgt_counter, tgt_cond, embedding)
                     for pert_cov, emb in embedding.items():
                         condition_data_temp[pert_cov].append((tgt_counter, emb))
 

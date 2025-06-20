@@ -1,7 +1,9 @@
+import logging
+
 import anndata as ad
 import numpy as np
 import pytest
-import logging
+
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -11,6 +13,7 @@ def setup_logging(caplog):
     caplog.set_level(logging.INFO)
     # This ensures we see the output even if a test fails
     # logging.getLogger().setLevel(logging.DEBUG)
+
 
 from cellflow.data._datamanager import DataManager
 
@@ -110,8 +113,12 @@ def compare_train_data(a, b):
     #     print(f"a.condition_data[{k}][:2]", a.condition_data[k][:2])
     #     print(f"b.condition_data[{k}][:2]", b.condition_data[k][:2])
     for k in a.condition_data.keys():
-        assert a.condition_data[k].shape == b.condition_data[k].shape, f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}"
-        assert np.allclose(a.condition_data[k], b.condition_data[k]), f"condition_data[{k}], {a.condition_data[k]}, {b.condition_data[k]}"
+        assert a.condition_data[k].shape == b.condition_data[k].shape, (
+            f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}"
+        )
+        assert np.allclose(a.condition_data[k], b.condition_data[k]), (
+            f"condition_data[{k}], {a.condition_data[k]}, {b.condition_data[k]}"
+        )
 
 
 class TestDataManager:
@@ -189,7 +196,7 @@ class TestDataManager:
             perturbation_covariates=perturbation_covariates,
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=["cell_type"],
-            sample_covariate_reps={"cell_type": "cell_type"}
+            sample_covariate_reps={"cell_type": "cell_type"},
         )
         old = dm_old._get_condition_data_old(
             split_cov_combs=dm_old._get_split_cov_combs(adata_perturbation.obs),
