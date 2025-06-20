@@ -23,11 +23,21 @@ from ._utils import _flatten_list, _to_list
 __all__ = ["DataManager"]
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
-handler = logging.StreamHandler()
-handler.setLevel(logging.DEBUG)
-logger.addHandler(handler)
-logging.getLogger().setLevel(logging.DEBUG)
+PRINT = True
+
+# logging.basicConfig(level=logging.DEBUG)
+# handler = logging.StreamHandler()
+# handler.setLevel(logging.DEBUG)
+# logger.addHandler(handler)
+# logging.getLogger().setLevel(logging.DEBUG)
+
+
+if PRINT:
+    log = logger.info
+else:
+    log = logger.debug
+
+
 
 
 class DataManager:
@@ -243,7 +253,6 @@ class DataManager:
             rep_dict=adata.uns if rep_dict is None else rep_dict,
             condition_id_key=condition_id_key,
         )
-
         cell_data = self._get_cell_data(adata, sample_rep)
         split_covariates_mask, split_idx_to_covariates = self._get_split_covariates_mask(
             adata=adata, split_cov_combs=split_cov_combs
@@ -353,15 +362,12 @@ class DataManager:
         primary_group, primary_covars = next(iter(perturb_covariates.items()))
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         for primary_cov in primary_covars:
-            # print(f"primary_cov: {primary_cov}, is_categorical: {is_categorical}, primary_group: {primary_group}")
             value = condition_data[primary_cov]
             cov_name = value if is_categorical else primary_cov  # drug a
             if primary_group in covariate_reps:
-                # print(f"primary_group in covariate_reps: {primary_group}, covariate_reps: {covariate_reps}")
                 rep_key = covariate_reps[primary_group]
                 if cov_name not in rep_dict[rep_key]:
                     raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`.")
-                # print(f"rep_dict[rep_key][cov_name]: {rep_dict[rep_key][cov_name]}, cov_name: {cov_name}, rep_key: {rep_key}")
                 prim_arr = np.asarray(rep_dict[rep_key][cov_name])
             else:
                 prim_arr = np.asarray(
@@ -433,9 +439,9 @@ class DataManager:
     def _log_perturbation_details(
         self, stage: str, tgt_idx: int, tgt_cond: pd.Series, embeddings: dict[str, np.ndarray]
     ) -> None:
-        logger.debug(f"{stage} tgt_idx: {tgt_idx}, tgt_cond: {dict(tgt_cond)}")
+        log(f"{stage} tgt_idx: {tgt_idx}, tgt_cond: {dict(tgt_cond)}")
         for pert_cov, emb in embeddings.items():
-            logger.debug(f"{stage} > {pert_cov} embedding first few values: {emb.flatten()[:3]}, sum: {emb.sum()}")
+            log(f"{stage} > {pert_cov} embedding first few values: {emb.flatten()[:3]}, sum: {emb.sum()}")
 
     def _get_condition_data(
         self,
@@ -445,11 +451,17 @@ class DataManager:
         rep_dict: dict[str, Any] | None = None,
         condition_id_key: str | None = None,
     ) -> ReturnData:
-        # for prediction: adata is None, covariate_data is provided
+        log(
+            f" Function args: split_cov_combs: {split_cov_combs}, adata: {adata}, covariate_data: {covariate_data}, rep_dict: {rep_dict}, condition_id_key: {condition_id_key}"
+        )
+        log(f"self._perturbation_covariates: {self._perturbation_covariates}")
+        log(f"self._sample_covariates: {self._sample_covariates}")
+        log(f"self._split_covariates: {self._split_covariates}")
         # for training/validation: adata is provided and used to get cell masks, covariate_data is None
         if adata is None and covariate_data is None:
             raise ValueError("Either `adata` or `covariate_data` must be provided.")
         covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
+
         # if (
         #     len(self._split_covariates) == 0
         #     or len(self._perturbation_covariates) == 0
@@ -487,6 +499,9 @@ class DataManager:
         else:
             perturb_covar_df = perturb_covar_df.reset_index()
 
+        masks_empty = adata is None
+        return_mask_none = adata is None and (len(self._split_covariates) == 0 and len(self._sample_covariates) == 0)
+
         control_to_perturbation: dict[int, ArrayLike] = {}
         split_idx_to_covariates: dict[int, tuple[Any]] = {}
         perturbation_idx_to_covariates: dict[int, tuple[Any]] = {}
@@ -523,6 +538,7 @@ class DataManager:
             comb_keys = self._sample_covariates
         # self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
 
+
         perturbation_covariates_keys = self.perturb_covar_keys
         perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in comb_keys]
         control_key = self._control_key
@@ -555,7 +571,6 @@ class DataManager:
             all_combs_keys = comb_keys + perturbation_covariates_keys
 
         control_combs = control_combs[control_combs[control_key]].sort_values(by=comb_keys)
-        # if len(self._split_covariates) > 0 else (perturbation_covariates_keys + comb_keys)
         all_combs = all_combs[~all_combs[control_key]].sort_values(by=all_combs_keys)
 
         all_combs["global_pert_mask"] = np.arange(len(all_combs), dtype=np.int64)
@@ -579,31 +594,66 @@ class DataManager:
             how="left",
         )
 
+
+
         df = df.sort_values(by=all_combs_keys)
 
         df["split_covariates_mask"] = df["global_control_mask"]
-        df["perturbation_covariates_mask"] = df["global_pert_mask"]
-        df.loc[~df[control_key], "split_covariates_mask"] = -1
-        df.loc[df[control_key], "perturbation_covariates_mask"] = -1
         df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int64)
-        df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
-        split_idx_to_covariates = (
-            df[["global_control_mask", *self._split_covariates]]
-            .groupby(["global_control_mask"])
-            .first()
-            .to_dict(orient="index")
-        )
-        split_idx_to_covariates = {
-            k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()
-        }
+        df.loc[~df[control_key], "split_covariates_mask"] = -1
 
-        perturbation_idx_to_covariates = (
-            df[["global_pert_mask", *all_combs_keys]].groupby(["global_pert_mask"]).first().to_dict(orient="index")
-        )
-        perturbation_idx_to_covariates = {
-            int(k): [v[s] for s in [*perturbation_covariates_keys, *comb_keys]]
-            for k, v in perturbation_idx_to_covariates.items()
-        }
+        df["perturbation_covariates_mask"] = df["global_pert_mask"]
+        df.loc[df[control_key], "perturbation_covariates_mask"] = -1
+        df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
+
+        # df["perturbation_covariates_mask"] = df["global_pert_mask"]
+        # df.loc[df[control_key], "perturbation_covariates_mask"] = -1
+        # df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
+
+        # df["split_covariates_mask"] = df["global_control_mask"]
+        # df.loc[~df[control_key], "split_covariates_mask"] = -1
+        # df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int64)
+        if not return_mask_none:
+            split_idx_to_covariates = (
+                df[["global_control_mask", *self._split_covariates]]
+                .groupby(["global_control_mask"])
+                .first()
+                .to_dict(orient="index")
+            )
+            split_idx_to_covariates = {
+                k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()
+            }
+        perturbation_covariates_to_idx = {}
+        # if not (len(self._sample_covariates) == 0 and len(self._split_covariates) == 0 and df[control_key].all()):
+        
+        all_control = df[control_key].all()
+
+        # Create delayed tasks for each condition
+        delayed_results = []
+
+        # Create delayed tasks with tracking information
+        if all_control:
+            perturb_covar_df = (
+                df[all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+            )
+        else:
+            perturb_covar_df = (
+                df[~df[control_key]][all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+            )
+
+        if not all_control:
+            perturbation_idx_to_covariates = (
+                df[["global_pert_mask", *all_combs_keys]].groupby(["global_pert_mask"]).first().to_dict(orient="index")
+            )
+            perturbation_idx_to_covariates = {
+                int(k): [v[s] for s in [*perturbation_covariates_keys, *comb_keys]]
+                for k, v in perturbation_idx_to_covariates.items()
+            }
+        else:
+            p = perturb_covar_df[self._perturb_covar_keys].drop_duplicates()
+            p.sort_values(by=self._perturb_covar_keys, inplace=True)
+            p.index = np.arange(len(p))
+            perturbation_idx_to_covariates = {int(p.index[i]): tuple(p.iloc[i]) for i in range(len(p))}
         perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
 
         control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
@@ -611,16 +661,18 @@ class DataManager:
         control_to_perturbation = {k: np.array(sorted(v), dtype=np.int32) for k, v in control_to_perturbation.items()}
         df.set_index("cell_index", inplace=True)
         df = df.reindex(covariate_data.index)
-        split_covariates_mask = np.asarray(df["split_covariates_mask"].values, dtype=np.int32)
-        perturbation_covariates_mask = np.asarray(df["perturbation_covariates_mask"].values, dtype=np.int32)
+        if not return_mask_none:
+            split_covariates_mask = np.asarray(df["split_covariates_mask"].values, dtype=np.int32)
+            perturbation_covariates_mask = np.asarray(df["perturbation_covariates_mask"].values, dtype=np.int32)
+        else:
+            split_covariates_mask = None
+            perturbation_covariates_mask = None
+            split_idx_to_covariates = {}
+            perturbation_idx_to_covariates = {}
 
-        # Create delayed tasks for each condition
-        delayed_results = []
+        # if len(perturbation_covariates_to_idx) == 0:
+        #     perturbation_covariates_to_idx = {perturb_covar_df}
 
-        # Create delayed tasks with tracking information
-        perturb_covar_df = (
-            df[~df[control_key]][all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
-        )
         for _, tgt_cond in perturb_covar_df.iterrows():
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
             tgt_cond = tgt_cond[self._perturb_covar_keys]
@@ -638,18 +690,19 @@ class DataManager:
         # sort results by tgt_idx
         results = sorted(results, key=lambda x: x[0])
         for tgt_idx, tgt_cond, embeddings in results:
-            embeddings2 = self._get_perturbation_covariates(
-                condition_data=tgt_cond,
-                rep_dict=rep_dict,
-                perturb_covariates=perturb_covariates,
-            )
             self._log_perturbation_details("new", tgt_idx, tgt_cond, embeddings)
             for pert_cov, emb in embeddings.items():
                 condition_data[pert_cov].append(emb)
                 # np.testing.assert_array_equal(emb, embeddings2[pert_cov], err_msg="new embedding mismatch")
 
         for pert_cov, emb in condition_data.items():
-            condition_data[pert_cov] = np.stack(emb)
+            condition_data[pert_cov] = np.array(emb)
+        # assert condition_data['drug'].ndim > 1, "condition_data[drug].ndim > 1"
+        # print return data
+        log(f">new return: split_covariates_mask: {split_covariates_mask}, perturbation_covariates_mask: {perturbation_covariates_mask}")
+        log(f">new return: split_idx_to_covariates: {split_idx_to_covariates}, perturbation_idx_to_covariates: {perturbation_idx_to_covariates}")
+        log(f">new return: perturbation_idx_to_id: {perturbation_idx_to_id}, condition_data: {condition_data}")
+        log(f">new return: control_to_perturbation: {control_to_perturbation}")
 
         res = ReturnData(
             split_covariates_mask=split_covariates_mask,
@@ -1025,11 +1078,16 @@ class DataManager:
             condition_data = {}
             for pert_cov, emb_list in condition_data_temp.items():
                 emb_list = sorted(emb_list, key=lambda x: x[0])
-                condition_data[pert_cov] = np.stack([emb for _, emb in emb_list])
+                condition_data[pert_cov] = np.array([emb for _, emb in emb_list])
         split_covariates_mask = np.asarray(split_covariates_mask) if split_covariates_mask is not None else None
         perturbation_covariates_mask = (
             np.asarray(perturbation_covariates_mask) if perturbation_covariates_mask is not None else None
         )
+        log(f">old return: split_covariates_mask: {split_covariates_mask}, perturbation_covariates_mask: {perturbation_covariates_mask}")
+        log(f">old return: split_idx_to_covariates: {split_idx_to_covariates}, perturbation_idx_to_covariates: {perturbation_idx_to_covariates}")
+        log(f">old return: perturbation_idx_to_id: {perturbation_idx_to_id}, condition_data: {condition_data}")
+        log(f">old return: control_to_perturbation: {control_to_perturbation}")
+
         return ReturnData(
             split_covariates_mask=split_covariates_mask,
             split_idx_to_covariates=split_idx_to_covariates,

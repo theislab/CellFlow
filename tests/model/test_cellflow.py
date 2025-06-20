@@ -86,7 +86,6 @@ class TestCellFlow:
             max_steps=3,
             throw=False,
         )
-        print(pred)
         assert isinstance(pred, dict)
         key, out = next(iter(pred.items()))
         assert out.shape[0] == adata_perturbation.n_obs
