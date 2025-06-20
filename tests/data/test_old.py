@@ -8,9 +8,9 @@ logging.basicConfig(level=logging.DEBUG)
 @pytest.fixture(autouse=True)
 def setup_logging(caplog):
     # This ensures we capture all levels of logging
-    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.INFO)
     # This ensures we see the output even if a test fails
-    logging.getLogger().setLevel(logging.DEBUG)
+    # logging.getLogger().setLevel(logging.DEBUG)
 
 from cellflow.data._datamanager import DataManager
 
@@ -171,7 +171,7 @@ class TestDataManager:
         perturbation_covariate_reps,
         caplog,
     ):
-        dm = DataManager(
+        dm_old = DataManager(
             adata_perturbation,
             sample_rep="X",
             split_covariates=split_covariates,
@@ -181,13 +181,23 @@ class TestDataManager:
             sample_covariates=["cell_type"],
             sample_covariate_reps={"cell_type": "cell_type"},
         )
-        old = dm._get_condition_data_old(
-            split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
-            adata=adata_perturbation,
+        dm_new = DataManager(
+            adata_perturbation.copy(),
+            sample_rep="X",
+            split_covariates=split_covariates,
+            control_key="control",
+            perturbation_covariates=perturbation_covariates,
+            perturbation_covariate_reps=perturbation_covariate_reps,
+            sample_covariates=["cell_type"],
+            sample_covariate_reps={"cell_type": "cell_type"}
         )
-        new = dm._get_condition_data(
-            split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
-            adata=adata_perturbation,
+        old = dm_old._get_condition_data_old(
+            split_cov_combs=dm_old._get_split_cov_combs(adata_perturbation.obs),
+            adata=adata_perturbation.copy(),
+        )
+        new = dm_new._get_condition_data(
+            split_cov_combs=dm_new._get_split_cov_combs(adata_perturbation.obs),
+            adata=adata_perturbation.copy(),
         )
         compare_train_data(old, new)
 

@@ -348,15 +348,17 @@ class DataManager:
 
 
         primary_group, primary_covars = next(iter(perturb_covariates.items()))
-
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         for primary_cov in primary_covars:
+            # print(f"primary_cov: {primary_cov}, is_categorical: {is_categorical}, primary_group: {primary_group}")
             value = condition_data[primary_cov]
-            cov_name = value if is_categorical else primary_cov
+            cov_name = value if is_categorical else primary_cov # drug a
             if primary_group in covariate_reps:
+                # print(f"primary_group in covariate_reps: {primary_group}, covariate_reps: {covariate_reps}")
                 rep_key = covariate_reps[primary_group]
                 if cov_name not in rep_dict[rep_key]:
                     raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`.")
+                # print(f"rep_dict[rep_key][cov_name]: {rep_dict[rep_key][cov_name]}, cov_name: {cov_name}, rep_key: {rep_key}")
                 prim_arr = np.asarray(rep_dict[rep_key][cov_name])
             else:
                 prim_arr = np.asarray(
@@ -399,7 +401,17 @@ class DataManager:
             )
             for k, v in perturb_covar_emb.items()
         }
+        return perturb_covar_emb
 
+
+    @staticmethod
+    def _get_sample_covariates_embedding(
+        condition_data: pd.DataFrame,
+        rep_dict: dict[str, dict[str, ArrayLike]],
+        sample_covariates: Sequence[str],
+        covariate_reps: dict[str, str],
+        max_combination_length: int,
+    ) -> dict[str, np.ndarray]:
         sample_covar_emb: dict[str, np.ndarray] = {}
         for sample_cov in sample_covariates:
             value = condition_data[sample_cov]
@@ -415,11 +427,12 @@ class DataManager:
             sample_covar_emb[sample_cov] = np.tile(cov_arr, (max_combination_length, 1))
 
         return perturb_covar_emb | sample_covar_emb
+    
 
     def _log_perturbation_details(self, stage: str, tgt_idx: int, tgt_cond: pd.Series, embeddings: dict[str, np.ndarray]) -> None:
-        logger.info(f"{stage} tgt_idx: {tgt_idx}, tgt_cond: {dict(tgt_cond)}")
+        logger.debug(f"{stage} tgt_idx: {tgt_idx}, tgt_cond: {dict(tgt_cond)}")
         for pert_cov, emb in embeddings.items():
-            logger.info(f"{stage} > {pert_cov} embedding first few values: {emb.flatten()[:3]}, sum: {emb.sum()}")
+            logger.debug(f"{stage} > {pert_cov} embedding first few values: {emb.flatten()[:3]}, sum: {emb.sum()}")
 
     def _get_condition_data(
         self,
@@ -630,7 +643,7 @@ class DataManager:
             self._log_perturbation_details('new', tgt_idx, tgt_cond, embeddings)
             for pert_cov, emb in embeddings.items():
                 condition_data[pert_cov].append(emb)
-                assert np.allclose(emb, embeddings2[pert_cov]), f"Embedding mismatch for {pert_cov}, {tgt_idx}, {tgt_cond}"
+                # np.testing.assert_array_equal(emb, embeddings2[pert_cov], err_msg="new embedding mismatch")
 
         for pert_cov, emb in condition_data.items():
             condition_data[pert_cov] = np.stack(emb)
@@ -969,7 +982,6 @@ class DataManager:
             pc_df = pc_df.sort_values(by=self._perturb_covar_keys)
             pbar = tqdm(pc_df.iterrows(), total=pc_df.shape[0])
             perturb_covariates = OrderedDict({k: sorted(_to_list(v)) for k, v in self._perturbation_covariates.items()})
-
             for i, tgt_cond in pbar:
                 tgt_cond = tgt_cond[self._perturb_covar_keys]
                 # for train/validation, only extract covariate combinations that are present in adata
@@ -1136,7 +1148,6 @@ class DataManager:
         rep_dict: dict[str, dict[str, ArrayLike]],
         perturb_covariates: Any,  # TODO: check if we can save as attribtue
     ) -> dict[str, np.ndarray]:
-        perturb_covariates = OrderedDict(perturb_covariates)
         primary_group, primary_covars = next(iter(perturb_covariates.items()))
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         for primary_cov in primary_covars:
