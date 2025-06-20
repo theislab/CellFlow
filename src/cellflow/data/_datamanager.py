@@ -624,8 +624,9 @@ class DataManager:
                 k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()
             }
 
-        all_control = df[control_key].all() or (len(self._split_covariates) == 0 and len(self._sample_covariates) == 0 and adata is None)
-        assert all_control == (len(self._split_covariates) == 0 and len(self._sample_covariates) == 0 and adata is None)
+        all_control = df[control_key].all() or (adata is None)
+        assert df[control_key].all() == (adata is None), f"all_control: {all_control}, adata: {adata}"
+
 
         # Create delayed tasks for each condition
         delayed_results = []
