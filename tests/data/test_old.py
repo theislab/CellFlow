@@ -109,7 +109,7 @@ def compare_train_data(a, b):
                 error_str += f", a2b_perturbation[{a_elem}] {a2b_perturbation[a_elem]}"
             assert a_elem == b_elem, error_str
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
-    # # for k in a.condition_data.keys():
+    # for k in a.condition_data.keys():
     # #     print(f"a.condition_data[{k}][:2]", a.condition_data[k][:2])
     # #     print(f"b.condition_data[{k}][:2]", b.condition_data[k][:2])
     # for k in a.condition_data.keys():

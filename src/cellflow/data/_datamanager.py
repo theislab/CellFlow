@@ -623,10 +623,9 @@ class DataManager:
             split_idx_to_covariates = {
                 k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()
             }
-        perturbation_covariates_to_idx = {}
-        # if not (len(self._sample_covariates) == 0 and len(self._split_covariates) == 0 and df[control_key].all()):
-        
-        all_control = df[control_key].all()
+
+        all_control = df[control_key].all() or (len(self._split_covariates) == 0 and len(self._sample_covariates) == 0 and adata is None)
+        assert all_control == (len(self._split_covariates) == 0 and len(self._sample_covariates) == 0 and adata is None)
 
         # Create delayed tasks for each condition
         delayed_results = []
@@ -654,13 +653,19 @@ class DataManager:
             p.sort_values(by=self._perturb_covar_keys, inplace=True)
             p.index = np.arange(len(p))
             perturbation_idx_to_covariates = {int(p.index[i]): tuple(p.iloc[i]) for i in range(len(p))}
-        perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
 
-        control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
-        control_to_perturbation = control_to_perturbation.to_dict()
-        control_to_perturbation = {k: np.array(sorted(v), dtype=np.int32) for k, v in control_to_perturbation.items()}
-        df.set_index("cell_index", inplace=True)
-        df = df.reindex(covariate_data.index)
+        perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
+        if not all_control:
+            control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
+            control_to_perturbation = control_to_perturbation.to_dict()
+            control_to_perturbation = {k: np.array(sorted(v), dtype=np.int32) for k, v in control_to_perturbation.items()}
+            df.set_index("cell_index", inplace=True)
+            df = df.reindex(covariate_data.index)
+        else:
+            control_to_perturbation = {
+                0: sorted(perturbation_covariates_to_idx.values()),
+            }
+
         if not return_mask_none:
             split_covariates_mask = np.asarray(df["split_covariates_mask"].values, dtype=np.int32)
             perturbation_covariates_mask = np.asarray(df["perturbation_covariates_mask"].values, dtype=np.int32)
@@ -668,10 +673,9 @@ class DataManager:
             split_covariates_mask = None
             perturbation_covariates_mask = None
             split_idx_to_covariates = {}
-            perturbation_idx_to_covariates = {}
 
-        # if len(perturbation_covariates_to_idx) == 0:
-        #     perturbation_covariates_to_idx = {perturb_covar_df}
+
+
 
         for _, tgt_cond in perturb_covar_df.iterrows():
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
