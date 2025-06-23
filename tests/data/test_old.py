@@ -21,19 +21,23 @@ from cellflow.data._datamanager import DataManager
 perturbation_covariates_args = [
     OrderedDict({"drug": ["drug1"]}),
     OrderedDict({"drug": ["drug1"], "dosage": ["dosage_a"]}),
-    OrderedDict({
-        "drug": ["drug_a"],
-        "dosage": ["dosage_a"],
-    }),
+    OrderedDict(
+        {
+            "drug": ["drug_a"],
+            "dosage": ["dosage_a"],
+        }
+    ),
 ]
 
 perturbation_covariate_comb_args = [
     OrderedDict({"drug": ["drug1", "drug2"]}),
     OrderedDict({"drug": ["drug1", "drug2"], "dosage": ["dosage_a", "dosage_b"]}),
-    OrderedDict({
-        "drug": ["drug_a", "drug_b", "drug_c"],
-        "dosage": ["dosage_a", "dosage_b", "dosage_c"],
-    }),
+    OrderedDict(
+        {
+            "drug": ["drug_a", "drug_b", "drug_c"],
+            "dosage": ["dosage_a", "dosage_b", "dosage_c"],
+        }
+    ),
 ]
 
 
@@ -279,7 +283,11 @@ class TestValidationData:
         dm_new._tgt_idx_tgt_cond = sorted(dm_new._tgt_idx_tgt_cond, key=lambda x: x[0])
         for (old_tgt_idx, old_tgt_cond), (new_tgt_idx, new_tgt_cond) in paired:
             assert old_tgt_idx == new_tgt_idx, f"old_tgt_idx: {old_tgt_idx}, new_tgt_idx: {new_tgt_idx}"
-            assert old_tgt_cond.keys() == new_tgt_cond.keys(), f"old_tgt_cond: {old_tgt_cond.keys()}, new_tgt_cond: {new_tgt_cond.keys()}"
+            assert old_tgt_cond.keys() == new_tgt_cond.keys(), (
+                f"old_tgt_cond: {old_tgt_cond.keys()}, new_tgt_cond: {new_tgt_cond.keys()}"
+            )
             for k in old_tgt_cond.keys():
-                assert old_tgt_cond[k] == new_tgt_cond[k], f"old_tgt_cond[{k}]: {old_tgt_cond[k]}, new_tgt_cond[{k}]: {new_tgt_cond[k]}"
+                assert old_tgt_cond[k] == new_tgt_cond[k], (
+                    f"old_tgt_cond[{k}]: {old_tgt_cond[k]}, new_tgt_cond[{k}]: {new_tgt_cond[k]}"
+                )
         compare_train_data(old, new)
