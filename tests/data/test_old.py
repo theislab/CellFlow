@@ -1,4 +1,5 @@
 import logging
+from collections import OrderedDict
 
 import anndata as ad
 import numpy as np
@@ -18,21 +19,21 @@ def setup_logging(caplog):
 from cellflow.data._datamanager import DataManager
 
 perturbation_covariates_args = [
-    {"drug": ["drug1"]},
-    {"drug": ["drug1"], "dosage": ["dosage_a"]},
-    {
+    OrderedDict({"drug": ["drug1"]}),
+    OrderedDict({"drug": ["drug1"], "dosage": ["dosage_a"]}),
+    OrderedDict({
         "drug": ["drug_a"],
         "dosage": ["dosage_a"],
-    },
+    }),
 ]
 
 perturbation_covariate_comb_args = [
-    {"drug": ["drug1", "drug2"]},
-    {"drug": ["drug1", "drug2"], "dosage": ["dosage_a", "dosage_b"]},
-    {
+    OrderedDict({"drug": ["drug1", "drug2"]}),
+    OrderedDict({"drug": ["drug1", "drug2"], "dosage": ["dosage_a", "dosage_b"]}),
+    OrderedDict({
         "drug": ["drug_a", "drug_b", "drug_c"],
         "dosage": ["dosage_a", "dosage_b", "dosage_c"],
-    },
+    }),
 ]
 
 
@@ -109,16 +110,26 @@ def compare_train_data(a, b):
                 error_str += f", a2b_perturbation[{a_elem}] {a2b_perturbation[a_elem]}"
             assert a_elem == b_elem, error_str
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
-    # for k in a.condition_data.keys():
-    # #     print(f"a.condition_data[{k}][:2]", a.condition_data[k][:2])
-    # #     print(f"b.condition_data[{k}][:2]", b.condition_data[k][:2])
-    # for k in a.condition_data.keys():
-    #     assert a.condition_data[k].shape == b.condition_data[k].shape, (
-    #         f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}"
-    #     )
-    #     assert np.allclose(a.condition_data[k], b.condition_data[k]), (
-    #         f"condition_data[{k}], {a.condition_data[k]}, {b.condition_data[k]}"
-    #     )
+    # first print if they are different
+    for k in a.condition_data.keys():
+        if a.condition_data[k].shape != b.condition_data[k].shape:
+            print(f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}")
+        if not np.allclose(a.condition_data[k], b.condition_data[k]):
+            print(f"condition_data[{k}] {a.condition_data[k]}, {b.condition_data[k]}")
+        else:
+            print(f"they are the same: {k}")
+        #     f"condition_data[{k}].sum {a.condition_data[k].sum()}, {b.condition_data[k].sum()}"
+        # )
+    for k in a.condition_data.keys():
+        assert a.condition_data[k].shape == b.condition_data[k].shape, (
+            f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}"
+        )
+        assert np.allclose(a.condition_data[k].sum(), b.condition_data[k].sum()), (
+            f"condition_data[{k}].sum {a.condition_data[k].sum()}, {b.condition_data[k].sum()}"
+        )
+        assert np.allclose(a.condition_data[k], b.condition_data[k]), (
+            f"condition_data[{k}], {a.condition_data[k]}, {b.condition_data[k]}"
+        )
 
 
 class TestDataManager:
@@ -152,13 +163,16 @@ class TestDataManager:
         assert dm._perturbation_covariates == perturbation_covariates
         assert dm._sample_covariates == sample_covariates
 
+        primary_item = next(iter(perturbation_covariates.items()))
         old = dm._get_condition_data_old(
             split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation,
+            primary_item=primary_item,
         )
         new = dm._get_condition_data(
             split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation,
+            primary_item=primary_item,
         )
 
         compare_train_data(old, new)
@@ -194,13 +208,16 @@ class TestDataManager:
             sample_covariates=["cell_type"],
             sample_covariate_reps={"cell_type": "cell_type"},
         )
+        primary_item = next(iter(perturbation_covariates.items()))
         old = dm_old._get_condition_data_old(
             split_cov_combs=dm_old._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation.copy(),
+            primary_item=primary_item,
         )
         new = dm_new._get_condition_data(
             split_cov_combs=dm_new._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation.copy(),
+            primary_item=primary_item,
         )
         compare_train_data(old, new)
 
@@ -221,24 +238,48 @@ class TestValidationData:
         control_key = "control"
         sample_covariates = ["cell_type"]
         sample_covariate_reps = {"cell_type": "cell_type"}
-
-        dm = DataManager(
-            adata_perturbation,
+        primary_item = next(iter(perturbation_covariates.items()))
+        dm_old = DataManager(
+            adata_perturbation.copy(),
             sample_rep=sample_rep,
-            split_covariates=split_covariates,
+            split_covariates=split_covariates.copy(),
             control_key=control_key,
-            perturbation_covariates=perturbation_covariates,
-            perturbation_covariate_reps=perturbation_covariate_reps,
-            sample_covariates=sample_covariates,
-            sample_covariate_reps=sample_covariate_reps,
+            perturbation_covariates=perturbation_covariates.copy(),
+            perturbation_covariate_reps=perturbation_covariate_reps.copy(),
+            sample_covariates=sample_covariates.copy(),
+            sample_covariate_reps=sample_covariate_reps.copy(),
+        )
+        dm_new = DataManager(
+            adata_perturbation.copy(),
+            sample_rep=sample_rep,
+            split_covariates=split_covariates.copy(),
+            control_key=control_key,
+            perturbation_covariates=perturbation_covariates.copy(),
+            perturbation_covariate_reps=perturbation_covariate_reps.copy(),
+            sample_covariates=sample_covariates.copy(),
+            sample_covariate_reps=sample_covariate_reps.copy(),
         )
 
-        old = dm._get_condition_data_old(
-            split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
-            adata=adata_perturbation,
+        old = dm_old._get_condition_data_old(
+            split_cov_combs=dm_old._get_split_cov_combs(adata_perturbation.obs.copy()),
+            adata=adata_perturbation.copy(),
+            primary_item=primary_item,
         )
-        new = dm._get_condition_data(
-            split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
-            adata=adata_perturbation,
+        new = dm_new._get_condition_data(
+            split_cov_combs=dm_new._get_split_cov_combs(adata_perturbation.obs),
+            adata=adata_perturbation.copy(),
+            primary_item=primary_item,
         )
+        print("old tgt_idx_tgt_cond --------------")
+        print(dm_old._tgt_idx_tgt_cond)
+        print("new tgt_idx_tgt_cond --------------")
+        print(dm_new._tgt_idx_tgt_cond)
+        paired = zip(dm_old._tgt_idx_tgt_cond, dm_new._tgt_idx_tgt_cond, strict=True)
+        dm_old._tgt_idx_tgt_cond = sorted(dm_old._tgt_idx_tgt_cond, key=lambda x: x[0])
+        dm_new._tgt_idx_tgt_cond = sorted(dm_new._tgt_idx_tgt_cond, key=lambda x: x[0])
+        for (old_tgt_idx, old_tgt_cond), (new_tgt_idx, new_tgt_cond) in paired:
+            assert old_tgt_idx == new_tgt_idx, f"old_tgt_idx: {old_tgt_idx}, new_tgt_idx: {new_tgt_idx}"
+            assert old_tgt_cond.keys() == new_tgt_cond.keys(), f"old_tgt_cond: {old_tgt_cond.keys()}, new_tgt_cond: {new_tgt_cond.keys()}"
+            for k in old_tgt_cond.keys():
+                assert old_tgt_cond[k] == new_tgt_cond[k], f"old_tgt_cond[{k}]: {old_tgt_cond[k]}, new_tgt_cond[{k}]: {new_tgt_cond[k]}"
         compare_train_data(old, new)
