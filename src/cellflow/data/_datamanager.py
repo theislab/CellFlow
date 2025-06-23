@@ -21,6 +21,7 @@ from cellflow.data._data import ConditionData, PredictionData, ReturnData, Train
 from ._utils import _flatten_list, _to_list
 
 __all__ = ["DataManager"]
+import logging
 
 PRINT = True
 
@@ -443,6 +444,7 @@ class DataManager:
                 linked_arr = DataManager._check_shape(linked_arr)
                 perturb_covar_emb[linked_group].append(linked_arr)
 
+
         perturb_covar_emb = {
             k: DataManager._pad_to_max_length(
                 np.concatenate(v, axis=0),
@@ -581,6 +583,7 @@ class DataManager:
             comb_keys = self._sample_covariates
         # self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
 
+
         perturbation_covariates_keys = self.perturb_covar_keys
         perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in comb_keys]
         control_key = self._control_key
@@ -636,6 +639,8 @@ class DataManager:
             how="left",
         )
 
+
+
         df = df.sort_values(by=all_combs_keys)
 
         df["split_covariates_mask"] = df["global_control_mask"]
@@ -660,12 +665,15 @@ class DataManager:
         all_control = df[control_key].all() or (adata is None)
         assert df[control_key].all() == (adata is None), f"all_control: {all_control}, adata: {adata}"
 
+
         # Create delayed tasks for each condition
         delayed_results = []
 
         # Create delayed tasks with tracking information
         if all_control:
-            perturb_covar_df = df[all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+            perturb_covar_df = (
+                df[all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+            )
         else:
             perturb_covar_df = (
                 df[~df[control_key]][all_combs_keys].sort_values(by=all_combs_keys).drop_duplicates(keep="first")
@@ -690,9 +698,7 @@ class DataManager:
         if not all_control:
             control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
             control_to_perturbation = control_to_perturbation.to_dict()
-            control_to_perturbation = {
-                k: np.array(sorted(v), dtype=np.int32) for k, v in control_to_perturbation.items()
-            }
+            control_to_perturbation = {k: np.array(sorted(v), dtype=np.int32) for k, v in control_to_perturbation.items()}
             df.set_index("cell_index", inplace=True)
             df = df.reindex(covariate_data.index)
         else:
@@ -707,6 +713,7 @@ class DataManager:
             split_covariates_mask = None
             perturbation_covariates_mask = None
             split_idx_to_covariates = {}
+
 
         self._tgt_idx_tgt_cond = []
         if self.is_conditional:
@@ -757,12 +764,8 @@ class DataManager:
                 condition_data[pert_cov] = np.array(emb)
         # assert condition_data['drug'].ndim > 1, "condition_data[drug].ndim > 1"
         # print return data
-        log(
-            f">new return: split_covariates_mask: {split_covariates_mask}, perturbation_covariates_mask: {perturbation_covariates_mask}"
-        )
-        log(
-            f">new return: split_idx_to_covariates: {split_idx_to_covariates}, perturbation_idx_to_covariates: {perturbation_idx_to_covariates}"
-        )
+        log(f">new return: split_covariates_mask: {split_covariates_mask}, perturbation_covariates_mask: {perturbation_covariates_mask}")
+        log(f">new return: split_idx_to_covariates: {split_idx_to_covariates}, perturbation_idx_to_covariates: {perturbation_idx_to_covariates}")
         log(f">new return: perturbation_idx_to_id: {perturbation_idx_to_id}, condition_data: {condition_data}")
         log(f">new return: control_to_perturbation: {control_to_perturbation}")
 
@@ -1165,12 +1168,8 @@ class DataManager:
         perturbation_covariates_mask = (
             np.asarray(perturbation_covariates_mask) if perturbation_covariates_mask is not None else None
         )
-        log(
-            f">old return: split_covariates_mask: {split_covariates_mask}, perturbation_covariates_mask: {perturbation_covariates_mask}"
-        )
-        log(
-            f">old return: split_idx_to_covariates: {split_idx_to_covariates}, perturbation_idx_to_covariates: {perturbation_idx_to_covariates}"
-        )
+        log(f">old return: split_covariates_mask: {split_covariates_mask}, perturbation_covariates_mask: {perturbation_covariates_mask}")
+        log(f">old return: split_idx_to_covariates: {split_idx_to_covariates}, perturbation_idx_to_covariates: {perturbation_idx_to_covariates}")
         log(f">old return: perturbation_idx_to_id: {perturbation_idx_to_id}, condition_data: {condition_data}")
         log(f">old return: control_to_perturbation: {control_to_perturbation}")
 
