@@ -669,11 +669,7 @@ class DataManager:
             }
 
         all_control = df[control_key].all() or (adata is None)
-        assert df[control_key].all() == (adata is None), f"all_control: {all_control}, adata: {adata}"
 
-        # Create delayed tasks for each condition
-
-        # Create delayed tasks with tracking information
         if all_control:
             perturb_covar_df = df[all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
         else:
