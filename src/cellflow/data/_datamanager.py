@@ -101,9 +101,12 @@ class DataManager:
         split_covariates: Sequence[str] | None = None,
         max_combination_length: int | None = None,
         null_value: float = 0.0,
-        primary_item: tuple[str, list[str]] | None = None,
+        primary_group: str | None = None,
     ):
-        self.primary_item = primary_item
+        if primary_group is None:
+            self.primary_group, _ = next(iter(perturbation_covariates.items()))
+        else:
+            self.primary_group = primary_group
         self._adata = adata
         self._sample_rep = sample_rep.copy() if isinstance(sample_rep, dict) else sample_rep
         self._sample_rep = self._verify_sample_rep(sample_rep)
@@ -129,10 +132,9 @@ class DataManager:
             self._adata,
             self._perturbation_covariates,
             self._perturbation_covariate_reps,
-            self.primary_item,
         )
         self._linked_perturb_covars = self._get_linked_perturbation_covariates(
-            self._perturbation_covariates, self.primary_item
+            self._perturbation_covariates, self.primary_group
         )
         sample_cov_groups = OrderedDict({covar: _to_list(covar) for covar in self._sample_covariates})
         covariate_groups = self._perturbation_covariates | sample_cov_groups
@@ -157,7 +159,7 @@ class DataManager:
         max_combination_length,
         linked_perturb_covars,
         sample_covariates,
-        primary_item,
+        primary_group,
     ):
         embedding = DataManager._get_embeddings(
             condition_data=tgt_cond,
@@ -170,7 +172,7 @@ class DataManager:
             max_combination_length=max_combination_length,
             linked_perturb_covars=linked_perturb_covars,
             sample_covariates=sample_covariates,
-            primary_item=primary_item,
+            primary_group=primary_group,
         )
         return tgt_idx, tgt_cond, embedding
 
@@ -364,7 +366,7 @@ class DataManager:
         max_combination_length: int,
         linked_perturb_covars: dict[str, dict[Any, Any]],
         sample_covariates: Sequence[str],
-        primary_item: tuple[str, list[str]],
+        primary_group: str,
     ) -> dict[str, np.ndarray]:
         perturb_covar_emb = DataManager._get_perturbation_covariates_embeddings(
             condition_data=condition_data,
@@ -376,7 +378,7 @@ class DataManager:
             null_value=null_value,
             max_combination_length=max_combination_length,
             linked_perturb_covars=linked_perturb_covars,
-            primary_item=primary_item,
+            primary_group=primary_group,
         )
         sample_covar_emb = DataManager._get_sample_covariates_embedding(
             condition_data=condition_data,
@@ -398,7 +400,7 @@ class DataManager:
         null_value: float,
         max_combination_length: int,
         linked_perturb_covars: dict[str, dict[Any, Any]],
-        primary_item: tuple[str, list[str]],
+        primary_group: str,
     ) -> dict[str, np.ndarray]:
         """Get perturbation covariates embeddings.
 
@@ -430,7 +432,7 @@ class DataManager:
         Dictionary with perturbation covariate embeddings.
         """
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
-        primary_group, primary_covars = primary_item
+        primary_covars = perturb_covariates[primary_group]
         for primary_cov in primary_covars:
             value = condition_data[primary_cov]
             cov_name = value if is_categorical else primary_cov  # drug a
@@ -750,7 +752,7 @@ class DataManager:
                         self.max_combination_length,
                         self.linked_perturb_covars,
                         self.sample_covariates,
-                        self.primary_item,
+                        self.primary_group,
                     )
                 )
             results = dask.compute(*delayed_results)
@@ -944,10 +946,11 @@ class DataManager:
 
     @staticmethod
     def _get_linked_perturbation_covariates(
-        perturb_covariates: dict[str, list[str]], primary_item: tuple[str, list[str]] | None
+        perturb_covariates: dict[str, list[str]],
+        primary_group: str,
     ) -> dict[str, dict[Any, Any]]:
         perturb_covariates = OrderedDict(perturb_covariates)
-        primary_group, primary_covars = primary_item
+        primary_covars = perturb_covariates[primary_group]
         linked_perturb_covars: dict[str, dict[Any, Any]] = {k: {} for k in primary_covars}
         for cov_group, covars in list(perturb_covariates.items())[1:]:
             for primary_cov, linked_cov in zip(primary_covars, covars, strict=False):
@@ -1185,11 +1188,10 @@ class DataManager:
         adata: anndata.AnnData,
         perturbation_covariates: dict[str, list[str]],
         perturbation_covariate_reps: dict[str, str],
-        primary_item: tuple[str, list[str]] | None,
     ) -> tuple[preprocessing.OneHotEncoder | None, bool]:
-        primary_group, primary_covars = primary_item
+        primary_covars = perturbation_covariates[self.primary_group]
         is_categorical = self._check_covariate_type(adata, primary_covars)
-        if perturbation_covariate_reps and primary_group in perturbation_covariate_reps:
+        if perturbation_covariate_reps and self.primary_group in perturbation_covariate_reps:
             return None, is_categorical
         if is_categorical:
             encoder = preprocessing.OneHotEncoder(sparse_output=False)
@@ -1291,14 +1293,14 @@ class DataManager:
         rep_dict: dict[str, dict[str, ArrayLike]],
         perturb_covariates: Any,  # TODO: check if we can save as attribtue
     ) -> dict[str, np.ndarray]:
-        primary_group, primary_covars = self.primary_item
+        primary_covars = perturb_covariates[self.primary_group]
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         for primary_cov in primary_covars:
             value = condition_data[primary_cov]
             cov_name = value if self.is_categorical else primary_cov
             prim_arr1 = None
-            if primary_group in self._covariate_reps:
-                rep_key = self._covariate_reps[primary_group]
+            if self.primary_group in self._covariate_reps:
+                rep_key = self._covariate_reps[self.primary_group]
                 if cov_name not in rep_dict[rep_key]:
                     raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`.")
                 prim_arr1 = np.asarray(rep_dict[rep_key][cov_name])
@@ -1316,7 +1318,7 @@ class DataManager:
                 prim_arr2 = prim_arr1.copy()
 
             prim_arr3 = self._check_shape(prim_arr2.copy())
-            perturb_covar_emb[primary_group].append(prim_arr3)
+            perturb_covar_emb[self.primary_group].append(prim_arr3)
             for linked_covar in self._linked_perturb_covars[primary_cov].items():
                 linked_group, linked_cov = list(linked_covar)
 

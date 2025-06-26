@@ -144,7 +144,7 @@ class TestDataManager:
         perturbation_covariate_reps,
         sample_covariates,
     ):
-        primary_item = next(iter(perturbation_covariates.items()))
+        primary_group, _ = next(iter(perturbation_covariates.items()))
         dm = DataManager(
             adata_perturbation,
             sample_rep=sample_rep,
@@ -153,7 +153,7 @@ class TestDataManager:
             perturbation_covariates=perturbation_covariates,
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=sample_covariates,
-            primary_item=primary_item,
+            primary_group=primary_group,
         )
         assert isinstance(dm, DataManager)
         assert dm._sample_rep == sample_rep
@@ -162,7 +162,6 @@ class TestDataManager:
         assert dm._perturbation_covariates == perturbation_covariates
         assert dm._sample_covariates == sample_covariates
 
-        primary_item = next(iter(perturbation_covariates.items()))
         old = dm._get_condition_data_old(
             split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation,
@@ -185,7 +184,7 @@ class TestDataManager:
         perturbation_covariate_reps,
         caplog,
     ):
-        primary_item = next(iter(perturbation_covariates.items()))
+        primary_group, _ = next(iter(perturbation_covariates.items()))
         dm_old = DataManager(
             adata_perturbation,
             sample_rep="X",
@@ -195,7 +194,7 @@ class TestDataManager:
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=["cell_type"],
             sample_covariate_reps={"cell_type": "cell_type"},
-            primary_item=primary_item,
+            primary_group=primary_group,
         )
         dm_new = DataManager(
             adata_perturbation.copy(),
@@ -206,7 +205,7 @@ class TestDataManager:
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=["cell_type"],
             sample_covariate_reps={"cell_type": "cell_type"},
-            primary_item=primary_item,
+            primary_group=primary_group,
         )
         old = dm_old._get_condition_data_old(
             split_cov_combs=dm_old._get_split_cov_combs(adata_perturbation.obs),
@@ -235,7 +234,7 @@ class TestValidationData:
         control_key = "control"
         sample_covariates = ["cell_type"]
         sample_covariate_reps = {"cell_type": "cell_type"}
-        primary_item = next(iter(perturbation_covariates.items()))
+        primary_group, _ = next(iter(perturbation_covariates.items()))
         dm_old = DataManager(
             adata_perturbation.copy(),
             sample_rep=sample_rep,
@@ -245,7 +244,7 @@ class TestValidationData:
             perturbation_covariate_reps=perturbation_covariate_reps.copy(),
             sample_covariates=sample_covariates.copy(),
             sample_covariate_reps=sample_covariate_reps.copy(),
-            primary_item=primary_item,
+            primary_group=primary_group,
         )
         dm_new = DataManager(
             adata_perturbation.copy(),
@@ -256,7 +255,7 @@ class TestValidationData:
             perturbation_covariate_reps=perturbation_covariate_reps.copy(),
             sample_covariates=sample_covariates.copy(),
             sample_covariate_reps=sample_covariate_reps.copy(),
-            primary_item=primary_item,
+            primary_group=primary_group,
         )
 
         old = dm_old._get_condition_data_old(
