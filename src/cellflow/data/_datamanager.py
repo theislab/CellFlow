@@ -101,7 +101,9 @@ class DataManager:
         split_covariates: Sequence[str] | None = None,
         max_combination_length: int | None = None,
         null_value: float = 0.0,
+        primary_item: tuple[str, list[str]] | None = None,
     ):
+        self.primary_item = primary_item
         self._adata = adata
         self._sample_rep = sample_rep.copy() if isinstance(sample_rep, dict) else sample_rep
         self._sample_rep = self._verify_sample_rep(sample_rep)
@@ -127,8 +129,11 @@ class DataManager:
             self._adata,
             self._perturbation_covariates,
             self._perturbation_covariate_reps,
+            self.primary_item,
         )
-        self._linked_perturb_covars = self._get_linked_perturbation_covariates(self._perturbation_covariates)
+        self._linked_perturb_covars = self._get_linked_perturbation_covariates(
+            self._perturbation_covariates, self.primary_item
+        )
         sample_cov_groups = OrderedDict({covar: _to_list(covar) for covar in self._sample_covariates})
         covariate_groups = self._perturbation_covariates | sample_cov_groups
         self._covariate_reps = (self._perturbation_covariate_reps or {}) | (self._sample_covariate_reps or {})
@@ -394,21 +399,17 @@ class DataManager:
         -------
         Dictionary with perturbation covariate embeddings.
         """
-        log(f"> condition_data: {dict(condition_data)}")
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         primary_group, primary_covars = primary_item
         for primary_cov in primary_covars:
             value = condition_data[primary_cov]
-            log(f"> value: {value}")
             cov_name = value if is_categorical else primary_cov  # drug a
 
             if primary_group in covariate_reps:
                 rep_key = covariate_reps[primary_group]
-                log(f"> rep_key: {rep_key}")
                 if cov_name not in rep_dict[rep_key]:
                     raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`.")
                 prim_arr = np.asarray(rep_dict[rep_key][cov_name])
-                log(f"> rep_dict[{rep_key}][{cov_name}]: {prim_arr}")
             else:
                 prim_arr = np.asarray(
                     primary_one_hot_encoder.transform(  # type: ignore[union-attr]
@@ -491,14 +492,7 @@ class DataManager:
         covariate_data: pd.DataFrame | None = None,
         rep_dict: dict[str, Any] | None = None,
         condition_id_key: str | None = None,
-        primary_item: tuple[str, list[str]] | None = None,
     ) -> ReturnData:
-        log(
-            f" Function args: split_cov_combs: {split_cov_combs}, adata: {adata}, covariate_data: {covariate_data}, rep_dict: {rep_dict}, condition_id_key: {condition_id_key}"
-        )
-        log(f"self._perturbation_covariates: {self._perturbation_covariates}")
-        log(f"self._sample_covariates: {self._sample_covariates}")
-        log(f"self._split_covariates: {self._split_covariates}")
         # for training/validation: adata is provided and used to get cell masks, covariate_data is None
         if adata is None and covariate_data is None:
             raise ValueError("Either `adata` or `covariate_data` must be provided.")
@@ -541,7 +535,6 @@ class DataManager:
         else:
             perturb_covar_df = perturb_covar_df.reset_index()
 
-        masks_empty = adata is None
         return_mask_none = adata is None and (len(self._split_covariates) == 0 and len(self._sample_covariates) == 0)
 
         control_to_perturbation: dict[int, ArrayLike] = {}
@@ -572,7 +565,7 @@ class DataManager:
                 max_combination_length=self._max_combination_length,
                 linked_perturb_covars=self._linked_perturb_covars.copy(),
                 sample_covariates=self._sample_covariates.copy(),
-                primary_item=primary_item,
+                primary_item=self.primary_item,
             )
             return tgt_idx, tgt_cond, embedding
 
@@ -733,30 +726,16 @@ class DataManager:
                     condition_data=dict(tgt_cond),
                     rep_dict=rep_dict.copy(),
                     perturb_covariates=perturb_covariates.copy(),
-                    primary_item=primary_item,
                 )
                 results.append((tgt_idx, tgt_cond, embeddings))
             # self._tgt_idx_tgt_cond = [(a,dict(b)) for a,b,_ in results]
             for tgt_idx, tgt_cond, embeddings in results:
                 self._log_perturbation_details("new", tgt_idx, dict(tgt_cond), embeddings)
-
-                # covariate_reps=self._covariate_reps,
-                #     is_categorical=self.is_categorical,
-                #     primary_one_hot_encoder=self._primary_one_hot_encoder,
-                #     null_value=self._null_value,
-                #     max_combination_length=self._max_combination_length,
-                #     linked_perturb_covars=self._linked_perturb_covars,
-                #     sample_covariates=self._sample_covariates
-                # log(f"> new input tgt_idx: {tgt_idx}, perturb_covariates: {perturb_covariates}, is_conditional: {self.is_conditional}, primary_one_hot_encoder: {self._primary_one_hot_encoder}, null_value: {self._null_value}, max_combination_length: {self._max_combination_length}, linked_perturb_covars: {self._linked_perturb_covars}, sample_covariates: {self._sample_covariates}, covariate_reps: {self._covariate_reps}")
                 for pert_cov, emb in embeddings.items():
-                    # log(f"appending pert_cov: {pert_cov}, emb: {emb}")
                     condition_data[pert_cov].append(emb)
-                    # np.testing.assert_array_equal(emb, embeddings2[pert_cov], err_msg="new embedding mismatch")
 
             for pert_cov, emb in condition_data.items():
                 condition_data[pert_cov] = np.array(emb)
-        # assert condition_data['drug'].ndim > 1, "condition_data[drug].ndim > 1"
-        # print return data
         log(
             f">new return: split_covariates_mask: {split_covariates_mask}, perturbation_covariates_mask: {perturbation_covariates_mask}"
         )
@@ -947,9 +926,11 @@ class DataManager:
                 raise ValueError(f"Covariate {covariate} not found in adata.obs or covariate_data.")
 
     @staticmethod
-    def _get_linked_perturbation_covariates(perturb_covariates: dict[str, list[str]]) -> dict[str, dict[Any, Any]]:
+    def _get_linked_perturbation_covariates(
+        perturb_covariates: dict[str, list[str]], primary_item: tuple[str, list[str]] | None
+    ) -> dict[str, dict[Any, Any]]:
         perturb_covariates = OrderedDict(perturb_covariates)
-        primary_group, primary_covars = next(iter(perturb_covariates.items()))
+        primary_group, primary_covars = primary_item
         linked_perturb_covars: dict[str, dict[Any, Any]] = {k: {} for k in primary_covars}
         for cov_group, covars in list(perturb_covariates.items())[1:]:
             for primary_cov, linked_cov in zip(primary_covars, covars, strict=False):
@@ -1125,7 +1106,6 @@ class DataManager:
                         condition_data=dict(tgt_cond),
                         rep_dict=rep_dict.copy(),
                         perturb_covariates=perturb_covariates,
-                        primary_item=primary_item,
                     )
                     # embedding = self._get_embeddings(
                     #     condition_data=dict(tgt_cond),
@@ -1190,8 +1170,9 @@ class DataManager:
         adata: anndata.AnnData,
         perturbation_covariates: dict[str, list[str]],
         perturbation_covariate_reps: dict[str, str],
+        primary_item: tuple[str, list[str]] | None,
     ) -> tuple[preprocessing.OneHotEncoder | None, bool]:
-        primary_group, primary_covars = next(iter(perturbation_covariates.items()))
+        primary_group, primary_covars = primary_item
         is_categorical = self._check_covariate_type(adata, primary_covars)
         if perturbation_covariate_reps and primary_group in perturbation_covariate_reps:
             return None, is_categorical
@@ -1294,9 +1275,8 @@ class DataManager:
         condition_data: pd.DataFrame,
         rep_dict: dict[str, dict[str, ArrayLike]],
         perturb_covariates: Any,  # TODO: check if we can save as attribtue
-        primary_item: Any,
     ) -> dict[str, np.ndarray]:
-        primary_group, primary_covars = primary_item
+        primary_group, primary_covars = self.primary_item
         perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
         for primary_cov in primary_covars:
             value = condition_data[primary_cov]

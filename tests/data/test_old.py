@@ -41,39 +41,6 @@ perturbation_covariate_comb_args = [
 ]
 
 
-def compare_masks(a: np.ndarray, b: np.ndarray, name: str, strict=True):
-    if strict:
-        assert a.shape == b.shape, f"{name}: a: {a.shape}, b: {b.shape}"
-        assert (a == b).all(), f"{name}: a: {a}, b: {b}"
-        return {}
-
-
-def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
-    uniq_a = np.unique(a)
-    uniq_b = np.unique(b)
-
-    # get first occurence of each unique value
-    a_ = [(e, next(i for i, x in enumerate(a) if x == e)) for e in uniq_a]
-    b_ = [(e, next(i for i, x in enumerate(b) if x == e)) for e in uniq_b]
-
-    a_ = sorted(a_, key=lambda x: x[1])
-    b_ = sorted(b_, key=lambda x: x[1])
-
-    a1 = [aa[1] for aa in a_]
-    b1 = [bb[1] for bb in b_]
-    assert a1 == b1, f"{name}: a: {a1}, b: {b1}, can't be mapped"
-
-    a2b = {aa[0]: bb[0] for aa, bb in zip(a_, b_, strict=False)}
-
-    for k, v in a2b.items():
-        a_idx = np.argwhere(a == k)
-        b_idx = np.argwhere(b == v)
-        assert a_idx.shape == b_idx.shape, f"{name}: a: {a_idx.shape}, b: {b_idx.shape}"
-        assert (a_idx == b_idx).all(), f"{name}: a: {a_idx}, b: {b_idx}"
-
-    return a2b
-
-
 def compare_train_data(a, b):
     a2b_perturbation = compare_masks(
         a.perturbation_covariates_mask, b.perturbation_covariates_mask, "perturbation_covariates_mask"
@@ -151,6 +118,7 @@ class TestDataManager:
         perturbation_covariate_reps,
         sample_covariates,
     ):
+        primary_item = next(iter(perturbation_covariates.items()))
         dm = DataManager(
             adata_perturbation,
             sample_rep=sample_rep,
@@ -159,6 +127,7 @@ class TestDataManager:
             perturbation_covariates=perturbation_covariates,
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=sample_covariates,
+            primary_item=primary_item,
         )
         assert isinstance(dm, DataManager)
         assert dm._sample_rep == sample_rep
@@ -171,12 +140,10 @@ class TestDataManager:
         old = dm._get_condition_data_old(
             split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation,
-            primary_item=primary_item,
         )
         new = dm._get_condition_data(
             split_cov_combs=dm._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation,
-            primary_item=primary_item,
         )
 
         compare_train_data(old, new)
@@ -192,6 +159,7 @@ class TestDataManager:
         perturbation_covariate_reps,
         caplog,
     ):
+        primary_item = next(iter(perturbation_covariates.items()))
         dm_old = DataManager(
             adata_perturbation,
             sample_rep="X",
@@ -201,6 +169,7 @@ class TestDataManager:
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=["cell_type"],
             sample_covariate_reps={"cell_type": "cell_type"},
+            primary_item=primary_item,
         )
         dm_new = DataManager(
             adata_perturbation.copy(),
@@ -211,17 +180,15 @@ class TestDataManager:
             perturbation_covariate_reps=perturbation_covariate_reps,
             sample_covariates=["cell_type"],
             sample_covariate_reps={"cell_type": "cell_type"},
+            primary_item=primary_item,
         )
-        primary_item = next(iter(perturbation_covariates.items()))
         old = dm_old._get_condition_data_old(
             split_cov_combs=dm_old._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation.copy(),
-            primary_item=primary_item,
         )
         new = dm_new._get_condition_data(
             split_cov_combs=dm_new._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation.copy(),
-            primary_item=primary_item,
         )
         compare_train_data(old, new)
 
@@ -252,6 +219,7 @@ class TestValidationData:
             perturbation_covariate_reps=perturbation_covariate_reps.copy(),
             sample_covariates=sample_covariates.copy(),
             sample_covariate_reps=sample_covariate_reps.copy(),
+            primary_item=primary_item,
         )
         dm_new = DataManager(
             adata_perturbation.copy(),
@@ -262,12 +230,12 @@ class TestValidationData:
             perturbation_covariate_reps=perturbation_covariate_reps.copy(),
             sample_covariates=sample_covariates.copy(),
             sample_covariate_reps=sample_covariate_reps.copy(),
+            primary_item=primary_item,
         )
 
         old = dm_old._get_condition_data_old(
             split_cov_combs=dm_old._get_split_cov_combs(adata_perturbation.obs.copy()),
             adata=adata_perturbation.copy(),
-            primary_item=primary_item,
         )
         new = dm_new._get_condition_data(
             split_cov_combs=dm_new._get_split_cov_combs(adata_perturbation.obs),
