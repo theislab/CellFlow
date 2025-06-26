@@ -266,12 +266,7 @@ class TestValidationData:
         new = dm_new._get_condition_data(
             split_cov_combs=dm_new._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation.copy(),
-            primary_item=primary_item,
         )
-        print("old tgt_idx_tgt_cond --------------")
-        print(dm_old._tgt_idx_tgt_cond)
-        print("new tgt_idx_tgt_cond --------------")
-        print(dm_new._tgt_idx_tgt_cond)
         paired = zip(dm_old._tgt_idx_tgt_cond, dm_new._tgt_idx_tgt_cond, strict=True)
         dm_old._tgt_idx_tgt_cond = sorted(dm_old._tgt_idx_tgt_cond, key=lambda x: x[0])
         dm_new._tgt_idx_tgt_cond = sorted(dm_new._tgt_idx_tgt_cond, key=lambda x: x[0])
