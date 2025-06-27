@@ -676,9 +676,7 @@ class DataManager:
             p.index = np.arange(len(p))
             perturbation_idx_to_covariates = {int(p.index[i]): tuple(p.iloc[i]) for i in range(len(p))}
         else:
-            pc_df = (
-                df[~df[control_key]][all_combs_keys].sort_values(by=all_combs_keys).drop_duplicates(keep="first")
-            )
+            pc_df = df[~df[control_key]][all_combs_keys].sort_values(by=all_combs_keys).drop_duplicates(keep="first")
             perturbation_idx_to_covariates = (
                 df[["global_pert_mask", *all_combs_keys]].groupby(["global_pert_mask"]).first().to_dict(orient="index")
             )
