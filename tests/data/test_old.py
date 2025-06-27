@@ -266,16 +266,4 @@ class TestValidationData:
             split_cov_combs=dm_new._get_split_cov_combs(adata_perturbation.obs),
             adata=adata_perturbation.copy(),
         )
-        paired = zip(dm_old._tgt_idx_tgt_cond, dm_new._tgt_idx_tgt_cond, strict=True)
-        dm_old._tgt_idx_tgt_cond = sorted(dm_old._tgt_idx_tgt_cond, key=lambda x: x[0])
-        dm_new._tgt_idx_tgt_cond = sorted(dm_new._tgt_idx_tgt_cond, key=lambda x: x[0])
-        for (old_tgt_idx, old_tgt_cond), (new_tgt_idx, new_tgt_cond) in paired:
-            assert old_tgt_idx == new_tgt_idx, f"old_tgt_idx: {old_tgt_idx}, new_tgt_idx: {new_tgt_idx}"
-            assert old_tgt_cond.keys() == new_tgt_cond.keys(), (
-                f"old_tgt_cond: {old_tgt_cond.keys()}, new_tgt_cond: {new_tgt_cond.keys()}"
-            )
-            for k in old_tgt_cond.keys():
-                assert old_tgt_cond[k] == new_tgt_cond[k], (
-                    f"old_tgt_cond[{k}]: {old_tgt_cond[k]}, new_tgt_cond[{k}]: {new_tgt_cond[k]}"
-                )
         compare_train_data(old, new)

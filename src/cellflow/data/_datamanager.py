@@ -590,7 +590,6 @@ class DataManager:
         comb_keys = self._split_covariates
         if len(self._split_covariates) == 0:
             comb_keys = self._sample_covariates
-        # self._sample_covariates if len(self._sample_covariates) > 0 else self._split_covariates
 
         perturbation_covariates_keys = self.perturb_covar_keys
         perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in comb_keys]
@@ -671,13 +670,15 @@ class DataManager:
         all_control = df[control_key].all() or (adata is None)
 
         if all_control:
-            perturb_covar_df = df[all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+            pc_df = df[all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
+            p = pc_df[self._perturb_covar_keys].drop_duplicates()
+            p.sort_values(by=self._perturb_covar_keys, inplace=True)
+            p.index = np.arange(len(p))
+            perturbation_idx_to_covariates = {int(p.index[i]): tuple(p.iloc[i]) for i in range(len(p))}
         else:
-            perturb_covar_df = (
+            pc_df = (
                 df[~df[control_key]][all_combs_keys].sort_values(by=all_combs_keys).drop_duplicates(keep="first")
             )
-
-        if not all_control:
             perturbation_idx_to_covariates = (
                 df[["global_pert_mask", *all_combs_keys]].groupby(["global_pert_mask"]).first().to_dict(orient="index")
             )
@@ -685,13 +686,7 @@ class DataManager:
                 int(k): [v[s] for s in [*perturbation_covariates_keys, *comb_keys]]
                 for k, v in perturbation_idx_to_covariates.items()
             }
-        else:
-            p = perturb_covar_df[self._perturb_covar_keys].drop_duplicates()
-            p.sort_values(by=self._perturb_covar_keys, inplace=True)
-            p.index = np.arange(len(p))
-            perturbation_idx_to_covariates = {int(p.index[i]): tuple(p.iloc[i]) for i in range(len(p))}
 
-        perturb_covariates = OrderedDict({k: sorted(_to_list(v)) for k, v in self._perturbation_covariates.items()})
         perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
         if not all_control:
             control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
@@ -714,46 +709,32 @@ class DataManager:
             perturbation_covariates_mask = None
             split_idx_to_covariates = {}
 
-        self._tgt_idx_tgt_cond = []
+        # self._tgt_idx_tgt_cond = []
         delayed_results = []
         if self.is_conditional:
-            for _, tgt_cond in perturb_covar_df.iterrows():
+            for _, tgt_cond in pc_df.iterrows():
                 tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
-                tgt_cond = tgt_cond[self._perturb_covar_keys]
-                self._tgt_idx_tgt_cond.append((tgt_idx, dict(tgt_cond)))
-                # delayed_results.append(
-                #     dask.delayed(_process_condition)(
-                #         tgt_idx,
-                #         dict(tgt_cond.copy()),
-                #     )
-                # )
-
-            # with ProgressBar():
-            #     results = dask.compute(*delayed_results)
-
-            self._tgt_idx_tgt_cond = sorted(self._tgt_idx_tgt_cond, key=lambda x: x[0])
-            results = []
-            for tgt_idx, tgt_cond in self._tgt_idx_tgt_cond:
-                tgt_cond = dict(tgt_cond.copy())
+                tgt_cond = dict(tgt_cond[self._perturb_covar_keys])
                 delayed_results.append(
                     dask.delayed(DataManager._process_condition)(
-                        tgt_idx,
-                        tgt_cond,
-                        rep_dict,
-                        perturb_covariates,
-                        self.covariate_reps,
-                        self.is_categorical,
-                        self.primary_one_hot_encoder,
-                        self.null_value,
-                        self.max_combination_length,
-                        self.linked_perturb_covars,
-                        self.sample_covariates,
-                        self.primary_group,
+                        tgt_idx=tgt_idx,
+                        tgt_cond=tgt_cond,
+                        rep_dict=rep_dict,
+                        perturb_covariates=perturb_covariates,
+                        covariate_reps=self.covariate_reps,
+                        is_categorical=self.is_categorical,
+                        primary_one_hot_encoder=self.primary_one_hot_encoder,
+                        null_value=self.null_value,
+                        max_combination_length=self.max_combination_length,
+                        linked_perturb_covars=self.linked_perturb_covars,
+                        sample_covariates=self.sample_covariates,
+                        primary_group=self.primary_group,
                     )
                 )
-            results = dask.compute(*delayed_results)
-            for tgt_idx, tgt_cond, embeddings in results:
-                self._log_perturbation_details("new", tgt_idx, dict(tgt_cond), embeddings)
+            with ProgressBar():
+                results = dask.compute(*delayed_results)
+            results = sorted(results, key=lambda x: x[0])
+            for _, _, embeddings in results:
                 for pert_cov, emb in embeddings.items():
                     condition_data[pert_cov].append(emb)
 
