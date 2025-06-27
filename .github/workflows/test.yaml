@@ -25,12 +25,16 @@ jobs:
         include:
           - os: ubuntu-latest
             python: "3.11"
+            threads: 1
           - os: ubuntu-latest
             python: "3.12"
+            threads: 1
           - os: ubuntu-latest
             python: "3.13"
+            threads: 1
           - os: macos-latest
             python: "3.12"
+            threads: 2
 
     name: ${{ matrix.name }} Python ${{ matrix.python }}
 
@@ -59,7 +63,7 @@ jobs:
         run: |
           tox -e py-${{ matrix.python }}
         env:
-          PYTEST_ADDOPTS: -vv -n 2
+          PYTEST_ADDOPTS: -vv -n ${{ matrix.threads }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
