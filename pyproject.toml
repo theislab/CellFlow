@@ -42,6 +42,7 @@ dependencies = [
   "scanpy",
   "scikit-learn==1.5.1",
   "session-info",
+  "pertpy",
 ]
 
 optional-dependencies.dev = [
