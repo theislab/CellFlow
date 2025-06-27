@@ -5,6 +5,8 @@ import anndata as ad
 import numpy as np
 import pytest
 
+from cellflow.data._datamanager import DataManager
+
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -15,8 +17,6 @@ def setup_logging(caplog):
     # This ensures we see the output even if a test fails
     # logging.getLogger().setLevel(logging.DEBUG)
 
-
-from cellflow.data._datamanager import DataManager
 
 perturbation_covariates_args = [
     OrderedDict({"drug": ["drug1"]}),

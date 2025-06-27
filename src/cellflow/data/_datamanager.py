@@ -707,12 +707,17 @@ class DataManager:
             perturbation_covariates_mask = None
             split_idx_to_covariates = {}
 
-        # self._tgt_idx_tgt_cond = []
         delayed_results = []
+        if condition_id_key is not None:
+            perturb_covar_df.reset_index(names="_condition_id", inplace=True)
+            perturb_covar_df.set_index(self._perturb_covar_keys, inplace=True)
         if self.is_conditional:
             for _, tgt_cond in pc_df.iterrows():
                 tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
-                tgt_cond = dict(tgt_cond[self._perturb_covar_keys])
+                tgt_cond = tgt_cond[self._perturb_covar_keys]
+                if condition_id_key is not None:
+                    perturbation_idx_to_id[tgt_idx] = perturb_covar_df.loc[tuple(tgt_cond)]["_condition_id"]
+                tgt_cond = dict(tgt_cond)
                 delayed_results.append(
                     dask.delayed(DataManager._process_condition)(
                         tgt_idx=tgt_idx,
