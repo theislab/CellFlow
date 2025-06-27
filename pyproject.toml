@@ -39,7 +39,6 @@ dependencies = [
   "flax",
   "orbax",
   "ott-jax==0.5",
-  "pertpy",
   "scanpy",
   "scikit-learn==1.5.1",
   "session-info",
@@ -82,7 +81,7 @@ optional-dependencies.external = [
   "scvi-tools>=1.3.1",
 ]
 optional-dependencies.pp = [
-  "pertpy",
+  "pertpy==0.11.2",
   "pynndescent",
   "rdkit",
 ]
