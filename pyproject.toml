@@ -39,10 +39,10 @@ dependencies = [
   "flax",
   "orbax",
   "ott-jax==0.5",
+  "pertpy",
   "scanpy",
   "scikit-learn==1.5.1",
   "session-info",
-  "pertpy",
 ]
 
 optional-dependencies.dev = [
