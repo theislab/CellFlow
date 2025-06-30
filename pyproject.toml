@@ -35,6 +35,7 @@ dependencies = [
   "cloudpickle",
   "coverage",
   "dask",
+  "pyarrow", # required for dask.dataframe
   "diffrax",
   "flax",
   "orbax",
