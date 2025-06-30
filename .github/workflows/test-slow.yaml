@@ -1,4 +1,4 @@
-name: Test
+name: Test Slow Functions
 
 on:
   push:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  test-slow:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -55,9 +55,9 @@ jobs:
           pip install tox
           pip install ${{ matrix.pip-flags }} ".[optional-dependencies.dev,optional-dependencies.test,optional-dependencies.external,optional-dependencies.docs,optional-dependencies.embedding]"
           pip install wandb omegaconf
-      - name: Test
+      - name: Test slow functions
         run: |
-          tox -e py-${{ matrix.python }} -- -m "not slow"
+          tox -e py-${{ matrix.python }} -- -m "slow"
         env:
           PYTEST_ADDOPTS: -vv -n 2
 

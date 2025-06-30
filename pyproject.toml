@@ -138,7 +138,7 @@ lint.ignore = [
   # Missing docstring in __init__
   "D107",
   ## Disable one in each pair of mutually incompatible rules
-  # We don’t want a blank line before a class docstring
+  # We don't want a blank line before a class docstring
   "D203",
   # We want docstrings to start immediately after the opening triple quote
   "D213",
@@ -163,6 +163,9 @@ testpaths = [ "tests" ]
 xfail_strict = true
 addopts = [
   "--import-mode=importlib", # allow using test files with same name
+]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 
 [tool.coverage.run]
