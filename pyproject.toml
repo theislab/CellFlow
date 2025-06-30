@@ -42,7 +42,7 @@ dependencies = [
   "pyarrow",             # required for dask.dataframe
   "scanpy",
   "scikit-learn==1.5.1",
-  "scipy<=1.16",         # see https://github.com/statsmodels/statsmodels/issues/9584
+  "scipy<1.16",         # see https://github.com/statsmodels/statsmodels/issues/9584
   "session-info",
 ]
 
