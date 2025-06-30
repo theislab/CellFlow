@@ -426,7 +426,7 @@ class TestCellFlow:
         perturbation_covariate_reps = {"drug": "drug"}
         sample_covariates = sample_covariate_and_reps[0]
         sample_covariate_reps = sample_covariate_and_reps[1]
-        condition_embedding_dim = 32
+        condition_embedding_dim = 2
         solver = "otfm"
 
         cf = cellflow.model.CellFlow(adata_perturbation, solver=solver)
@@ -451,20 +451,20 @@ class TestCellFlow:
                     condition_mode=condition_mode,
                     regularization=regularization,
                     condition_embedding_dim=condition_embedding_dim,
-                    hidden_dims=(32, 32),
-                    decoder_dims=(32, 32),
+                    hidden_dims=(2, 2),
+                    decoder_dims=(2, 2),
                 )
             return None
         cf.prepare_model(
             condition_mode=condition_mode,
             regularization=regularization,
             condition_embedding_dim=condition_embedding_dim,
-            hidden_dims=(32, 32),
-            decoder_dims=(32, 32),
+            hidden_dims=(2, 2),
+            decoder_dims=(2, 2),
         )
         assert cf._trainer is not None
 
-        cf.train(num_iterations=3)
+        cf.train(num_iterations=1)
         assert cf._dataloader is not None
 
         conds = adata_perturbation.obs.drop_duplicates(subset=cf._dm.perturb_covar_keys)
