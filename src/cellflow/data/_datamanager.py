@@ -652,7 +652,7 @@ class DataManager:
         df.loc[df[self.control_key], "perturbation_covariates_mask"] = -1
         df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
 
-        # all_control: bool = df[self.control_key].all() or (adata is None)
+        all_control: bool = df[self.control_key].all() or (adata is None)
 
         perturbation_idx_to_covariates, perturbation_covariates_to_idx, control_to_perturbation, tgt_conds_df, df = (
             self._get_pert_data(
@@ -661,7 +661,8 @@ class DataManager:
                 perturbation_covariates_keys=perturbation_covariates_keys,
                 uniq_sample_keys=uniq_sample_keys,
                 orig_cell_idx=covariate_data.index,
-                train=train,
+                # train=train,\
+                train=not all_control,
             )
         )
 
