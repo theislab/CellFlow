@@ -143,7 +143,7 @@ class DataManager:
         -------
         Training data for the model.
         """
-        cond_data = self._get_condition_data(adata=adata, train=True)
+        cond_data = self._get_condition_data(adata=adata)
         cell_data = self._get_cell_data(adata)
         return TrainingData(
             cell_data=cell_data,
@@ -180,7 +180,7 @@ class DataManager:
         -------
         Validation data for the model.
         """
-        cond_data = self._get_condition_data(adata=adata, train=False)
+        cond_data = self._get_condition_data(adata=adata)
         cell_data = self._get_cell_data(adata)
         return ValidationData(
             cell_data=cell_data,
@@ -241,7 +241,6 @@ class DataManager:
             covariate_data=covariate_data,
             rep_dict=adata.uns if rep_dict is None else rep_dict,
             condition_id_key=condition_id_key,
-            train=False,
         )
         cell_data = self._get_cell_data(adata, sample_rep)
         split_covariates_mask, split_idx_to_covariates = self._get_split_covariates_mask(
@@ -287,7 +286,6 @@ class DataManager:
             covariate_data=covariate_data,
             rep_dict=rep_dict,
             condition_id_key=condition_id_key,
-            train=False,
         )
         return ConditionData(
             condition_data=cond_data.condition_data,
@@ -552,7 +550,6 @@ class DataManager:
         covariate_data: pd.DataFrame | None = None,
         rep_dict: dict[str, Any] | None = None,
         condition_id_key: str | None = None,
-        train: bool = True,
     ) -> ReturnData:
         # for training/validation: adata is provided and used to get cell masks, covariate_data is None
         if adata is None and covariate_data is None:
@@ -661,7 +658,6 @@ class DataManager:
                 perturbation_covariates_keys=perturbation_covariates_keys,
                 uniq_sample_keys=uniq_sample_keys,
                 orig_cell_idx=covariate_data.index,
-                # train=train,\
                 train=not all_control,
             )
         )
