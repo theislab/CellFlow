@@ -466,6 +466,21 @@ class DataManager:
         return perturb_covar_emb
 
     @staticmethod
+    def _get_perturb_covar_df(
+        covariate_data: pd.DataFrame, perturb_covar_keys: list[str], condition_id_key: str | None
+    ) -> pd.DataFrame:
+        # Extract unique combinations of perturbation covariates
+        select_keys = perturb_covar_keys
+        if condition_id_key is not None:
+            select_keys += [condition_id_key]
+        perturb_covar_df = covariate_data[select_keys].drop_duplicates()
+        if condition_id_key is not None:
+            perturb_covar_df = perturb_covar_df.set_index(condition_id_key)
+        else:
+            perturb_covar_df = perturb_covar_df.reset_index()
+        return perturb_covar_df
+
+    @staticmethod
     def _get_sample_covariates_embedding(
         condition_data: pd.DataFrame,
         rep_dict: dict[str, dict[str, ArrayLike]],
@@ -500,31 +515,6 @@ class DataManager:
         if adata is None and covariate_data is None:
             raise ValueError("Either `adata` or `covariate_data` must be provided.")
         covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
-
-        if rep_dict is None:
-            rep_dict = adata.uns if adata is not None else {}
-        # check if all perturbation/split covariates and control cells are present in the input
-        self._verify_covariate_data(
-            covariate_data,
-            OrderedDict({covar: sorted(_to_list(covar)) for covar in self._sample_covariates}),
-        )
-        self._verify_control_data(adata)
-        self._verify_covariate_data(covariate_data, sorted(_to_list(self._split_covariates)))
-
-        # extract unique combinations of perturbation covariates
-        if condition_id_key is not None:
-            self._verify_condition_id_key(covariate_data, condition_id_key)
-            select_keys = self._perturb_covar_keys + [condition_id_key]
-        else:
-            select_keys = self._perturb_covar_keys
-        perturb_covar_df = covariate_data[select_keys].drop_duplicates()
-        if condition_id_key is not None:
-            perturb_covar_df = perturb_covar_df.set_index(condition_id_key)
-        else:
-            perturb_covar_df = perturb_covar_df.reset_index()
-
-        return_mask_none = adata is None and (len(self._split_covariates) == 0 and len(self._sample_covariates) == 0)
-
         control_to_perturbation: dict[int, ArrayLike] = {}
         split_idx_to_covariates: dict[int, tuple[Any]] = {}
         perturbation_idx_to_covariates: dict[int, tuple[Any]] = {}
@@ -534,69 +524,81 @@ class DataManager:
         condition_data: dict[str, list[np.ndarray]] = (
             {i: [] for i in self._covar_to_idx.keys()} if self.is_conditional else {}
         )
-        perturb_covariates = OrderedDict({k: sorted(_to_list(v)) for k, v in self._perturbation_covariates.items()})
+        perturb_covariates = OrderedDict({k: sorted(_to_list(v)) for k, v in self.perturbation_covariates.items()})
         npartitions = 2  # TODO: make this dynamic
-        # delete later
+
+        return_mask: bool = not (
+            adata is None and (len(self.split_covariates) == 0 and len(self.sample_covariates) == 0)
+        )
+
+        if rep_dict is None:
+            rep_dict = adata.uns if adata is not None else {}
+        # check if all perturbation/split covariates and control cells are present in the input
+        self._verify_control_data(adata)
+        self._verify_covariate_data(covariate_data, self.sample_covariates)
+        self._verify_covariate_data(covariate_data, self.split_covariates)
+        if condition_id_key is not None:
+            self._verify_condition_id_key(covariate_data, condition_id_key)
+
+        # extract unique combinations of perturbation covariates
+        perturb_covar_df = DataManager._get_perturb_covar_df(covariate_data, self.perturb_covar_keys, condition_id_key)
+
         covariate_data = covariate_data.copy()
         covariate_data["cell_index"] = covariate_data.index
         covariate_data = covariate_data.reset_index(drop=True)
 
-        comb_keys = self._split_covariates
-        if len(self._split_covariates) == 0:
-            comb_keys = self._sample_covariates
+        uniq_sample_keys = self.split_covariates
+        if len(self.split_covariates) == 0:
+            uniq_sample_keys = self.sample_covariates
 
         perturbation_covariates_keys = self.perturb_covar_keys
-        perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in comb_keys]
-        control_key = self._control_key
+        perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in uniq_sample_keys]
 
-        df = covariate_data[comb_keys + perturbation_covariates_keys + [control_key]].copy()
+        all_combs_keys = uniq_sample_keys + perturbation_covariates_keys
+        if len(self.sample_covariates) > 0 and len(self.split_covariates) == 0:
+            all_combs_keys = perturbation_covariates_keys + uniq_sample_keys
+
+        df = covariate_data[uniq_sample_keys + perturbation_covariates_keys + [self.control_key]].copy()
         cell_idx_key = "cell_index"
         df[cell_idx_key] = df.index
         df = df.set_index(cell_idx_key, drop=False)
-        for col in comb_keys + perturbation_covariates_keys:
+        for col in uniq_sample_keys + perturbation_covariates_keys:
             if df[col].dtype != "category":
                 df[col] = df[col].astype("category")
         ddf = dd.from_pandas(df, npartitions=npartitions)
-        ddf = ddf.sort_values(by=[*comb_keys, *perturbation_covariates_keys, control_key])
+        ddf = ddf.sort_values(by=[*uniq_sample_keys, *perturbation_covariates_keys, self.control_key])
         ddf = ddf.reset_index(drop=True)
 
-        all_combs = ddf[comb_keys + perturbation_covariates_keys + [control_key]].drop_duplicates(
-            keep="first", subset=comb_keys + perturbation_covariates_keys + [control_key]
+        all_combs = ddf[uniq_sample_keys + perturbation_covariates_keys + [self.control_key]].drop_duplicates(
+            keep="first", subset=uniq_sample_keys + perturbation_covariates_keys + [self.control_key]
         )
-        control_combs = all_combs[comb_keys + [control_key]].drop_duplicates(
-            keep="first", subset=comb_keys + [control_key]
+        control_combs = all_combs[uniq_sample_keys + [self.control_key]].drop_duplicates(
+            keep="first", subset=uniq_sample_keys + [self.control_key]
         )
         with ProgressBar():
             control_combs, all_combs, df = dask.compute(control_combs, all_combs, ddf)
 
-        if len(self.split_covariates) > 0 and len(self.sample_covariates) == 0:
-            all_combs_keys = comb_keys + perturbation_covariates_keys
-        elif len(self.sample_covariates) > 0 and len(self.split_covariates) == 0:
-            all_combs_keys = self.perturb_covar_keys
-        else:
-            all_combs_keys = comb_keys + perturbation_covariates_keys
-
-        control_combs = control_combs[control_combs[control_key]].sort_values(by=comb_keys)
-        all_combs = all_combs[~all_combs[control_key]].sort_values(by=all_combs_keys)
+        control_combs = control_combs[control_combs[self.control_key]].sort_values(by=uniq_sample_keys)
+        all_combs = all_combs[~all_combs[self.control_key]].sort_values(by=all_combs_keys)
 
         all_combs["global_pert_mask"] = np.arange(len(all_combs), dtype=np.int64)
         control_combs["global_control_mask"] = np.arange(len(control_combs), dtype=np.int64)
 
-        control_combs = control_combs.sort_values(by=comb_keys)
+        control_combs = control_combs.sort_values(by=uniq_sample_keys)
         all_combs = all_combs.sort_values(by=all_combs_keys)
 
-        all_combs = all_combs.drop(columns=[control_key])
-        control_combs = control_combs.drop(columns=[control_key])
+        all_combs = all_combs.drop(columns=[self.control_key])
+        control_combs = control_combs.drop(columns=[self.control_key])
 
-        if len(self._split_covariates) > 0:
-            df = df.merge(control_combs, on=comb_keys, how="left")
+        if len(self.split_covariates) > 0:
+            df = df.merge(control_combs, on=uniq_sample_keys, how="left")
         else:
             df["global_control_mask"] = 0
 
         # Then merge with all_combs
         df = df.merge(
             all_combs,
-            on=comb_keys + perturbation_covariates_keys,
+            on=uniq_sample_keys + perturbation_covariates_keys,
             how="left",
         )
 
@@ -604,24 +606,13 @@ class DataManager:
 
         df["split_covariates_mask"] = df["global_control_mask"]
         df["split_covariates_mask"] = df["split_covariates_mask"].astype(np.int64)
-        df.loc[~df[control_key], "split_covariates_mask"] = -1
+        df.loc[~df[self.control_key], "split_covariates_mask"] = -1
 
         df["perturbation_covariates_mask"] = df["global_pert_mask"]
-        df.loc[df[control_key], "perturbation_covariates_mask"] = -1
+        df.loc[df[self.control_key], "perturbation_covariates_mask"] = -1
         df["perturbation_covariates_mask"] = df["perturbation_covariates_mask"].astype(np.int64)
 
-        if not return_mask_none:
-            split_idx_to_covariates = (
-                df[["global_control_mask", *self._split_covariates]]
-                .groupby(["global_control_mask"])
-                .first()
-                .to_dict(orient="index")
-            )
-            split_idx_to_covariates = {
-                k: tuple(v[s] for s in self._split_covariates) for k, v in split_idx_to_covariates.items()
-            }
-
-        all_control = df[control_key].all() or (adata is None)
+        all_control: bool = df[self.control_key].all() or (adata is None)
 
         if all_control:
             pc_df = df[all_combs_keys].sort_values(by=self._perturb_covar_keys).drop_duplicates(keep="first")
@@ -630,18 +621,22 @@ class DataManager:
             p.index = np.arange(len(p))
             perturbation_idx_to_covariates = {int(p.index[i]): tuple(p.iloc[i]) for i in range(len(p))}
         else:
-            pc_df = df[~df[control_key]][all_combs_keys].sort_values(by=all_combs_keys).drop_duplicates(keep="first")
+            pc_df = (
+                df[~df[self.control_key]][all_combs_keys].sort_values(by=all_combs_keys).drop_duplicates(keep="first")
+            )
             perturbation_idx_to_covariates = (
                 df[["global_pert_mask", *all_combs_keys]].groupby(["global_pert_mask"]).first().to_dict(orient="index")
             )
             perturbation_idx_to_covariates = {
-                int(k): [v[s] for s in [*perturbation_covariates_keys, *comb_keys]]
+                int(k): [v[s] for s in [*perturbation_covariates_keys, *uniq_sample_keys]]
                 for k, v in perturbation_idx_to_covariates.items()
             }
 
         perturbation_covariates_to_idx = {tuple(v): k for k, v in perturbation_idx_to_covariates.items()}
         if not all_control:
-            control_to_perturbation = df[~df[control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
+            control_to_perturbation = (
+                df[~df[self.control_key]].groupby(["global_control_mask"])["global_pert_mask"].unique()
+            )
             control_to_perturbation = control_to_perturbation.to_dict()
             control_to_perturbation = {
                 k: np.array(sorted(v), dtype=np.int32) for k, v in control_to_perturbation.items()
@@ -653,22 +648,29 @@ class DataManager:
                 0: sorted(perturbation_covariates_to_idx.values()),
             }
 
-        if not return_mask_none:
+        if return_mask:
+            split_idx_to_covariates = (
+                df[["global_control_mask", *self.split_covariates]]
+                .groupby(["global_control_mask"])
+                .first()
+                .to_dict(orient="index")
+            )
+            split_idx_to_covariates = {
+                k: tuple(v[s] for s in self.split_covariates) for k, v in split_idx_to_covariates.items()
+            }
             split_covariates_mask = np.asarray(df["split_covariates_mask"].values, dtype=np.int32)
             perturbation_covariates_mask = np.asarray(df["perturbation_covariates_mask"].values, dtype=np.int32)
-        else:
-            split_covariates_mask = None
-            perturbation_covariates_mask = None
-            split_idx_to_covariates = {}
 
         delayed_results = []
         if condition_id_key is not None:
             perturb_covar_df.reset_index(names="_condition_id", inplace=True)
-            perturb_covar_df.set_index(self._perturb_covar_keys, inplace=True)
+            perturb_covar_df.set_index(self.perturb_covar_keys, inplace=True)
         if self.is_conditional:
             for _, tgt_cond in pc_df.iterrows():
-                tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + comb_keys])]
-                tgt_cond = tgt_cond[self._perturb_covar_keys]
+                tgt_idx = perturbation_covariates_to_idx[
+                    tuple(tgt_cond[perturbation_covariates_keys + uniq_sample_keys])
+                ]
+                tgt_cond = tgt_cond[self.perturb_covar_keys]
                 if condition_id_key is not None:
                     perturbation_idx_to_id[tgt_idx] = perturb_covar_df.loc[tuple(tgt_cond)]["_condition_id"]
                 tgt_cond = dict(tgt_cond)
