@@ -551,18 +551,17 @@ class DataManager:
         if len(self.split_covariates) == 0:
             uniq_sample_keys = self.sample_covariates
 
-        perturbation_covariates_keys = self.perturb_covar_keys
-        perturbation_covariates_keys = [key for key in perturbation_covariates_keys if key not in uniq_sample_keys]
+        perturbation_covariates_keys = [key for key in self.perturb_covar_keys if key not in uniq_sample_keys]
 
         all_combs_keys = uniq_sample_keys + perturbation_covariates_keys
-        if len(self.sample_covariates) > 0 and len(self.split_covariates) == 0:
+        if len(self.split_covariates) == 0:
             all_combs_keys = perturbation_covariates_keys + uniq_sample_keys
 
         df = covariate_data[uniq_sample_keys + perturbation_covariates_keys + [self.control_key]].copy()
         cell_idx_key = "cell_index"
         df[cell_idx_key] = df.index
         df = df.set_index(cell_idx_key, drop=False)
-        for col in uniq_sample_keys + perturbation_covariates_keys:
+        for col in all_combs_keys:
             if df[col].dtype != "category":
                 df[col] = df[col].astype("category")
         ddf = dd.from_pandas(df, npartitions=npartitions)
