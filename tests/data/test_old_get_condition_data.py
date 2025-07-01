@@ -9,11 +9,89 @@ import pandas as pd
 import pytest
 from tqdm import tqdm
 
+from cellflow._types import ArrayLike
 from cellflow.data._datamanager import (
     DataManager,
     ReturnData,
     _to_list,
 )
+
+
+def _get_perturbation_covariates(
+    dm: DataManager,
+    condition_data: pd.DataFrame,
+    rep_dict: dict[str, dict[str, ArrayLike]],
+    perturb_covariates: Any,  # TODO: check if we can save as attribtue
+) -> dict[str, np.ndarray]:
+    primary_covars = perturb_covariates[dm.primary_group]
+    perturb_covar_emb: dict[str, list[np.ndarray]] = {group: [] for group in perturb_covariates}
+    for primary_cov in primary_covars:
+        value = condition_data[primary_cov]
+        cov_name = value if dm.is_categorical else primary_cov
+        prim_arr1 = None
+        if dm.primary_group in dm._covariate_reps:
+            rep_key = dm._covariate_reps[dm.primary_group]
+            if cov_name not in rep_dict[rep_key]:
+                raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`.")
+            prim_arr1 = np.asarray(rep_dict[rep_key][cov_name])
+        else:
+            prim_arr1 = np.asarray(
+                dm.primary_one_hot_encoder.transform(  # type: ignore[union-attr]
+                    np.array(cov_name).reshape(-1, 1)
+                )
+            )
+
+        prim_arr2 = None
+        if not dm.is_categorical:
+            prim_arr2 = value * prim_arr1.copy()
+        else:
+            prim_arr2 = prim_arr1.copy()
+
+        prim_arr3 = dm._check_shape(prim_arr2.copy())
+        perturb_covar_emb[dm.primary_group].append(prim_arr3)
+        for linked_covar in dm._linked_perturb_covars[primary_cov].items():
+            linked_group, linked_cov = list(linked_covar)
+
+            if linked_cov is None:
+                linked_arr = np.full((1, 1), dm._null_value)
+                linked_arr = dm._check_shape(linked_arr)
+                perturb_covar_emb[linked_group].append(linked_arr)
+                continue
+            cov_name = condition_data[linked_cov]
+            if linked_group in dm._covariate_reps:
+                rep_key = dm._covariate_reps[linked_group]
+                if cov_name not in rep_dict[rep_key]:
+                    raise ValueError(f"Representation for '{cov_name}' not found in `adata.uns['{linked_group}']`.")
+                linked_arr = np.asarray(rep_dict[rep_key][cov_name])
+            else:
+                linked_arr = np.asarray(condition_data[linked_cov])
+
+            linked_arr = dm._check_shape(linked_arr)
+            perturb_covar_emb[linked_group].append(linked_arr)
+
+    perturb_covar_emb = {
+        k: dm._pad_to_max_length(
+            np.concatenate(v, axis=0),
+            dm._max_combination_length,
+            dm._null_value,
+        )
+        for k, v in perturb_covar_emb.items()
+    }
+
+    sample_covar_emb: dict[str, np.ndarray] = {}
+    for sample_cov in dm._sample_covariates:
+        value = condition_data[sample_cov]
+        if sample_cov in dm._covariate_reps:
+            rep_key = dm._covariate_reps[sample_cov]
+            if value not in rep_dict[rep_key]:
+                raise ValueError(f"Representation for '{value}' not found in `adata.uns['{sample_cov}']`.")
+            cov_arr = np.asarray(rep_dict[rep_key][value])
+        else:
+            cov_arr = np.asarray(value)
+
+        cov_arr = dm._check_shape(cov_arr)
+        sample_covar_emb[sample_cov] = np.tile(cov_arr, (dm._max_combination_length, 1))
+    return perturb_covar_emb | sample_covar_emb
 
 
 def _get_condition_data_old(
@@ -122,7 +200,8 @@ def _get_condition_data_old(
 
             # get embeddings for conditions
             if dm.is_conditional:
-                embedding = dm._get_perturbation_covariates(
+                embedding = _get_perturbation_covariates(
+                    dm=dm,
                     condition_data=dict(tgt_cond),
                     rep_dict=rep_dict.copy(),
                     perturb_covariates=perturb_covariates,
@@ -259,16 +338,6 @@ def compare_train_data(a, b):
                 error_str += f", a2b_perturbation[{a_elem}] {a2b_perturbation[a_elem]}"
             assert a_elem == b_elem, error_str
     assert a.condition_data.keys() == b.condition_data.keys(), "condition_data"
-    # first print if they are different
-    for k in a.condition_data.keys():
-        if a.condition_data[k].shape != b.condition_data[k].shape:
-            print(f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}")
-        if not np.allclose(a.condition_data[k], b.condition_data[k]):
-            print(f"condition_data[{k}] {a.condition_data[k]}, {b.condition_data[k]}")
-        else:
-            print(f"they are the same: {k}")
-        #     f"condition_data[{k}].sum {a.condition_data[k].sum()}, {b.condition_data[k].sum()}"
-        # )
     for k in a.condition_data.keys():
         assert a.condition_data[k].shape == b.condition_data[k].shape, (
             f"condition_data[{k}].shape {a.condition_data[k].shape}, {b.condition_data[k].shape}"
