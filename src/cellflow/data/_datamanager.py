@@ -70,6 +70,9 @@ class DataManager:
         column should also be used in ``perturbation_covariates`` or ``sample_covariates``.
     null_value
         Value to use for padding to ``max_combination_length``.
+    primary_group
+        Name of the primary perturbation group. If not provided, the first group in
+        ``perturbation_covariates`` but ``perturbation_covariates`` should be an ordered dict.
     """
 
     def __init__(
