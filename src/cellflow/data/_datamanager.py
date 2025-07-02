@@ -443,7 +443,7 @@ class DataManager:
         covariate_data: pd.DataFrame, perturb_covar_keys: list[str], condition_id_key: str | None
     ) -> pd.DataFrame:
         # Extract unique combinations of perturbation covariates
-        select_keys = perturb_covar_keys
+        select_keys = perturb_covar_keys.copy()
         if condition_id_key is not None:
             select_keys += [condition_id_key]
         perturb_covar_df = covariate_data[select_keys].drop_duplicates()
