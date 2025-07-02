@@ -147,9 +147,7 @@ def _get_condition_data_old(
         perturbation_covariates_mask = None
         control_mask = np.ones((len(covariate_data),))
 
-    condition_data_temp: dict[str, list[tuple[int, np.ndarray]]] = (
-        {i: [] for i in dm._covar_to_idx.keys()}
-    )
+    condition_data_temp: dict[str, list[tuple[int, np.ndarray]]] = {i: [] for i in dm._covar_to_idx.keys()}
 
     control_to_perturbation: dict[int, np.ndarray] = {}
     split_idx_to_covariates: dict[int, tuple[Any]] = {}
