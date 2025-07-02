@@ -130,6 +130,7 @@ class DataManager:
         perturb_covar_keys += [col for col in self._split_covariates if col not in perturb_covar_keys]
         self._perturb_covar_keys = [k for k in perturb_covar_keys if k is not None]
         self.condition_keys = sorted(self._perturb_covar_keys)
+        assert (len(self._perturbation_covariates) > 0) or (len(self._sample_covariates) > 0), "At least one perturbation or sample covariate must be provided."
 
     def get_train_data(self, adata: anndata.AnnData) -> Any:
         """Get training data for the model.
@@ -1071,11 +1072,6 @@ class DataManager:
     def is_categorical(self) -> bool:
         """Whether the primary covariate is categorical."""
         return self._is_categorical
-
-    @property
-    def is_conditional(self) -> bool:
-        """Whether the model is conditional."""
-        return (len(self._perturbation_covariates) > 0) or (len(self._sample_covariates) > 0)
 
     @property
     def adata(self) -> anndata.AnnData:

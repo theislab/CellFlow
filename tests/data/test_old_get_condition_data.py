@@ -137,7 +137,6 @@ def _get_condition_data_old(
     _covariate_data["cell_index"] = _covariate_data.index
     _perturb_covar_merged = _perturb_covar_df.merge(_covariate_data, on=dm._perturb_covar_keys, how="inner")
     perturb_covar_to_cells = _perturb_covar_merged.groupby("row_id")["cell_index"].apply(list).to_list()
-    dm._tgt_idx_tgt_cond = []
     # intialize data containers
     if adata is not None:
         split_covariates_mask = np.full((len(adata),), -1, dtype=np.int32)
@@ -149,7 +148,7 @@ def _get_condition_data_old(
         control_mask = np.ones((len(covariate_data),))
 
     condition_data_temp: dict[str, list[tuple[int, np.ndarray]]] = (
-        {i: [] for i in dm._covar_to_idx.keys()} if dm.is_conditional else {}
+        {i: [] for i in dm._covar_to_idx.keys()}
     )
 
     control_to_perturbation: dict[int, np.ndarray] = {}
@@ -199,17 +198,14 @@ def _get_condition_data_old(
                 perturbation_idx_to_id[tgt_counter] = i
 
             # get embeddings for conditions
-            if dm.is_conditional:
-                embedding = _get_perturbation_covariates(
-                    dm=dm,
-                    condition_data=dict(tgt_cond),
-                    rep_dict=rep_dict.copy(),
-                    perturb_covariates=perturb_covariates,
-                )
-                for pert_cov, emb in embedding.items():
-                    if pert_cov == "drug":
-                        dm._tgt_idx_tgt_cond.append((tgt_counter, dict(tgt_cond)))
-                    condition_data_temp[pert_cov].append((tgt_counter, emb))
+            embedding = _get_perturbation_covariates(
+                dm=dm,
+                condition_data=dict(tgt_cond),
+                rep_dict=rep_dict.copy(),
+                perturb_covariates=perturb_covariates,
+            )
+            for pert_cov, emb in embedding.items():
+                condition_data_temp[pert_cov].append((tgt_counter, emb))
 
             tgt_counter += 1
 
@@ -218,12 +214,10 @@ def _get_condition_data_old(
         src_counter += 1
     # convert outputs to numpy arrays
 
-    dm._tgt_idx_tgt_cond = sorted(dm._tgt_idx_tgt_cond, key=lambda x: x[0])
-    if dm.is_conditional:
-        condition_data = {}
-        for pert_cov, emb_list in condition_data_temp.items():
-            emb_list = sorted(emb_list, key=lambda x: x[0])
-            condition_data[pert_cov] = np.array([emb for _, emb in emb_list])
+    condition_data = {}
+    for pert_cov, emb_list in condition_data_temp.items():
+        emb_list = sorted(emb_list, key=lambda x: x[0])
+        condition_data[pert_cov] = np.array([emb for _, emb in emb_list])
     split_covariates_mask = np.asarray(split_covariates_mask) if split_covariates_mask is not None else None
     perturbation_covariates_mask = (
         np.asarray(perturbation_covariates_mask) if perturbation_covariates_mask is not None else None
