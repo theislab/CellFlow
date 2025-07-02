@@ -57,8 +57,8 @@ class TestCellFlow:
                     condition_mode=condition_mode,
                     regularization=regularization,
                     condition_embedding_dim=condition_embedding_dim,
-                    hidden_dims=(32, 32),
-                    decoder_dims=(32, 32),
+                    hidden_dims=(2, 2),
+                    decoder_dims=(2, 2),
                     vf_kwargs=vf_kwargs,
                     conditioning=conditioning,
                 )
@@ -67,8 +67,8 @@ class TestCellFlow:
             condition_mode=condition_mode,
             regularization=regularization,
             condition_embedding_dim=condition_embedding_dim,
-            hidden_dims=(32, 32),
-            decoder_dims=(32, 32),
+            hidden_dims=(2, 2),
+            decoder_dims=(2, 2),
             vf_kwargs=vf_kwargs,
             conditioning=conditioning,
         )
@@ -160,8 +160,8 @@ class TestCellFlow:
 
         cf.prepare_model(
             condition_embedding_dim=condition_embedding_dim,
-            hidden_dims=(32, 32),
-            decoder_dims=(32, 32),
+            hidden_dims=(2, 2),
+            decoder_dims=(2, 2),
             vf_kwargs=vf_kwargs,
         )
         assert cf._trainer is not None
@@ -258,7 +258,7 @@ class TestCellFlow:
         n_conditions_on_log_iteration,
         n_conditions_on_train_end,
     ):
-        vf_kwargs = {"genot_source_dims": (32, 32), "genot_source_dropout": 0.1} if solver == "genot" else None
+        vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
         cf = cellflow.model.CellFlow(adata_perturbation, solver=solver)
         cf.prepare_data(
             sample_rep="X",
@@ -291,9 +291,9 @@ class TestCellFlow:
             condition_encoder_kwargs["genot_source_dim"] = 32
 
         cf.prepare_model(
-            condition_embedding_dim=32,
-            hidden_dims=(32, 32),
-            decoder_dims=(32, 32),
+            condition_embedding_dim=2,
+            hidden_dims=(2, 2),
+            decoder_dims=(2, 2),
             vf_kwargs=vf_kwargs,
         )
         assert cf._trainer is not None
@@ -325,7 +325,7 @@ class TestCellFlow:
             split_covariates=["cell_type"],
         )
 
-        vf_kwargs = {"genot_source_dims": (32, 32), "genot_source_dropout": 0.1} if solver == "genot" else None
+        vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
         if condition_mode == "stochastic" and regularization == 0.0:
             with pytest.raises(
                 ValueError,
@@ -334,16 +334,16 @@ class TestCellFlow:
                 cf.prepare_model(
                     condition_mode=condition_mode,
                     regularization=regularization,
-                    hidden_dims=(32, 32),
-                    decoder_dims=(32, 32),
+                    hidden_dims=(2, 2),
+                    decoder_dims=(2, 2),
                 )
             return None
         cf.prepare_model(
             condition_mode=condition_mode,
             regularization=regularization,
-            condition_embedding_dim=32,
-            hidden_dims=(32, 32),
-            decoder_dims=(32, 32),
+            condition_embedding_dim=2,
+            hidden_dims=(2, 2),
+            decoder_dims=(2, 2),
             vf_kwargs=vf_kwargs,
         )
 
@@ -384,7 +384,7 @@ class TestCellFlow:
             )
 
     def test_raise_otfm_vf_kwargs_passed(self, adata_perturbation):
-        vf_kwargs = {"genot_source_dims": (32, 32), "genot_source_dropouts": 0.1}
+        vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropouts": 0.1}
         cf = cellflow.model.CellFlow(adata_perturbation, solver="otfm")
         cf.prepare_data(
             sample_rep="X",
@@ -397,9 +397,9 @@ class TestCellFlow:
             match=r".*For `solver='otfm'`, `vf_kwargs` must be `None`.*",
         ):
             cf.prepare_model(
-                condition_embedding_dim=32,
-                hidden_dims=(32, 32),
-                decoder_dims=(32, 32),
+                condition_embedding_dim=2,
+                hidden_dims=(2, 2),
+                decoder_dims=(2, 2),
                 vf_kwargs=vf_kwargs,
             )
 
