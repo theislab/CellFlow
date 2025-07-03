@@ -14,7 +14,7 @@ try:
     import torch
     from torch.utils.data import DataLoader
     from transformers import AutoTokenizer, EsmModel
-except ImportError as e:
+except (ImportError, ModuleNotFoundError) as e:
     torch = None
     DataLoader = None
     AutoTokenizer = None
