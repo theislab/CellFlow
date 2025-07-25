@@ -181,7 +181,7 @@ def adata_pca() -> ad.AnnData:
     # Add the random data to .layers and .obsm
     adata.varm["X_mean"] = adata.X.mean(axis=0).T
     adata.layers["counts"] = adata.X
-    adata.X = csr_matrix(adata.X - adata.varm["X_mean"])
+    adata.X = csr_matrix(adata.X - adata.varm["X_mean"].T)
     sc.pp.pca(adata, zero_center=False, n_comps=n_pca)
 
     return adata
