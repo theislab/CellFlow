@@ -57,7 +57,7 @@ jobs:
           pip install wandb omegaconf
       - name: Test
         run: |
-          tox -e py-${{ matrix.python }} -- -m "not slow"
+          tox -e py-${{ matrix.python }}
         env:
           PYTEST_ADDOPTS: -vv -n 2
 

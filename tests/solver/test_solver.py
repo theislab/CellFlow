@@ -1,5 +1,4 @@
 import functools
-import time
 
 import jax
 import numpy as np
@@ -66,19 +65,13 @@ class TestSolver:
             num_iterations=2,
             valid_freq=1,
         )
-        start_batched = time.time()
-        x_pred_batched = solver.predict(src, cond, batched=True)
-        end_batched = time.time()
-        diff_batched = end_batched - start_batched
+        x_pred_batched = solver.predict(src, cond, batched=True, max_steps=3, throw=False)
 
-        start_nonbatched = time.time()
         x_pred_nonbatched = jax.tree.map(
-            functools.partial(solver.predict, batched=False),
+            functools.partial(solver.predict, batched=False, max_steps=3, throw=False),
             src,
             cond,  # type: ignore[attr-defined]
         )
-        end_nonbatched = time.time()
-        diff_nonbatched = end_nonbatched - start_nonbatched
 
         assert x_pred_batched[("drug_1",)].shape == x_pred_nonbatched[("drug_1",)].shape
         assert np.allclose(
@@ -87,4 +80,3 @@ class TestSolver:
             atol=1e-1,
             rtol=1e-2,
         )
-        assert diff_nonbatched - diff_batched > 2

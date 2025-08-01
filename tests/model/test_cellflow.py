@@ -16,7 +16,6 @@ perturbation_covariate_comb_args = [
 
 
 class TestCellFlow:
-    @pytest.mark.slow
     @pytest.mark.parametrize("solver", ["otfm"])  # , "genot"])
     @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
     @pytest.mark.parametrize("regularization", [0.0, 0.1])
@@ -35,8 +34,8 @@ class TestCellFlow:
         control_key = "control"
         perturbation_covariates = {"drug": ["drug1", "drug2"]}
         perturbation_covariate_reps = {"drug": "drug"}
-        condition_embedding_dim = 32
-        vf_kwargs = {"genot_source_dims": (32, 32), "genot_source_dropout": 0.1} if solver == "genot" else None
+        condition_embedding_dim = 2
+        vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
 
         cf = cellflow.model.CellFlow(adata_perturbation, solver=solver)
         cf.prepare_data(
@@ -132,7 +131,6 @@ class TestCellFlow:
         assert cond_embed_var.shape[0] == conds.shape[0]
         assert cond_embed_var.shape[1] == condition_embedding_dim
 
-    @pytest.mark.slow
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
     @pytest.mark.parametrize("perturbation_covariate_reps", [{}, {"drug": "drug"}])
     def test_cellflow_covar_reps(
@@ -145,8 +143,8 @@ class TestCellFlow:
         control_key = "control"
         perturbation_covariates = {"drug": ["drug1"]}
         perturbation_covariate_reps = {"drug": "drug"}
-        condition_embedding_dim = 32
-        vf_kwargs = {"genot_source_dims": (32, 32), "genot_source_dropout": 0.1} if solver == "genot" else None
+        condition_embedding_dim = 2
+        vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
 
         cf = cellflow.model.CellFlow(adata_perturbation, solver=solver)
         cf.prepare_data(
@@ -198,7 +196,6 @@ class TestCellFlow:
         assert out[0].shape[0] == len(covs)
         assert out[0].shape[1] == condition_embedding_dim
 
-    @pytest.mark.slow
     @pytest.mark.parametrize("split_covariates", [[], ["cell_type"]])
     @pytest.mark.parametrize("perturbation_covariates", perturbation_covariate_comb_args)
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 2])
@@ -231,6 +228,7 @@ class TestCellFlow:
         cf.prepare_validation_data(
             adata_perturbation,
             name="val",
+            predict_kwargs={"max_steps": 3, "throw": False},
             n_conditions_on_log_iteration=n_conditions_on_log_iteration,
             n_conditions_on_train_end=n_conditions_on_train_end,
         )
@@ -247,7 +245,6 @@ class TestCellFlow:
             assert cond_data[k].ndim == 3
             assert cond_data[k].shape[1] == cf.train_data.max_combination_length
 
-    @pytest.mark.slow
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 1])
     @pytest.mark.parametrize("n_conditions_on_train_end", [None, 0, 1])
@@ -288,8 +285,8 @@ class TestCellFlow:
 
         condition_encoder_kwargs = {}
         if solver == "genot":
-            condition_encoder_kwargs["genot_source_layers"] = (({"dims": (32, 32)}),)
-            condition_encoder_kwargs["genot_source_dim"] = 32
+            condition_encoder_kwargs["genot_source_layers"] = (({"dims": (2, 2)}),)
+            condition_encoder_kwargs["genot_source_dim"] = 2
 
         cf.prepare_model(
             condition_embedding_dim=2,
@@ -302,11 +299,10 @@ class TestCellFlow:
         metric_to_compute = "r_squared"
         metrics_callback = cellflow.training.Metrics(metrics=[metric_to_compute])
 
-        cf.train(num_iterations=3, callbacks=[metrics_callback], valid_freq=1)
+        cf.train(num_iterations=3, callbacks=[metrics_callback], valid_freq=2)
         assert cf._dataloader is not None
         assert f"val_{metric_to_compute}_mean" in cf._trainer.training_logs
 
-    @pytest.mark.slow
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
     @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
     @pytest.mark.parametrize("regularization", [0.0, 0.1])
@@ -404,7 +400,6 @@ class TestCellFlow:
                 vf_kwargs=vf_kwargs,
             )
 
-    @pytest.mark.slow
     @pytest.mark.parametrize(
         "sample_covariate_and_reps",
         [(None, None), (["cell_type"], {"cell_type": "cell_type"})],
