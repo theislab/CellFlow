@@ -1,4 +1,5 @@
 import abc
+import math
 from collections.abc import Callable, Sequence
 
 import jax
@@ -16,7 +17,42 @@ __all__ = [
     "FilmBlock",
     "ResNetBlock",
     "SelfAttentionBlock",
+    "sinusoidal_time_encoder",
 ]
+
+
+def sinusoidal_time_encoder(t: jnp.ndarray, time_freqs: int = 1024, time_max_period: int | None = 10000) -> jnp.ndarray:
+    """
+    Create sinusoidal timestep embeddings.
+
+    Parameters
+    ----------
+    t : jnp.ndarray
+        A 1-D or 2-D array of timesteps. May be fractional.
+    num_freqs : int
+        The dimension of the embedding.
+    max_period : int | None
+        Controls the minimum frequency of the embeddings.
+        If :obj:`None`, the frequencies are evenly spaced in the range [0, 2 * pi],
+        reimplementing :func:`ott.neural.networks.layers.cyclical_time_encoder`
+        for backward compatibility.
+
+    Returns
+    -------
+    jnp.ndarray
+        Sinusoidal embedding.
+    """
+    if time_max_period is None:
+        freq = 2 * jnp.arange(time_freqs) * jnp.pi
+        t = freq * t
+        return jnp.concatenate([jnp.cos(t), jnp.sin(t)], axis=-1)
+
+    t = t * time_max_period
+    half = time_freqs // 2
+    freqs = jnp.exp(-math.log(time_max_period) * jnp.arange(start=0, stop=half, dtype=jnp.float32) / half)
+    args = t * freqs
+    embedding = jnp.concatenate([jnp.cos(args), jnp.sin(args)], axis=-1)
+    return embedding
 
 
 class BaseModule(abc.ABC, nn.Module):

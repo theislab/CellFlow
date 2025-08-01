@@ -492,3 +492,39 @@ class TestCellFlow:
         assert out[1].index.name == condition_id_key
         cond_id_vals = conds[condition_id_key].values
         assert out[1].index.isin(cond_id_vals).all()
+
+    @pytest.mark.parametrize("time_max_period", [None, 10000, -3])
+    def test_time_embedding(
+        self,
+        adata_perturbation,
+        time_max_period,
+    ):
+        sample_rep = "X"
+        control_key = "control"
+        solver = "otfm"
+        time_freqs = 1024
+
+        cf = cellflow.model.CellFlow(adata_perturbation, solver=solver)
+        cf.prepare_data(
+            sample_rep=sample_rep,
+            control_key=control_key,
+            perturbation_covariates={"drug": ["drug1"]},
+        )
+        assert cf.train_data is not None
+        assert isinstance(cf._dm.perturb_covar_keys, list)
+        assert hasattr(cf, "_data_dim")
+
+        if time_max_period is not None and time_max_period <= 0:
+            with pytest.raises(
+                ValueError,
+            ):
+                cf.prepare_model(
+                    time_freqs=time_freqs,
+                    time_max_period=time_max_period,
+                )
+            return None
+
+        cf.prepare_model(
+            time_freqs=time_freqs,
+            time_max_period=time_max_period,
+        )

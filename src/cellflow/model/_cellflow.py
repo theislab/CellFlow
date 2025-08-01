@@ -56,7 +56,7 @@ class CellFlow:
         )
         self._dataloader: TrainSampler | OOCTrainSampler | None = None
         self._trainer: CellFlowTrainer | None = None
-        self._validation_data: dict[str, ValidationData] = {}
+        self._validation_data: dict[str, ValidationData] = {"predict_kwargs": {}}
         self._solver: _otfm.OTFlowMatching | _genot.GENOT | None = None
         self._condition_dim: int | None = None
         self._vf: _velocity_field.ConditionalVelocityField | _velocity_field.GENOTConditionalVelocityField | None = None
@@ -257,6 +257,7 @@ class CellFlow:
         condition_encoder_kwargs: dict[str, Any] | None = None,
         pool_sample_covariates: bool = True,
         time_freqs: int = 1024,
+        time_max_period: int | None = 10000,
         time_encoder_dims: Sequence[int] = (2048, 2048, 2048),
         time_encoder_dropout: float = 0.0,
         hidden_dims: Sequence[int] = (2048, 2048, 2048),
@@ -346,7 +347,10 @@ class CellFlow:
             Whether to include sample covariates in the pooling.
         time_freqs
             Frequency of the sinusoidal time encoding
-            (:func:`ott.neural.networks.layers.cyclical_time_encoder`).
+            (:func:`ott.neural.networks.layers.sinusoidal_time_encoder`).
+        time_max_period
+            Controls the frequency of the time embeddings, see
+            :func:`cellflow.networks.utils.sinusoidal_time_encoder`.
         time_encoder_dims
             Dimensions of the layers processing the time embedding in
             :attr:`cellflow.networks.ConditionalVelocityField.time_encoder`.
@@ -457,6 +461,7 @@ class CellFlow:
             condition_encoder_kwargs=condition_encoder_kwargs,
             act_fn=vf_act_fn,
             time_freqs=time_freqs,
+            time_max_period=time_max_period,
             time_encoder_dims=time_encoder_dims,
             time_encoder_dropout=time_encoder_dropout,
             hidden_dims=hidden_dims,

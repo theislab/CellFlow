@@ -6,6 +6,7 @@ import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax.core import frozen_dict
 from flax.training import train_state
 from ott.neural.methods.flows import dynamics
 from ott.solvers import utils as solver_utils
@@ -13,6 +14,7 @@ from ott.solvers import utils as solver_utils
 from cellflow import utils
 from cellflow._types import ArrayLike
 from cellflow.networks._velocity_field import ConditionalVelocityField
+from cellflow.solvers.utils import ema_update
 
 __all__ = ["OTFlowMatching"]
 
@@ -57,8 +59,10 @@ class OTFlowMatching:
         self.probability_path = probability_path
         self.time_sampler = time_sampler
         self.match_fn = jax.jit(match_fn)
+        self.ema = kwargs.pop("ema", 1.0)
 
         self.vf_state = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
+        self.vf_state_inference = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_step_fn = self._get_vf_step_fn()
 
     def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
@@ -150,6 +154,13 @@ class OTFlowMatching:
             condition,
             encoder_noise,
         )
+
+        if self.ema == 1.0:
+            self.vf_state_inference = self.vf_state
+        else:
+            self.vf_state_inference = self.vf_state_inference.replace(
+                params=ema_update(self.vf_state_inference.params, self.vf_state.params, self.ema)
+            )
         return loss
 
     def get_condition_embedding(self, condition: dict[str, ArrayLike], return_as_numpy=True) -> ArrayLike:
@@ -167,7 +178,7 @@ class OTFlowMatching:
         Mean and log-variance of encoded conditions.
         """
         cond_mean, cond_logvar = self.vf.apply(
-            {"params": self.vf_state.params},
+            {"params": self.vf_state_inference.params},
             condition,
             method="get_condition_embedding",
         )
@@ -182,6 +193,7 @@ class OTFlowMatching:
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
         kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+        kwargs = frozen_dict.freeze(kwargs)
 
         noise_dim = (1, self.vf.condition_embedding_dim)
         use_mean = rng is None or self.condition_encoder_mode == "deterministic"
@@ -189,9 +201,9 @@ class OTFlowMatching:
         encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
 
         def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
-            params = self.vf_state.params
+            params = self.vf_state_inference.params
             condition, encoder_noise = args
-            return self.vf_state.apply_fn({"params": params}, t, x, condition, encoder_noise, train=False)[0]
+            return self.vf_state_inference.apply_fn({"params": params}, t, x, condition, encoder_noise, train=False)[0]
 
         def solve_ode(x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray) -> jnp.ndarray:
             ode_term = diffrax.ODETerm(vf)
