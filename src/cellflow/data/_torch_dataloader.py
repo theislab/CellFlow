@@ -5,7 +5,7 @@ import numpy as np
 
 from cellflow.compat import TorchIterableDataset
 from cellflow.data._data import ZarrTrainingData
-from cellflow.data._dataloader import TrainSampler
+from cellflow.data._dataloader import CombinedTrainSampler, TrainSampler
 
 
 def _worker_init_fn_helper(worker_id, random_generators):
@@ -20,7 +20,7 @@ def _worker_init_fn_helper(worker_id, random_generators):
 
 
 @dataclass
-class TorchCombinedTrainSampler(TorchIterableDataset):
+class TorchCombinedTrainSampler(CombinedTrainSampler, TorchIterableDataset):
     """
     Combined training sampler that iterates over multiple samplers.
 
@@ -31,32 +31,11 @@ class TorchCombinedTrainSampler(TorchIterableDataset):
         rng: Random number generator.
     """
 
-    samplers: list[TrainSampler]
-    weights: np.ndarray | None = None
-    rng: np.random.Generator | None = None
-    dataset_names: list[str] | None = None
-
-    def __post_init__(self):
-        if self.weights is None:
-            self.weights = np.ones(len(self.samplers))
-        self.weights = np.asarray(self.weights)
-        assert len(self.weights) == len(self.samplers)
-        self.weights = self.weights / self.weights.sum()
-
-    def set_rng(self, rng: np.random.Generator):
-        self.rng = rng
-
     def __iter__(self):
         return self
 
     def __next__(self):
-        if self.rng is None:
-            raise ValueError("Please call set_rng() before using the sampler.")
-        dataset_idx = self.rng.choice(len(self.samplers), p=self.weights)
-        res = self.samplers[dataset_idx].sample(self.rng)
-        if self.dataset_names is not None:
-            res["dataset_name"] = self.dataset_names[dataset_idx]
-        return res
+        return self.sample()
 
     @classmethod
     def combine_zarr_training_samplers(

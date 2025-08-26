@@ -1,4 +1,5 @@
 import abc
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
@@ -309,3 +310,43 @@ class PredictionSampler(BaseValidSampler):
     def data(self) -> PredictionData:
         """The training data."""
         return self._data
+
+
+@dataclass
+class CombinedTrainSampler:
+    """
+    Combined training sampler that iterates over multiple samplers.
+
+    Need to call set_rng(rng) before using the sampler.
+
+    Args:
+        samplers: List of training samplers.
+        weights: Weights for the samplers.
+        dataset_names: Names for the samplers.
+        rng: Random number generator.
+    """
+
+    samplers: list[TrainSampler]
+    weights: np.ndarray | None = None
+    dataset_names: list[str] | None = None
+    rng: np.random.Generator | None = None
+
+    def __post_init__(self):
+        if self.weights is None:
+            self.weights = np.ones(len(self.samplers))
+        self.weights = np.asarray(self.weights)
+        assert len(self.weights) == len(self.samplers)
+        self.weights = self.weights / self.weights.sum()
+
+    def set_rng(self, rng: np.random.Generator):
+        self.rng = rng
+
+    def sample(self, *args, **kwargs) -> dict[str, Any]:
+        del args, kwargs
+        if self.rng is None:
+            raise ValueError("Please call set_rng() before using the sampler.")
+        dataset_idx = self.rng.choice(len(self.samplers), p=self.weights)
+        res = self.samplers[dataset_idx].sample(self.rng)
+        if self.dataset_names is not None:
+            res["dataset_name"] = self.dataset_names[dataset_idx]
+        return res
