@@ -39,6 +39,10 @@ class TrainSampler:
         self._control_to_perturbation_keys = sorted(data.control_to_perturbation.keys())
         self._has_condition_data = data.condition_data is not None
 
+    def _sample_source_dist_idx(self, rng) -> int:
+        """Sample a source distribution index."""
+        return rng.choice(self.n_source_dists)
+
     def _sample_target_dist_idx(self, source_dist_idx, rng):
         """Sample a target distribution index given the source distribution index."""
         return rng.choice(self._data.control_to_perturbation[source_dist_idx])
@@ -76,7 +80,7 @@ class TrainSampler:
         Dictionary with source and target data
         """
         # Sample source distribution index
-        source_dist_idx = rng.integers(0, self.n_source_dists)
+        source_dist_idx = self._sample_source_dist_idx(rng)
 
         # Get source cells
         source_cells_mask = self._data.split_covariates_mask == source_dist_idx
@@ -102,6 +106,74 @@ class TrainSampler:
     def data(self) -> TrainingData | ZarrTrainingData:
         """The training data."""
         return self._data
+
+
+class TrainSamplerWithPool(TrainSampler):
+    """Data sampler for :class:`~cellflow.data.TrainingData` with a pool of source distribution indices.
+
+    This is so that the cached source distribution indices are not exhausted too quickly.
+
+    Parameters
+    ----------
+    data
+        The training data.
+    batch_size
+        The batch size.
+    pool_size
+        The size of the pool of source distribution indices.
+    pool_refresh_freq
+        The frequency of refreshing the pool of source distribution indices.
+    replace_in_refresh
+        Whether to replace the source distribution indices in the pool when refreshing.
+    replace_in_pool
+        Whether to replace the source distribution indices in the pool when sampling.
+    """
+
+    def __init__(
+        self,
+        data: TrainingData | ZarrTrainingData,
+        batch_size: int = 1024,
+        pool_size: int = 100,
+        pool_refresh_freq: int = 100,
+        replace_in_refresh: bool = False,
+        replace_in_pool: bool = True,
+    ):
+        super().__init__(data, batch_size)
+        self._src_idx_pool = None
+        self._pool_refresh_freq = pool_refresh_freq
+        self._replace_in_pool = replace_in_pool
+        self._replace_in_refresh = replace_in_refresh
+        self._pool_size = pool_size
+        self._pool_refresh_counter = 1
+        self._rest_src_idx_pool = None
+        self._all_src_idx_pool = set(range(self.n_source_dists))
+
+    def _init_pool(self, rng):
+        self._src_idx_pool = rng.choice(self.n_source_dists, size=self._pool_size, replace=self._replace_in_pool)
+        if not self._replace_in_refresh:
+            self._rest_src_idx_pool = np.setdiff1d(np.arange(self.n_source_dists), self._src_idx_pool)
+
+    def _sample_source_dist_idx(self, rng) -> int:
+        if self._src_idx_pool is None:
+            self._init_pool(rng)
+
+        if self._pool_refresh_counter % self._pool_refresh_freq == 0:
+            self._refresh_pool(rng)
+        self._pool_refresh_counter += 1
+        return rng.choice(self._src_idx_pool, replace=self._replace_in_pool)
+
+    def _refresh_pool(self, rng):
+        if self._replace_in_refresh:
+            self._src_idx_pool = np.random.choice(self.n_source_dists, size=self._pool_size, replace=self._replace_in_pool)
+        else:
+            if len(self._rest_src_idx_pool) < self._pool_size:
+                rest = set(self._rest_src_idx_pool)
+                pool = self._all_src_idx_pool - rest
+                self._src_idx_pool = np.concatenate([self._rest_src_idx_pool, rng.choice(list(pool), size=self._pool_size - len(self._rest_src_idx_pool), replace=False)])
+                self._rest_src_idx_pool = np.setdiff1d(np.arange(self.n_source_dists), self._src_idx_pool)
+            else:
+                self._src_idx_pool = rng.choice(self._rest_src_idx_pool, size=self._pool_size, replace=False)
+                self._rest_src_idx_pool = np.setdiff1d(self._rest_src_idx_pool, self._src_idx_pool)
 
 
 class BaseValidSampler(abc.ABC):
