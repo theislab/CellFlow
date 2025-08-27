@@ -109,10 +109,13 @@ class TrainSampler:
         return self._data
 
 
+@dataclass
 class TrainSamplerWithPool(TrainSampler):
-    """Data sampler for :class:`~cellflow.data.TrainingData` with a pool of source distribution indices.
+    """Data sampler with gradual pool replacement using reservoir sampling.
 
-    This is so that the cached source distribution indices are not exhausted too quickly.
+    This approach replaces pool elements one by one rather than refreshing
+    the entire pool, providing better cache locality while maintaining
+    reasonable randomness.
 
     Parameters
     ----------
@@ -122,12 +125,12 @@ class TrainSamplerWithPool(TrainSampler):
         The batch size.
     pool_size
         The size of the pool of source distribution indices.
-    pool_refresh_freq
-        The frequency of refreshing the pool of source distribution indices.
-    replace_in_refresh
-        Whether to replace the source distribution indices in the pool when refreshing.
+    replacement_prob
+        Probability of replacing a pool element after each sample.
+        Lower values = longer cache retention, less randomness.
+        Higher values = faster cache turnover, more randomness.
     replace_in_pool
-        Whether to replace the source distribution indices in the pool when sampling.
+        Whether to allow replacement when sampling from the pool.
     """
 
     def __init__(
@@ -135,46 +138,61 @@ class TrainSamplerWithPool(TrainSampler):
         data: TrainingData | ZarrTrainingData,
         batch_size: int = 1024,
         pool_size: int = 100,
-        pool_refresh_freq: int = 100,
-        replace_in_refresh: bool = False,
-        replace_in_pool: bool = True,
+        replacement_prob: float = 0.01,
     ):
         super().__init__(data, batch_size)
-        self._src_idx_pool = None
-        self._pool_refresh_freq = pool_refresh_freq
-        self._replace_in_pool = replace_in_pool
-        self._replace_in_refresh = replace_in_refresh
         self._pool_size = pool_size
-        self._pool_refresh_counter = 1
-        self._rest_src_idx_pool = None
+        self._replacement_prob = replacement_prob
+        self._src_idx_pool = np.empty(self._pool_size, dtype=int)
+        self._pool_usage_count = np.zeros(self._pool_size, dtype=int)
         self._all_src_idx_pool = set(range(self.n_source_dists))
+        self._initialized = False
 
     def _init_pool(self, rng):
-        self._src_idx_pool = rng.choice(self.n_source_dists, size=self._pool_size, replace=self._replace_in_pool)
-        if not self._replace_in_refresh:
-            self._rest_src_idx_pool = np.setdiff1d(np.arange(self.n_source_dists), self._src_idx_pool)
+        """Initialize the pool with random source distribution indices."""
+        self._src_idx_pool = rng.choice(self.n_source_dists, size=self._pool_size, replace=False)
+        self._initialized = True
 
     def _sample_source_dist_idx(self, rng) -> int:
-        if self._src_idx_pool is None:
+        """Sample a source distribution index with gradual pool replacement."""
+        if not self._initialized:
             self._init_pool(rng)
 
-        if self._pool_refresh_counter % self._pool_refresh_freq == 0:
-            self._refresh_pool(rng)
-        self._pool_refresh_counter += 1
-        return rng.choice(self._src_idx_pool, replace=self._replace_in_pool)
+        # Sample from current pool
+        pool_idx = rng.choice(self._pool_size)
+        source_idx = self._src_idx_pool[pool_idx]
 
-    def _refresh_pool(self, rng):
-        if self._replace_in_refresh:
-            self._src_idx_pool = np.random.choice(self.n_source_dists, size=self._pool_size, replace=self._replace_in_pool)
-        else:
-            if len(self._rest_src_idx_pool) < self._pool_size:
-                rest = set(self._rest_src_idx_pool)
-                pool = self._all_src_idx_pool - rest
-                self._src_idx_pool = np.concatenate([self._rest_src_idx_pool, rng.choice(list(pool), size=self._pool_size - len(self._rest_src_idx_pool), replace=False)])
-                self._rest_src_idx_pool = np.setdiff1d(np.arange(self.n_source_dists), self._src_idx_pool)
-            else:
-                self._src_idx_pool = rng.choice(self._rest_src_idx_pool, size=self._pool_size, replace=False)
-                self._rest_src_idx_pool = np.setdiff1d(self._rest_src_idx_pool, self._src_idx_pool)
+        # Increment usage count for monitoring
+        self._pool_usage_count[pool_idx] += 1
+
+        # Gradually replace elements based on replacement probability
+        if rng.random() < self._replacement_prob:
+            self._replace_pool_element(rng, pool_idx)
+
+        return source_idx
+
+    def _replace_pool_element(self, rng, pool_idx):
+        """Replace a single pool element with a new one."""
+        # Get all indices not currently in the pool
+        available_indices = list(self._all_src_idx_pool - set(self._src_idx_pool))
+
+        if available_indices:
+            # Choose new element (could be weighted by usage count)
+            new_idx = rng.choice(available_indices)
+            self._src_idx_pool[pool_idx] = new_idx
+            self._pool_usage_count[pool_idx] = 0
+
+    def get_pool_stats(self) -> dict:
+        """Get statistics about the current pool state."""
+        if self._src_idx_pool is None:
+            return {"pool_size": 0, "avg_usage": 0, "unique_sources": 0}
+        return {
+            "pool_size": self._pool_size,
+            "avg_usage": float(np.mean(self._pool_usage_count)),
+            "unique_sources": len(set(self._src_idx_pool)),
+            "pool_elements": self._src_idx_pool.copy(),
+            "usage_counts": self._pool_usage_count.copy(),
+        }
 
 
 class BaseValidSampler(abc.ABC):
@@ -350,3 +368,123 @@ class CombinedTrainSampler:
         if self.dataset_names is not None:
             res["dataset_name"] = self.dataset_names[dataset_idx]
         return res
+
+    @staticmethod
+    def train_sampler_class() -> type[TrainSampler]:
+        return TrainSampler
+
+    @classmethod
+    def _from_zarr_paths(
+        cls,
+        data_paths: list[str],
+        weights: np.ndarray | None = None,
+        dataset_names: list[str] | None = None,
+        sampler_kwargs: dict[str, Any] | None = None,
+    ) -> "CombinedTrainSampler":
+        """Create a combined sampler for multiple datasets.
+
+        Args:
+            data_paths: List of paths to the datasets.
+            weights: Weights for the datasets.
+            dataset_names: Names for the datasets.
+            sampler_kwargs: Batch size, pool size, replacement probability, whenever applicable.
+        """
+        samplers = []
+        sampler_kwargs = sampler_kwargs or {}
+        for data_path in data_paths:
+            data = ZarrTrainingData.read_zarr(data_path)
+            sampler = cls.train_sampler_class()(data=data, **sampler_kwargs)
+            samplers.append(sampler)
+
+        combined_sampler = cls(
+            samplers=samplers,
+            weights=weights,
+            dataset_names=dataset_names,
+        )
+
+        return combined_sampler
+
+    @classmethod
+    def from_zarr_paths(
+        cls,
+        data_paths: list[str],
+        weights: np.ndarray | None = None,
+        dataset_names: list[str] | None = None,
+        batch_size: int = 1024,
+    ):
+        """Create a combined sampler for multiple datasets.
+
+        Args:
+            data_paths: List of paths to the datasets.
+            weights: Weights for the datasets.
+            dataset_names: Names for the datasets.
+            batch_size: Batch size.
+        """
+        return cls._from_zarr_paths(
+            data_paths,
+            weights=weights,
+            dataset_names=dataset_names,
+            sampler_kwargs={"batch_size": batch_size},
+        )
+
+
+@dataclass
+class CombinedTrainSamplerWithPool(CombinedTrainSampler):
+    """Combined training sampler that iterates over multiple samplers with a pool of source distribution indices.
+
+    Args:
+        samplers: List of training samplers.
+        pool_size: Size of the pool of source distribution indices.
+        pool_refresh_freq: Frequency of refreshing the pool of source distribution indices.
+        replace_in_refresh: Whether to replace the source distribution indices in the pool when refreshing.
+        replace_in_pool: Whether to replace the source distribution indices in the pool when sampling.
+    """
+
+    samplers: list[TrainSamplerWithPool]
+    weights: np.ndarray | None = None
+    dataset_names: list[str] | None = None
+    rng: np.random.Generator | None = None
+
+    def get_pool_stats(self) -> dict[str, dict]:
+        """Get pool statistics for all samplers that support it."""
+        stats = {}
+        for i, sampler in enumerate(self.samplers):
+            if hasattr(sampler, "get_pool_stats"):
+                name = self.dataset_names[i] if self.dataset_names else f"sampler_{i}"
+                stats[name] = sampler.get_pool_stats()
+        return stats
+
+    @staticmethod
+    def train_sampler_class() -> type[TrainSamplerWithPool]:
+        return TrainSamplerWithPool
+
+    @classmethod
+    def from_zarr_paths(
+        cls,
+        data_paths: list[str],
+        weights: np.ndarray | None = None,
+        dataset_names: list[str] | None = None,
+        batch_size: int = 1024,
+        pool_size: int = 100,
+        replacement_prob: float = 0.01,
+    ):
+        """Create a combined sampler for multiple datasets.
+
+        Args:
+            data_paths: List of paths to the datasets.
+            weights: Weights for the datasets.
+            dataset_names: Names for the datasets.
+            batch_size: Batch size.
+            pool_size: Size of the pool of source distribution indices.
+            replacement_prob: Probability of replacing a pool element after each sample.
+        """
+        return cls._from_zarr_paths(
+            data_paths,
+            weights=weights,
+            dataset_names=dataset_names,
+            sampler_kwargs={
+                "batch_size": batch_size,
+                "pool_size": pool_size,
+                "replacement_prob": replacement_prob,
+            },
+        )
