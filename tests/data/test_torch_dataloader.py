@@ -53,3 +53,10 @@ class TestTorchDataloader:
         assert "drug" in batch["condition"]
         drug_dim = adata_perturbation.uns["drug"]["drug_a"].shape[0]
         assert batch["condition"]["drug"].shape == (1, len(perturbation_covariates["drug"]), drug_dim)
+
+
+# TODO: things to check:
+# - Is the seed really different for each worker?
+# - Get some stats about how much of the dataset is sampled with different replacement probabilities and pool sizes
+# - Check that the pool is refreshed correctly (which indices are sampled from the source distributions of different datasets)
+# - Performance benchmark with real datasets. Get iteration per second for a loop.
