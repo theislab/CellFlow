@@ -84,7 +84,7 @@ class TrainSampler:
         source_dist_idx = self._sample_source_dist_idx(rng)
 
         # Get source cells
-        source_cells_mask = self._data.split_covariates_mask == source_dist_idx
+        source_cells_mask = self._data.split_covariates_mask[()] == source_dist_idx
         source_batch_idcs = self._sample_from_mask(rng, source_cells_mask)
         source_batch = self._data.cell_data[source_batch_idcs]
 

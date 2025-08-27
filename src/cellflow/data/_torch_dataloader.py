@@ -17,7 +17,7 @@ def _worker_init_fn_helper(worker_id, random_generators):
     worker_info = torch.utils.data.get_worker_info()
     worker_id = worker_info.id  # type: ignore[union-attr]
     rng = random_generators[worker_id]
-    worker_info.dataset.set_rng(rng)  # type: ignore[union-attr]
+    worker_info.dataset.inner_sampler.set_rng(rng)  # type: ignore[union-attr]
     return rng
 
 
@@ -51,8 +51,8 @@ class TorchCombinedTrainSampler(TorchIterableDataset):
         prefetch_factor: int = 2,
         weights: np.ndarray | None = None,
         dataset_names: list[str] | None = None,
-        pool_size: int | None = 100,
-        replacement_prob: float | None = 0.01,
+        pool_size: int | None = None,
+        replacement_prob: float | None = None,
     ):
         if use_pool and (pool_size is None or replacement_prob is None):
             raise ValueError("pool_size and replacement_prob must be provided when use_pool is True")

@@ -28,7 +28,7 @@ class TestTorchDataloader:
         cf.train_data.write_zarr(tmp_path / "train_data2.zarr")
         cf.train_data.write_zarr(tmp_path / "train_data3.zarr")
 
-        combined_dataloader = TorchCombinedTrainSampler.combine_zarr_training_samplers(
+        combined_dataloader = TorchCombinedTrainSampler.from_zarr_paths(
             data_paths=[
                 tmp_path / "train_data1.zarr",
                 tmp_path / "train_data2.zarr",
