@@ -138,7 +138,7 @@ def transfer_labels(
     labels_mat = sparse.csr_matrix((labels_onehot > 0).astype(int))
 
     scores = wknn @ labels_mat
-    label_indices = np.array((scores).argmax(1)).flatten()
+    label_indices = np.array(scores.argmax(1)).flatten()
     max_scores = np.array(scores.max(1)).flatten()
 
     query_adata.obs[f"{label_key}_transfer"] = labels_onehot.columns[label_indices]
@@ -162,13 +162,11 @@ def _nn2adj(
     if n2 is None:
         n2 = np.max(indices.flatten())
 
-    df = pd.DataFrame(
-        {
-            "i": np.repeat(range(indices.shape[0]), indices.shape[1]),
-            "j": indices.flatten(),
-            "x": distances.flatten(),
-        }
-    )
+    df = pd.DataFrame({
+        "i": np.repeat(range(indices.shape[0]), indices.shape[1]),
+        "j": indices.flatten(),
+        "x": distances.flatten(),
+    })
     adj = sparse.csr_matrix((np.repeat(1, df.shape[0]), (df["i"], df["j"])), shape=(n1, n2))
 
     return adj
