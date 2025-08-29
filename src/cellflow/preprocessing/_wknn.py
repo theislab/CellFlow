@@ -139,9 +139,10 @@ def transfer_labels(
 
     scores = wknn @ labels_mat
     label_indices = np.array((scores).argmax(1)).flatten()
+    max_scores = np.array(scores.max(1)).flatten()
 
     query_adata.obs[f"{label_key}_transfer"] = labels_onehot.columns[label_indices]
-    query_adata.obs[f"{label_key}_transfer_score"] = scores.max(1)
+    query_adata.obs[f"{label_key}_transfer_score"] = max_scores
 
     if copy:
         return query_adata
