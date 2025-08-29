@@ -134,10 +134,12 @@ def transfer_labels(
         )
 
     wknn = ref_adata.uns[wknn_key]
+    clusters_onehot = pd.get_dummies(ref_adata.obs["Clusters"])
+    clusters_mat = sparse.csr_matrix(clusters_onehot > 0).astype(int)
 
     scores = pd.DataFrame(
-        wknn @ pd.get_dummies(ref_adata.obs[label_key]),
-        columns=pd.get_dummies(ref_adata.obs[label_key]).columns,
+        wknn @ clusters_mat,
+        columns=clusters_onehot.columns,
         index=query_adata.obs_names,
     )
 
@@ -162,13 +164,11 @@ def _nn2adj(
     if n2 is None:
         n2 = np.max(indices.flatten())
 
-    df = pd.DataFrame(
-        {
-            "i": np.repeat(range(indices.shape[0]), indices.shape[1]),
-            "j": indices.flatten(),
-            "x": distances.flatten(),
-        }
-    )
+    df = pd.DataFrame({
+        "i": np.repeat(range(indices.shape[0]), indices.shape[1]),
+        "j": indices.flatten(),
+        "x": distances.flatten(),
+    })
     adj = sparse.csr_matrix((np.repeat(1, df.shape[0]), (df["i"], df["j"])), shape=(n1, n2))
 
     return adj
