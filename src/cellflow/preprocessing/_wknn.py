@@ -134,7 +134,7 @@ def transfer_labels(
         )
 
     wknn = ref_adata.uns[wknn_key]
-    clusters_onehot = pd.get_dummies(ref_adata.obs["Clusters"].astype(str))
+    clusters_onehot = pd.get_dummies(ref_adata.obs[label_key].astype(str))
     clusters_mat = sparse.csr_matrix(clusters_onehot > 0).astype(int)
 
     scores = wknn @ clusters_mat
