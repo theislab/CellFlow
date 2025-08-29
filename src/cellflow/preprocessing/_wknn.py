@@ -137,13 +137,9 @@ def transfer_labels(
     clusters_onehot = pd.get_dummies(ref_adata.obs["Clusters"])
     clusters_mat = sparse.csr_matrix(clusters_onehot > 0).astype(int)
 
-    scores = pd.DataFrame(
-        wknn @ clusters_mat,
-        columns=clusters_onehot.columns,
-        index=query_adata.obs_names,
-    )
+    scores = wknn @ clusters_mat
 
-    query_adata.obs[f"{label_key}_transfer"] = scores.idxmax(1)
+    query_adata.obs[f"{label_key}_transfer"] = scores.argmax(1)
     query_adata.obs[f"{label_key}_transfer_score"] = scores.max(1)
 
     if copy:
