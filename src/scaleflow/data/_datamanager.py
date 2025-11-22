@@ -114,31 +114,8 @@ class DataManager:
         tgt_dist_labels = dict(zip(tgt_dist_labels.index, tgt_dist_labels.itertuples(index=False, name=None), strict=True))
 
 
-        # prepare conditions and structure metadata
+        # prepare conditions
         col_to_repr = {key: adata.uns[self.rep_keys[key]] for key in self.rep_keys.keys()}
-
-        # Compute condition_structure from first available label
-        condition_structure = {}
-        offset = 0
-        first_src_label = next(iter(src_dist_labels.values()))
-        first_tgt_label = next(iter(tgt_dist_labels.values()))
-
-        for col, label in zip(self.src_dist_keys, first_src_label, strict=True):
-            if col in col_to_repr:
-                dim = len(col_to_repr[col][label])
-                condition_structure[col] = (offset, offset + dim)
-                offset += dim
-
-        for col, label in zip(self.tgt_dist_keys, first_tgt_label, strict=True):
-            if col in col_to_repr:
-                dim = len(col_to_repr[col][label])
-                condition_structure[col] = (offset, offset + dim)
-                offset += dim
-            elif isinstance(label, (int, float)):
-                # Scalar value (like dosage)
-                condition_structure[col] = (offset, offset + 1)
-                offset += 1
-
         with timer("Getting conditions", verbose=verbose):
             conditions = {}
             for src_dist_idx, tgt_dist_idxs in src_to_tgt_dist_map.items():
@@ -183,7 +160,6 @@ class DataManager:
                 src_dist_idx_to_labels=src_dist_labels,
                 tgt_dist_idx_to_labels=tgt_dist_labels,
                 default_values=default_values,
-                condition_structure=condition_structure,
             ),
         )
 

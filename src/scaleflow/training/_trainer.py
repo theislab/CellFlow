@@ -67,25 +67,19 @@ class CellFlowTrainer:
         valid_true_data: dict[str, dict[str, ArrayLike]] = {}
 
         # Add progress bar for validation
-        print(f"\nStarting validation on {len(val_data)} dataset(s)...")
-        val_pbar = tqdm(val_data.items(), desc="Validation", leave=True, total=len(val_data))
+        val_pbar = tqdm(val_data.items(), desc="Validation", leave=False)
         for val_key, vdl in val_pbar:
-            val_pbar.set_description(f"Validation ({val_key}) - sampling")
-            batch = vdl.sample(np.random.default_rng(0))
-
-            val_pbar.set_description(f"Validation ({val_key}) - extracting data")
-            src = batch["src_cell_data"]
+            batch = vdl.sample(mode=mode) # TODO: remove mode
+            src = batch["source"]
             condition = batch.get("condition", None)
-            true_tgt = batch["tgt_cell_data"]
+            true_tgt = batch["target"]
             valid_source_data[val_key] = src
-
-            val_pbar.set_description(f"Validation ({val_key}) - predicting")
             valid_pred_data[val_key] = self.solver.predict(src, condition=condition, **self.predict_kwargs)
             valid_true_data[val_key] = true_tgt
 
-            val_pbar.set_description(f"Validation ({val_key}) - done")
+            # Update progress bar description with current validation set
+            val_pbar.set_description(f"Validation ({val_key})")
 
-        print("Validation complete!")
         return valid_source_data, valid_true_data, valid_pred_data
 
     def _update_logs(self, logs: dict[str, Any]) -> None:

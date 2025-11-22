@@ -15,7 +15,7 @@ import optax
 import pandas as pd
 from ott.neural.methods.flows import dynamics
 
-from scaleflow.data import DataManager, ReservoirSampler
+from scaleflow.data import DataManager
 from scaleflow import _constants
 from scaleflow._types import ArrayLike, Layers_separate_input_t, Layers_t
 from scaleflow.data import GroupedDistribution
@@ -195,11 +195,7 @@ class CellFlow:
         )
 
         self.train_data = self._dm.get_train_data(self.adata)
-        if hasattr(self.train_data, 'data') and hasattr(self.train_data.data, 'src_data'):
-            first_src_idx = next(iter(self.train_data.data.src_data.keys()))
-            self._data_dim = self.train_data.data.src_data[first_src_idx].shape[-1]
-        else:
-            self._data_dim = self.train_data.cell_data.shape[-1]  # type: ignore[union-attr]
+        self._data_dim = self.train_data.cell_data.shape[-1]  # type: ignore[union-attr]
 
     def prepare_validation_data(
         self,
@@ -480,7 +476,7 @@ class CellFlow:
         if self._solver_class == _eqm.EquilibriumMatching:
             self.vf = self._vf_class(
                 output_dim=self._data_dim,
-                max_combination_length=getattr(self.train_data, 'max_combination_length', 1),
+                max_combination_length=self.train_data.max_combination_length,
                 condition_mode=condition_mode,
                 regularization=regularization,
                 condition_embedding_dim=condition_embedding_dim,
@@ -509,7 +505,7 @@ class CellFlow:
         else:
             self.vf = self._vf_class(
                 output_dim=self._data_dim,
-                max_combination_length=getattr(self.train_data, 'max_combination_length', 1),
+                max_combination_length=self.train_data.max_combination_length,
                 condition_mode=condition_mode,
                 regularization=regularization,
                 condition_embedding_dim=condition_embedding_dim,
@@ -561,15 +557,6 @@ class CellFlow:
             )
 
         if self._solver_class == _otfm.OTFlowMatching:
-            first_tgt_idx = next(iter(self.train_data.data.conditions.keys()))
-            flat_condition = self.train_data.data.conditions[first_tgt_idx]
-            sample_conditions = {}
-            if hasattr(self.train_data, 'annotation') and self.train_data.annotation.condition_structure:
-                for cov_name, (start, end) in self.train_data.annotation.condition_structure.items():
-                    sample_conditions[cov_name] = flat_condition[start:end].reshape(1, -1)
-            else:
-                sample_conditions = {0: flat_condition}
-
             self._solver = self._solver_class(
                 vf=self.vf,
                 match_fn=match_fn,
@@ -578,20 +565,11 @@ class CellFlow:
                 loss_weight_gex=loss_weight_gex,
                 loss_weight_functional=loss_weight_functional,
                 optimizer=optimizer,
-                conditions=sample_conditions,
+                conditions=self.train_data.condition_data,
                 rng=jax.random.PRNGKey(seed),
                 **solver_kwargs,
             )
         elif self._solver_class == _eqm.EquilibriumMatching:
-            first_tgt_idx = next(iter(self.train_data.data.conditions.keys()))
-            flat_condition = self.train_data.data.conditions[first_tgt_idx]
-            sample_conditions = {}
-            if hasattr(self.train_data, 'annotation') and self.train_data.annotation.condition_structure:
-                for cov_name, (start, end) in self.train_data.annotation.condition_structure.items():
-                    sample_conditions[cov_name] = flat_condition[start:end].reshape(1, -1)
-            else:
-                sample_conditions = {0: flat_condition}
-
             # EqM doesn't use probability_path, only match_fn
             self._solver = self._solver_class(
                 vf=self.vf,
@@ -600,20 +578,11 @@ class CellFlow:
                 loss_weight_gex=loss_weight_gex,
                 loss_weight_functional=loss_weight_functional,
                 optimizer=optimizer,
-                conditions=sample_conditions,
+                conditions=self.train_data.condition_data,
                 rng=jax.random.PRNGKey(seed),
                 **solver_kwargs,
             )
         elif self._solver_class == _genot.GENOT:
-            first_tgt_idx = next(iter(self.train_data.data.conditions.keys()))
-            flat_condition = self.train_data.data.conditions[first_tgt_idx]
-            sample_conditions = {}
-            if hasattr(self.train_data, 'annotation') and self.train_data.annotation.condition_structure:
-                for cov_name, (start, end) in self.train_data.annotation.condition_structure.items():
-                    sample_conditions[cov_name] = flat_condition[start:end].reshape(1, -1)
-            else:
-                sample_conditions = {0: flat_condition}
-
             self._solver = self._solver_class(
                 vf=self.vf,
                 data_match_fn=match_fn,
@@ -621,7 +590,7 @@ class CellFlow:
                 source_dim=self._data_dim,
                 target_dim=self._data_dim,
                 optimizer=optimizer,
-                conditions=sample_conditions,
+                conditions=self.train_data.condition_data,
                 rng=jax.random.PRNGKey(seed),
                 **solver_kwargs,
             )
@@ -700,18 +669,20 @@ class CellFlow:
             pass
             # self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
 
-        validation_dataloaders = {}
-        for k, v in self._validation_data.items():
-            if k != "predict_kwargs":
-                val_sampler = ReservoirSampler(v, batch_size=validation_batch_size or batch_size)
-                val_sampler.init_sampler(np.random.default_rng(0))
-                validation_dataloaders[k] = val_sampler
+        # TODO
+        # Pass validation_batch_size to ValidationSampler
+        validation_dataloaders = None
+        # validation_loaders = {
+        #     k: ValidationSampler(v, validation_batch_size=validation_batch_size)
+        #     for k, v in self.validation_data.items()
+        #     if k != "predict_kwargs"
+        # }
 
         self._solver = self.trainer.train(
             dataloader=self._dataloader,
             num_iterations=num_iterations,
             valid_freq=valid_freq,
-            valid_loaders=validation_dataloaders,
+            valid_loaders=validation_loaders,
             callbacks=callbacks,
             monitor_metrics=monitor_metrics,
         )

@@ -132,7 +132,6 @@ class GroupedDistributionAnnotation:
     tgt_dist_keys: list[str]
     src_dist_keys: list[str]
     dist_flag_key: str
-    condition_structure: dict[str, tuple[int, int]] | None = None  # Maps covariate name to (start, end) indices in flat array
 
     @classmethod
     def read_zarr(
@@ -294,9 +293,8 @@ class GroupedDistribution:
                 .to_dict()
             )
             src_data = {int(k): self.data.src_data[k] for k in src_tgt_dist_map.keys()}
-            tgt_indices = {int(j) for tgt_list in src_tgt_dist_map.values() for j in tgt_list}
-            tgt_data = {int(k): self.data.tgt_data[k] for k in tgt_indices}
-            conditions = {int(k): self.data.conditions[k] for k in tgt_indices}
+            tgt_data = {int(k): self.data.tgt_data[k] for k in src_tgt_dist_map.keys()}
+            conditions = {int(k): self.data.conditions[k] for k in src_tgt_dist_map.keys()}
             split_data[value] = GroupedDistributionData(
                 src_to_tgt_dist_map=src_tgt_dist_map,
                 src_data=src_data,

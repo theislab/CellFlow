@@ -140,7 +140,7 @@ class ConditionEncoder(nn_utils.BaseModule):
                 else:
                     processed_inputs_pooling.append(conditions_i)
 
-            conditions_pooling_arr = jnp.concatenate(processed_inputs_pooling, axis=-2)
+            conditions_pooling_arr = jnp.concatenate(processed_inputs_pooling, axis=-1)
             conditions_not_pooled = (
                 jnp.concatenate(processed_inputs_other, axis=-1) if self.covariates_not_pooled else None
             )
