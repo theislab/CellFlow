@@ -1,7 +1,7 @@
 Metrics
 ~~~~~~~
-.. module:: cellflow.metrics
-.. currentmodule:: cellflow
+.. module:: scaleflow.metrics
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

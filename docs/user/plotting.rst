@@ -1,7 +1,7 @@
 Plotting
 ~~~~~~~~
-.. module:: cellflow.plotting
-.. currentmodule:: cellflow
+.. module:: scaleflow.plotting
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

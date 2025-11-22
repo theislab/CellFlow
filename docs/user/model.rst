@@ -1,7 +1,7 @@
 Model
 ~~~~~
-.. module:: cellflow.model
-.. currentmodule:: cellflow
+.. module:: scaleflow.model
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

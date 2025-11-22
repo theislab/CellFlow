@@ -1,13 +1,16 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from cellflow.data._dataloader import OOCTrainSampler, PredictionSampler, TrainSampler
-from cellflow.data._datamanager import DataManager
+from scaleflow.data import JaxOutOfCoreTrainSampler, PredictionSampler, TrainSampler
+from scaleflow.data._data import ZarrTrainingData
+from scaleflow.data._datamanager import DataManager
 
 
 class TestTrainSampler:
     @pytest.mark.parametrize("batch_size", [1, 31])
-    def test_sampling_no_combinations(self, adata_perturbation, batch_size: int):
+    def test_sampling_no_combinations(self, adata_perturbation, batch_size: int, tmp_path):
         sample_rep = "X"
         split_covariates = ["cell_type"]
         control_key = "control"
@@ -27,25 +30,36 @@ class TestTrainSampler:
         )
 
         train_data = dm.get_train_data(adata_perturbation)
+        train_data.write_zarr(Path(tmp_path) / "test_train_data.zarr")
         sampler = TrainSampler(data=train_data, batch_size=batch_size)
+        zarr_sampler = TrainSampler(
+            ZarrTrainingData.read_zarr(Path(tmp_path) / "test_train_data.zarr"), batch_size=batch_size
+        )
         rng_1 = np.random.default_rng(0)
         rng_2 = np.random.default_rng(1)
+        rng_3 = np.random.default_rng(2)
 
         sample_1 = sampler.sample(rng_1)
         sample_2 = sampler.sample(rng_2)
+        sample_3 = zarr_sampler.sample(rng_3)
 
         assert "src_cell_data" in sample_1
         assert "tgt_cell_data" in sample_1
         assert "condition" in sample_1
+        assert "src_cell_data" in sample_3
+        assert "tgt_cell_data" in sample_3
+        assert "condition" in sample_3
         assert sample_1["src_cell_data"].shape[0] == batch_size
         assert sample_2["src_cell_data"].shape[0] == batch_size
+        assert sample_3["src_cell_data"].shape[0] == batch_size
         assert sample_1["tgt_cell_data"].shape[0] == batch_size
         assert sample_2["tgt_cell_data"].shape[0] == batch_size
+        assert sample_3["tgt_cell_data"].shape[0] == batch_size
         assert sample_1["condition"]["dosage"].shape[0] == 1
         assert sample_2["condition"]["dosage"].shape[0] == 1
 
 
-class TestOOCTrainSampler:
+class TestJaxOutOfCoreTrainSampler:
     @pytest.mark.parametrize("batch_size", [1, 31])
     def test_sampling_no_combinations(self, adata_perturbation, batch_size: int):
         sample_rep = "X"
@@ -67,7 +81,7 @@ class TestOOCTrainSampler:
         )
 
         train_data = dm.get_train_data(adata_perturbation)
-        sampler = OOCTrainSampler(data=train_data, batch_size=batch_size, seed=0)
+        sampler = JaxOutOfCoreTrainSampler(data=train_data, batch_size=batch_size, seed=0)
         sampler.set_sampler(num_iterations=2)
         sample_1 = sampler.sample()
         sample_2 = sampler.sample()
@@ -86,8 +100,8 @@ class TestOOCTrainSampler:
 class TestValidationSampler:
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 1, 3])
     def test_valid_sampler(self, adata_perturbation, n_conditions_on_log_iteration):
-        from cellflow.data._dataloader import ValidationSampler
-        from cellflow.data._datamanager import DataManager
+        from scaleflow.data._dataloader import ValidationSampler
+        from scaleflow.data._datamanager import DataManager
 
         control_key = "control"
         sample_covariates = ["cell_type"]
@@ -136,7 +150,7 @@ class TestPredictionSampler:
         split_covariates,
         perturbation_covariate_reps,
     ):
-        from cellflow.data._datamanager import DataManager
+        from scaleflow.data._datamanager import DataManager
 
         perturbation_covariates = {"drug": ["drug1", "drug2"]}
 

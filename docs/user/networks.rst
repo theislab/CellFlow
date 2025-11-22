@@ -1,7 +1,7 @@
 Networks
 ~~~~~~~~
-.. module:: cellflow.networks
-.. currentmodule:: cellflow
+.. module:: scaleflow.networks
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

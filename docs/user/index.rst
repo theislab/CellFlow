@@ -1,7 +1,7 @@
 User API
 ########
 
-.. module:: cellflow.user
+.. module:: scaleflow.user
 
 .. toctree::
     :maxdepth: 2

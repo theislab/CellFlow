@@ -4,8 +4,8 @@ Developer API
 CellFlow model
 ~~~~~~~~~~~~~~
 
-.. module:: cellflow.data
-.. currentmodule:: cellflow.data
+.. module:: scaleflow.data
+.. currentmodule:: scaleflow.data
 .. autosummary::
     :toctree: genapi
 

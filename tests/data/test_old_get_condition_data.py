@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 from tqdm import tqdm
 
-from cellflow._types import ArrayLike
-from cellflow.data._datamanager import (
+from scaleflow._types import ArrayLike
+from scaleflow.data._datamanager import (
     DataManager,
     ReturnData,
     _to_list,

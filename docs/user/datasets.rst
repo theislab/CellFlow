@@ -1,7 +1,7 @@
 Datasets
 ~~~~~~~~
-.. module:: cellflow.datasets
-.. currentmodule:: cellflow
+.. module:: scaleflow.datasets
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

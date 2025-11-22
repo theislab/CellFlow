@@ -1,7 +1,7 @@
 Training
 ~~~~~~~~
-.. module:: cellflow.training
-.. currentmodule:: cellflow
+.. module:: scaleflow.training
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

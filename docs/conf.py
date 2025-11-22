@@ -13,15 +13,15 @@ import importlib.metadata as ilm
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-import cellflow
+import scaleflow
 
 sys.path.insert(0, str(Path(__file__).parent / "extensions"))
 
 # -- Project information -----------------------------------------------------
 
-project = cellflow.__name__
-author = "CellFlow team"
-version = ilm.version("cellflow-tools")
+project = scaleflow.__name__
+author = "ScaleFlow team"
+version = ilm.version("scaleflow-tools")
 copyright = f"{datetime.now():%Y}, Theislab"
 
 # -- General configuration ---------------------------------------------------
@@ -67,9 +67,9 @@ nitpick_ignore = [
 ]
 # TODO(michalk8): remove once typing has been cleaned-up
 nitpick_ignore_regex = [
-    (r"py:class", r"cellflow\..*(K|B|O)"),
-    (r"py:class", r"cellflow\._typing.*"),
-    (r"py:class", r"cellflow\..*Protocol.*"),
+    (r"py:class", r"scaleflow\..*(K|B|O)"),
+    (r"py:class", r"scaleflow\._typing.*"),
+    (r"py:class", r"scaleflow\..*Protocol.*"),
 ]
 
 
@@ -152,8 +152,8 @@ html_show_sphinx = False
 html_show_sourcelink = False
 html_theme_options = {
     "sidebar_hide_name": True,
-    "light_logo": "images/cellflow_dark.png",
-    "dark_logo": "images/cellflow_dark.png",
+    "light_logo": "images/scaleflow_dark.png",
+    "dark_logo": "images/scaleflow_dark.png",
     "light_css_variables": {
         "color-brand-primary": "#003262",
         "color-brand-content": "#003262",
@@ -164,7 +164,7 @@ html_theme_options = {
     "footer_icons": [
         {
             "name": "GitHub",
-            "url": "https://github.com/theislab/cellflow",
+            "url": "https://github.com/theislab/scaleflow",
             "html": "",
             "class": "fab fa-github",
         },

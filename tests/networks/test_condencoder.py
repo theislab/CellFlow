@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 
-import cellflow
+import scaleflow
 
 cond = {
     "pert1": jnp.ones((1, 3, 3)),
@@ -54,7 +54,7 @@ class TestConditionEncoder:
     def test_condition_encoder_init(
         self, pooling, covariates_not_pooled, layers_before_pool, layers_after_pool, condition_mode, regularization
     ):
-        cond_encoder = cellflow.networks.ConditionEncoder(
+        cond_encoder = scaleflow.networks.ConditionEncoder(
             output_dim=5,
             condition_mode=condition_mode,
             regularization=regularization,

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 import torch
 
-from cellflow.preprocessing._gene_emb import get_esm_embedding
+from scaleflow.preprocessing._gene_emb import get_esm_embedding
 
 IS_PROT_CODING = Counter(["ENSG00000139618", "ENSG00000206450", "ENSG00000049192"])
 ARTIFACTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../test_artifacts/")

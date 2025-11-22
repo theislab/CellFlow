@@ -1,7 +1,7 @@
 External
 ~~~~~~~~
-.. module:: cellflow.external
-.. currentmodule:: cellflow
+.. module:: scaleflow.external
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

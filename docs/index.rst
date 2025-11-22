@@ -1,11 +1,11 @@
 
 CellFlow
 =====================
-.. module:: cellflow
+.. module:: scaleflow
 
-:mod:`cellflow` is a framework for modeling single-cell perturbation screens. CellFlow is very flexible and enables researchers to systematically explore how cells respond to a wide range of experimental interventions, including drug treatments, genetic modifications, cytokine stimulation, morphogen pathway modulation or even entire organoid protocols.
+:mod:`scaleflow` is a framework for modeling single-cell perturbation screens. CellFlow is very flexible and enables researchers to systematically explore how cells respond to a wide range of experimental interventions, including drug treatments, genetic modifications, cytokine stimulation, morphogen pathway modulation or even entire organoid protocols.
 
-:note: This is a work in progress. We are actively working on extending the documentation of :mod:`cellflow` with more tutorials to cover a wide range of use cases. If you have any questions or suggestions, please feel free to reach out to us.
+:note: This is a work in progress. We are actively working on extending the documentation of :mod:`scaleflow` with more tutorials to cover a wide range of use cases. If you have any questions or suggestions, please feel free to reach out to us.
 
 
 .. grid:: 3
@@ -15,13 +15,13 @@ CellFlow
         :link: installation
         :link-type: doc
 
-        Learn how to install :mod:`cellflow`.
+        Learn how to install :mod:`scaleflow`.
 
     .. grid-item-card:: User API
         :link: user/index
         :link-type: doc
 
-        The API reference with all the details on how to use :mod:`cellflow` functions.
+        The API reference with all the details on how to use :mod:`scaleflow` functions.
 
 
     .. grid-item-card:: Manuscript

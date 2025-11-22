@@ -1,7 +1,7 @@
 import pytest
 from scvi.data import synthetic_iid
 
-from cellflow.external import CFJaxSCVI
+from scaleflow.external import CFJaxSCVI
 
 
 class TestCFJaxSCVI:

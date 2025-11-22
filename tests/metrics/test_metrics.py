@@ -2,7 +2,7 @@ import jax.tree_util as jtu
 import numpy as np
 import pytest
 
-import cellflow
+import scaleflow
 
 
 class TestMetrics:
@@ -11,8 +11,8 @@ class TestMetrics:
         x_test = metrics_data["x_test"]
         y_test = metrics_data["y_test"]
 
-        metrics = jtu.tree_map(cellflow.metrics.compute_metrics, x_test, y_test)
-        mean_metrics = cellflow.metrics.compute_mean_metrics(metrics, prefix)
+        metrics = jtu.tree_map(scaleflow.metrics.compute_metrics, x_test, y_test)
+        mean_metrics = scaleflow.metrics.compute_mean_metrics(metrics, prefix)
 
         assert "Alvespimycin+Pirarubicin" in metrics.keys()
         assert {"r_squared", "sinkhorn_div_1", "sinkhorn_div_10", "sinkhorn_div_100", "e_distance", "mmd"} == set(
@@ -32,12 +32,12 @@ class TestMetrics:
         x_test = metrics_data["x_test"]["Alvespimycin+Pirarubicin"]
         y_test = metrics_data["y_test"]["Alvespimycin+Pirarubicin"]
 
-        r_squared = cellflow.metrics.compute_r_squared(x_test, y_test)
-        sinkhorn_div = cellflow.metrics.compute_sinkhorn_div(x_test, y_test, epsilon=epsilon)
-        e_distance = cellflow.metrics.compute_e_distance(x_test, y_test)
-        e_distance_fast = cellflow.metrics.compute_e_distance_fast(x_test, y_test)
-        scalar_mmd = cellflow.metrics.compute_scalar_mmd(x_test, y_test)
-        mmd_fast = cellflow.metrics.maximum_mean_discrepancy(x_test, y_test, exact=False)
+        r_squared = scaleflow.metrics.compute_r_squared(x_test, y_test)
+        sinkhorn_div = scaleflow.metrics.compute_sinkhorn_div(x_test, y_test, epsilon=epsilon)
+        e_distance = scaleflow.metrics.compute_e_distance(x_test, y_test)
+        e_distance_fast = scaleflow.metrics.compute_e_distance_fast(x_test, y_test)
+        scalar_mmd = scaleflow.metrics.compute_scalar_mmd(x_test, y_test)
+        mmd_fast = scaleflow.metrics.maximum_mean_discrepancy(x_test, y_test, exact=False)
 
         assert -1000 <= r_squared <= 1
         assert sinkhorn_div >= 0
@@ -51,11 +51,11 @@ class TestMetrics:
         x_test = metrics_data["x_test"]["Alvespimycin+Pirarubicin"]
         y_test = metrics_data["y_test"]["Alvespimycin+Pirarubicin"]
 
-        e_distance = cellflow.metrics.compute_e_distance(x_test, y_test)
-        e_distance_fast = cellflow.metrics.compute_e_distance_fast(x_test, y_test)
+        e_distance = scaleflow.metrics.compute_e_distance(x_test, y_test)
+        e_distance_fast = scaleflow.metrics.compute_e_distance_fast(x_test, y_test)
 
-        mmd = cellflow.metrics.maximum_mean_discrepancy(x_test, y_test, gamma, exact=True)
-        mmd_fast = cellflow.metrics.maximum_mean_discrepancy(x_test, y_test, gamma, exact=False)
+        mmd = scaleflow.metrics.maximum_mean_discrepancy(x_test, y_test, gamma, exact=True)
+        mmd_fast = scaleflow.metrics.maximum_mean_discrepancy(x_test, y_test, gamma, exact=False)
 
         assert np.allclose(e_distance, e_distance_fast, rtol=1e-4, atol=1e-4)
         assert np.allclose(mmd, mmd_fast, rtol=1e-4, atol=1e-4)

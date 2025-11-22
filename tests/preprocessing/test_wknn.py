@@ -6,9 +6,9 @@ import pytest
 class TestWKNN:
     @pytest.mark.parametrize("n_neighbors", [50, 100])
     def test_compute_wknn_k(self, adata_perturbation: ad.AnnData, n_neighbors):
-        import cellflow
+        import scaleflow
 
-        cellflow.pp.compute_wknn(
+        scaleflow.pp.compute_wknn(
             ref_adata=adata_perturbation,
             query_adata=adata_perturbation,
             n_neighbors=n_neighbors,
@@ -24,12 +24,12 @@ class TestWKNN:
 
     @pytest.mark.parametrize("weighting_scheme", ["top_n", "jaccard", "jaccard_square"])
     def test_compute_wknn_weighting(self, adata_perturbation: ad.AnnData, weighting_scheme):
-        import cellflow
+        import scaleflow
 
         n_neighbors = 50
         top_n = 10
 
-        cellflow.pp.compute_wknn(
+        scaleflow.pp.compute_wknn(
             ref_adata=adata_perturbation,
             query_adata=adata_perturbation,
             n_neighbors=n_neighbors,
@@ -50,11 +50,11 @@ class TestWKNN:
 
     @pytest.mark.parametrize("uns_key_added", ["wknn", "wknn2"])
     def test_compute_wknn_key_added(self, adata_perturbation: ad.AnnData, uns_key_added):
-        import cellflow
+        import scaleflow
 
         n_neighbors = 50
 
-        cellflow.pp.compute_wknn(
+        scaleflow.pp.compute_wknn(
             ref_adata=adata_perturbation,
             query_adata=adata_perturbation,
             n_neighbors=n_neighbors,
@@ -71,16 +71,16 @@ class TestWKNN:
 
     @pytest.mark.parametrize("label_key", ["drug1", "cell_type"])
     def test_transfer_labels(self, adata_perturbation: ad.AnnData, label_key):
-        import cellflow
+        import scaleflow
 
-        cellflow.pp.compute_wknn(
+        scaleflow.pp.compute_wknn(
             ref_adata=adata_perturbation,
             query_adata=adata_perturbation,
             n_neighbors=50,
             copy=False,
         )
 
-        cellflow.pp.transfer_labels(
+        scaleflow.pp.transfer_labels(
             adata_perturbation,
             adata_perturbation,
             label_key=label_key,

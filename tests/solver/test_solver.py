@@ -2,14 +2,15 @@ import functools
 import time
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
 from ott.neural.methods.flows import dynamics
 
-import cellflow
-from cellflow.solvers import _genot, _otfm
-from cellflow.utils import match_linear
+import scaleflow
+from scaleflow.solvers import _eqm, _genot, _otfm
+from scaleflow.utils import match_linear
 
 src = {
     ("drug_1",): np.random.rand(10, 5),
@@ -22,13 +23,30 @@ cond = {
 vf_rng = jax.random.PRNGKey(111)
 
 
+@pytest.fixture
+def eqm_dataloader():
+    class DataLoader:
+        n_conditions = 10
+
+        def sample(self, rng):
+            return {
+                "src_cell_data": jnp.ones((10, 5)) * 10,
+                "tgt_cell_data": jnp.ones((10, 5)),
+                "condition": {"pert1": jnp.ones((10, 2, 3))},
+            }
+
+    return DataLoader()
+
+
 class TestSolver:
-    @pytest.mark.parametrize("solver_class", ["otfm", "genot"])
-    def test_predict_batch(self, dataloader, solver_class):
+    @pytest.mark.parametrize("solver_class", ["otfm", "genot", "eqm"])
+    def test_predict_batch(self, dataloader, eqm_dataloader, solver_class):
         if solver_class == "otfm":
-            vf_class = cellflow.networks.ConditionalVelocityField
+            vf_class = scaleflow.networks.ConditionalVelocityField
+        elif solver_class == "genot":
+            vf_class = scaleflow.networks.GENOTConditionalVelocityField
         else:
-            vf_class = cellflow.networks.GENOTConditionalVelocityField
+            vf_class = scaleflow.networks.EquilibriumVelocityField
 
         opt = optax.adam(1e-3)
         vf = vf_class(
@@ -47,7 +65,7 @@ class TestSolver:
                 conditions={"drug": np.random.rand(2, 1, 3)},
                 rng=vf_rng,
             )
-        else:
+        elif solver_class == "genot":
             solver = _genot.GENOT(
                 vf=vf,
                 data_match_fn=match_linear,
@@ -58,11 +76,20 @@ class TestSolver:
                 conditions={"drug": np.random.rand(2, 1, 3)},
                 rng=vf_rng,
             )
+        else:
+            solver = _eqm.EquilibriumMatching(
+                vf=vf,
+                match_fn=match_linear,
+                optimizer=opt,
+                conditions={"pert1": np.random.rand(2, 2, 3)},
+                rng=vf_rng,
+            )
 
-        predict_kwargs = {"max_steps": 3, "throw": False}
-        trainer = cellflow.training.CellFlowTrainer(solver=solver, predict_kwargs=predict_kwargs)
+        predict_kwargs = {"max_steps": 3, "throw": False} if solver_class != "eqm" else {"max_steps": 3, "eta": 0.01}
+        trainer = scaleflow.training.CellFlowTrainer(solver=solver, predict_kwargs=predict_kwargs)
+        train_dataloader = eqm_dataloader if solver_class == "eqm" else dataloader
         trainer.train(
-            dataloader=dataloader,
+            dataloader=train_dataloader,
             num_iterations=2,
             valid_freq=1,
         )
@@ -89,10 +116,18 @@ class TestSolver:
         )
         assert diff_nonbatched - diff_batched > 0.5
 
+    @pytest.mark.parametrize("solver_class", ["otfm", "eqm"])
     @pytest.mark.parametrize("ema", [0.5, 1.0])
-    def test_EMA(self, dataloader, ema):
-        vf_class = cellflow.networks.ConditionalVelocityField
-        drug = np.random.rand(2, 1, 3)
+    def test_EMA(self, dataloader, eqm_dataloader, solver_class, ema):
+        if solver_class == "otfm":
+            vf_class = scaleflow.networks.ConditionalVelocityField
+            drug = np.random.rand(2, 1, 3)
+            condition_key = "drug"
+        else:
+            vf_class = scaleflow.networks.EquilibriumVelocityField
+            drug = np.random.rand(2, 2, 3)
+            condition_key = "pert1"
+
         opt = optax.adam(1e-3)
         vf1 = vf_class(
             output_dim=5,
@@ -102,18 +137,30 @@ class TestSolver:
             decoder_dims=(5, 5),
         )
 
-        solver1 = _otfm.OTFlowMatching(
-            vf=vf1,
-            match_fn=match_linear,
-            probability_path=dynamics.ConstantNoiseFlow(0.0),
-            optimizer=opt,
-            conditions={"drug": drug},
-            rng=vf_rng,
-            ema=ema,
-        )
-        trainer1 = cellflow.training.CellFlowTrainer(solver=solver1)
+        if solver_class == "otfm":
+            solver1 = _otfm.OTFlowMatching(
+                vf=vf1,
+                match_fn=match_linear,
+                probability_path=dynamics.ConstantNoiseFlow(0.0),
+                optimizer=opt,
+                conditions={condition_key: drug},
+                rng=vf_rng,
+                ema=ema,
+            )
+        else:
+            solver1 = _eqm.EquilibriumMatching(
+                vf=vf1,
+                match_fn=match_linear,
+                optimizer=opt,
+                conditions={condition_key: drug},
+                rng=vf_rng,
+                ema=ema,
+            )
+
+        trainer1 = scaleflow.training.CellFlowTrainer(solver=solver1)
+        train_dataloader = eqm_dataloader if solver_class == "eqm" else dataloader
         trainer1.train(
-            dataloader=dataloader,
+            dataloader=train_dataloader,
             num_iterations=5,
             valid_freq=10,
         )

@@ -1,7 +1,7 @@
 Utils
 ~~~~~
-.. module:: cellflow.utils
-.. currentmodule:: cellflow
+.. module:: scaleflow.utils
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

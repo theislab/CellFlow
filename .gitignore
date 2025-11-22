@@ -157,3 +157,9 @@ tests/plotting/actual_figures/
 
 # huggingface
 hub/
+docs/notebooks/test.zarr
+logs
+scripts/logs
+
+*.err
+*.out

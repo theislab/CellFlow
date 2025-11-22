@@ -1,7 +1,7 @@
 Preprocessing
 ~~~~~~~~~~~~~
-.. module:: cellflow.preprocessing
-.. currentmodule:: cellflow
+.. module:: scaleflow.preprocessing
+.. currentmodule:: scaleflow
 .. autosummary::
     :toctree: genapi
 

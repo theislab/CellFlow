@@ -7,10 +7,10 @@ import optax
 import pytest
 from ott.neural.methods.flows import dynamics
 
-import cellflow
-from cellflow.solvers import _otfm
-from cellflow.training import CellFlowTrainer, ComputationCallback, Metrics
-from cellflow.utils import match_linear
+import scaleflow
+from scaleflow.solvers import _otfm
+from scaleflow.training import CellFlowTrainer, ComputationCallback, Metrics
+from scaleflow.utils import match_linear
 
 x_test = jnp.ones((10, 5)) * 10
 t_test = jnp.ones((10, 1))
@@ -43,9 +43,9 @@ class CustomCallback(ComputationCallback):
 
 class TestTrainer:
     @pytest.mark.parametrize("valid_freq", [10, 1])
-    def test_cellflow_trainer(self, dataloader, valid_freq):
+    def test_scaleflow_trainer(self, dataloader, valid_freq):
         opt = optax.adam(1e-3)
-        vf = cellflow.networks.ConditionalVelocityField(
+        vf = scaleflow.networks.ConditionalVelocityField(
             output_dim=5,
             max_combination_length=2,
             condition_embedding_dim=12,
@@ -79,9 +79,9 @@ class TestTrainer:
         assert out[1].shape == (1, 12)
 
     @pytest.mark.parametrize("use_validdata", [True, False])
-    def test_cellflow_trainer_with_callback(self, dataloader, valid_loader, use_validdata):
+    def test_scaleflow_trainer_with_callback(self, dataloader, valid_loader, use_validdata):
         opt = optax.adam(1e-3)
-        vf = cellflow.networks.ConditionalVelocityField(
+        vf = scaleflow.networks.ConditionalVelocityField(
             output_dim=5,
             max_combination_length=2,
             condition_embedding_dim=12,
@@ -124,9 +124,9 @@ class TestTrainer:
         assert isinstance(out[1], np.ndarray)
         assert out[1].shape == (1, 12)
 
-    def test_cellflow_trainer_with_custom_callback(self, dataloader, valid_loader):
+    def test_scaleflow_trainer_with_custom_callback(self, dataloader, valid_loader):
         opt = optax.adam(1e-3)
-        vf = cellflow.networks.ConditionalVelocityField(
+        vf = scaleflow.networks.ConditionalVelocityField(
             condition_mode="stochastic",
             output_dim=5,
             max_combination_length=2,
@@ -164,14 +164,14 @@ class TestTrainer:
     def test_predict_kwargs_iter(self, dataloader, valid_loader):
         opt_1 = optax.adam(1e-3)
         opt_2 = optax.adam(1e-3)
-        vf_1 = cellflow.networks.ConditionalVelocityField(
+        vf_1 = scaleflow.networks.ConditionalVelocityField(
             output_dim=5,
             max_combination_length=2,
             condition_embedding_dim=12,
             hidden_dims=(32, 32),
             decoder_dims=(32, 32),
         )
-        vf_2 = cellflow.networks.ConditionalVelocityField(
+        vf_2 = scaleflow.networks.ConditionalVelocityField(
             output_dim=5,
             max_combination_length=2,
             condition_embedding_dim=12,
@@ -196,13 +196,13 @@ class TestTrainer:
         )
 
         metric_to_compute = "e_distance"
-        metrics_callback = cellflow.training.Metrics(metrics=[metric_to_compute])
+        metrics_callback = scaleflow.training.Metrics(metrics=[metric_to_compute])
 
         predict_kwargs_1 = {"max_steps": 3, "throw": False}
         predict_kwargs_2 = {"max_steps": 500, "throw": False}
 
-        trainer_1 = cellflow.training.CellFlowTrainer(solver=model_1, predict_kwargs=predict_kwargs_1)
-        trainer_2 = cellflow.training.CellFlowTrainer(solver=model_2, predict_kwargs=predict_kwargs_2)
+        trainer_1 = scaleflow.training.CellFlowTrainer(solver=model_1, predict_kwargs=predict_kwargs_1)
+        trainer_2 = scaleflow.training.CellFlowTrainer(solver=model_2, predict_kwargs=predict_kwargs_2)
 
         start_1 = time.time()
         trainer_1.train(
