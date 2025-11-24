@@ -1,12 +1,10 @@
 from collections.abc import Callable
-from functools import partial
 from typing import Any
 
 import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
-from flax.core import frozen_dict
 from flax.training import train_state
 from ott.neural.methods.flows import dynamics
 from ott.solvers import utils as solver_utils
@@ -356,6 +354,7 @@ class MultiTaskOTFlowMatching:
         elif isinstance(x, dict):
             if show_progress:
                 from tqdm import tqdm
+
                 results = {}
                 keys = sorted(x.keys())
                 for key in tqdm(keys, desc="Predicting conditions", leave=False):

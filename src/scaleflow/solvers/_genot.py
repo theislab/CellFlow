@@ -290,6 +290,7 @@ class GENOT:
         elif isinstance(x, dict):
             if show_progress:
                 from tqdm import tqdm
+
                 predict_fn = functools.partial(self._predict_jit, rng=rng, rng_genot=rng_genot, **kwargs)
                 results = {}
                 keys = sorted(x.keys())

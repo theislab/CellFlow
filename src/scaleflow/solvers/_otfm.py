@@ -397,6 +397,7 @@ class OTFlowMatching:
         elif isinstance(x, dict):
             if show_progress:
                 from tqdm import tqdm
+
                 predict_fn = partial(self._predict_jit, rng=rng, **kwargs)
                 results = {}
                 keys = sorted(x.keys())
@@ -440,7 +441,11 @@ class OTFlowMatching:
         use_mean = rng is None or self.condition_encoder_mode == "deterministic"
         rng = utils.default_prng_key(rng)
         n = next(iter(condition.values())).shape[0]
-        encoder_noise = jnp.zeros((n, self.vf.condition_embedding_dim)) if use_mean else jax.random.normal(rng, (n, self.vf.condition_embedding_dim))
+        encoder_noise = (
+            jnp.zeros((n, self.vf.condition_embedding_dim))
+            if use_mean
+            else jax.random.normal(rng, (n, self.vf.condition_embedding_dim))
+        )
 
         mean_cond, logvar_cond = self.vf.apply(
             {"params": self.vf_state_inference.params},

@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from scaleflow.data import AnnDataLocation, DataManager, GroupedDistribution
 
@@ -156,4 +155,3 @@ class TestDataManagerBasic:
 
         # This should cover all cells in the shuffled adata
         assert len(old_idx_to_shuffled_pos) == len(adata_shuffled)
-

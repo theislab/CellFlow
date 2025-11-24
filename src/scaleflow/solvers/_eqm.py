@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from flax.core import frozen_dict
 from flax.training import train_state
 from ott.solvers import utils as solver_utils
 
@@ -361,13 +360,16 @@ class EquilibriumMatching:
 
         def sample_gd(x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray) -> jnp.ndarray:
             """Basic gradient descent sampler."""
+
             def gd_step(i, x_val):
                 f = gradient_field(x_val, condition, encoder_noise)
                 return x_val - eta * f
+
             return jax.lax.fori_loop(0, max_steps, gd_step, x)
 
         def sample_nag(x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray) -> jnp.ndarray:
             """Nesterov accelerated gradient descent sampler."""
+
             def nag_step(i, state):
                 x_val, velocity = state
                 x_lookahead = x_val - mu * velocity
@@ -375,6 +377,7 @@ class EquilibriumMatching:
                 new_velocity = mu * velocity + eta * f
                 new_x = x_val - new_velocity
                 return (new_x, new_velocity)
+
             init_state = (x, jnp.zeros_like(x))
             final_x, _ = jax.lax.fori_loop(0, max_steps, nag_step, init_state)
             return final_x
@@ -463,6 +466,7 @@ class EquilibriumMatching:
         elif isinstance(x, dict):
             if show_progress:
                 from tqdm import tqdm
+
                 results = {}
                 keys = sorted(x.keys())
                 for key in tqdm(keys, desc="Predicting conditions", leave=False):
@@ -505,7 +509,11 @@ class EquilibriumMatching:
         use_mean = rng is None or self.condition_encoder_mode == "deterministic"
         rng = utils.default_prng_key(rng)
         n = next(iter(condition.values())).shape[0]
-        encoder_noise = jnp.zeros((n, self.vf.condition_embedding_dim)) if use_mean else jax.random.normal(rng, (n, self.vf.condition_embedding_dim))
+        encoder_noise = (
+            jnp.zeros((n, self.vf.condition_embedding_dim))
+            if use_mean
+            else jax.random.normal(rng, (n, self.vf.condition_embedding_dim))
+        )
 
         mean_cond, logvar_cond = self.vf.apply(
             {"params": self.vf_state_inference.params},

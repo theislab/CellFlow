@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scaleflow.data import DataManager, GroupedDistribution, AnnDataLocation
+from scaleflow.data import AnnDataLocation, DataManager, GroupedDistribution
 
 
 @pytest.fixture()

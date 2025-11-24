@@ -7,7 +7,6 @@ import optax
 from flax import linen as nn
 from flax.training import train_state
 
-from scaleflow._types import Layers_t
 from scaleflow.networks import _utils as nn_utils
 
 __all__ = ["PhenotypePredictor"]
@@ -86,4 +85,3 @@ class PhenotypePredictor(nn.Module):
         condition_embedding = jnp.ones((1, condition_embedding_dim))
         params = self.init(rng, condition_embedding, training=False)["params"]
         return train_state.TrainState.create(apply_fn=self.apply, params=params, tx=optimizer)
-

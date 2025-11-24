@@ -1,13 +1,13 @@
 from __future__ import annotations
+
 import abc
 from collections.abc import Callable, Sequence
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anndata as ad
 import jax.tree as jt
 import jax.tree_util as jtu
 import numpy as np
-from tqdm import tqdm
 
 from scaleflow._types import ArrayLike
 from scaleflow.metrics._metrics import (
@@ -19,7 +19,7 @@ from scaleflow.metrics._metrics import (
     compute_scalar_mmd_gpu,
     compute_sinkhorn_div,
 )
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from scaleflow.solvers import _genot, _otfm
 
@@ -211,13 +211,16 @@ class Metrics(ComputationCallback):
 
         if use_gpu_optimized:
             import jax
+
             self.rng_key = jax.random.PRNGKey(42)
 
         for metric in metrics:
             if metric not in metric_to_func:
                 raise ValueError(f"Metric {metric} not supported. Supported metrics are {list(metric_to_func.keys())}")
             if use_gpu_optimized and metric not in metric_to_func_gpu:
-                raise ValueError(f"GPU-optimized metric {metric} not available. Available: {list(metric_to_func_gpu.keys())}")
+                raise ValueError(
+                    f"GPU-optimized metric {metric} not available. Available: {list(metric_to_func_gpu.keys())}"
+                )
 
     def on_train_begin(self, *args: Any, **kwargs: Any) -> Any:
         """Called at the beginning of training."""

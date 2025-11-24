@@ -235,7 +235,7 @@ def compute_scalar_mmd(
         idx = rng.choice(y.shape[0], max_samples, replace=False)
         y = y[idx]
     if gammas is None:
-        gammas = [2, 1, 0.5]#, 0.1, 0.01, 0.005]
+        gammas = [2, 1, 0.5]  # , 0.1, 0.01, 0.005]
     mmds = [maximum_mean_discrepancy(x, y, gamma=gamma) for gamma in gammas]  # type: ignore[union-attr]
     return np.nanmean(np.array(mmds))
 
@@ -306,7 +306,7 @@ def compute_scalar_mmd_gpu(
     gammas: Sequence[float] | None = None,
     max_samples: int = 5000,
     key: jax.Array | None = None,
-    precision: str = "float32"
+    precision: str = "float32",
 ) -> float:
     """GPU-optimized MMD without CPU transfers.
 
@@ -389,11 +389,7 @@ def compute_e_distance_gpu(x: ArrayLike, y: ArrayLike, precision: str = "float32
 
 
 def compute_metrics_fast_gpu(
-    x: ArrayLike,
-    y: ArrayLike,
-    key: jax.Array | None = None,
-    precision: str = "float32",
-    max_samples: int = 5000
+    x: ArrayLike, y: ArrayLike, key: jax.Array | None = None, precision: str = "float32", max_samples: int = 5000
 ) -> dict[str, float]:
     """Compute metrics entirely on GPU with optional reduced precision.
 

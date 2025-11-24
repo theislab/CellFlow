@@ -1,9 +1,6 @@
 import anndata as ad
-import jax
-import jax.numpy as jnp
 
 from scaleflow._types import ArrayLike
-
 
 
 def _write_predictions(
