@@ -111,8 +111,9 @@ class DataManager:
             .drop_duplicates()
             .set_index("tgt_dist_idx")
         )
-        tgt_dist_labels = dict(zip(tgt_dist_labels.index, tgt_dist_labels.itertuples(index=False, name=None), strict=True))
-
+        tgt_dist_labels = dict(
+            zip(tgt_dist_labels.index, tgt_dist_labels.itertuples(index=False, name=None), strict=True)
+        )
 
         # prepare conditions
         col_to_repr = {key: adata.uns[self.rep_keys[key]] for key in self.rep_keys.keys()}
@@ -131,7 +132,6 @@ class DataManager:
                         for col, label in zip(self.tgt_dist_keys, tgt_label, strict=True)
                     ]
                     conditions[tgt_dist_idx] = np.concatenate([*src_repr, *tgt_repr])
-
 
         # prepare src_data and tgt_data
         arr = self.data_location(adata)

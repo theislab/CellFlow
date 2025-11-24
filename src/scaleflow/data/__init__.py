@@ -1,15 +1,14 @@
+from scaleflow.data._anndata_location import AnnDataLocation
 from scaleflow.data._data import (
     GroupedDistribution,
-    GroupedDistributionData,
     GroupedDistributionAnnotation,
+    GroupedDistributionData,
 )
 from scaleflow.data._dataloader import (
     ReservoirSampler,
     SamplerABC,
 )
-
 from scaleflow.data._datamanager import DataManager
-from scaleflow.data._anndata_location import AnnDataLocation
 
 __all__ = [
     "AnnDataLocation",

@@ -15,15 +15,13 @@ import optax
 import pandas as pd
 from ott.neural.methods.flows import dynamics
 
-from scaleflow.data import DataManager
 from scaleflow import _constants
 from scaleflow._types import ArrayLike, Layers_separate_input_t, Layers_t
-from scaleflow.data import GroupedDistribution
+from scaleflow.data import DataManager, GroupedDistribution, SamplerABC
 from scaleflow.model._utils import _write_predictions
-from scaleflow.data import SamplerABC
 from scaleflow.networks import _velocity_field
 from scaleflow.plotting import _utils
-from scaleflow.solvers import _genot, _otfm, _eqm
+from scaleflow.solvers import _eqm, _genot, _otfm
 from scaleflow.training._callbacks import BaseCallback
 from scaleflow.training._trainer import CellFlowTrainer
 from scaleflow.utils import match_linear
@@ -550,6 +548,7 @@ class CellFlow:
         phenotype_predictor = None
         if use_phenotype_predictor:
             from scaleflow.networks import PhenotypePredictor
+
             phenotype_predictor = PhenotypePredictor(
                 hidden_dims=phenotype_hidden_dims,
                 dropout_rate=phenotype_dropout,
@@ -657,7 +656,7 @@ class CellFlow:
             raise ValueError("Model not initialized. Please call `prepare_model` first.")
 
         if out_of_core_dataloading:
-            pass # TODO
+            pass  # TODO
             # self._dataloader = JaxOutOfCoreTrainSampler(
             #     data=self.train_data,
             #     batch_size=batch_size,

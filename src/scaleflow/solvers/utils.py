@@ -26,6 +26,7 @@ def ema_update(current_model_params: dict, new_model_params: dict, ema: float) -
     )
     return new_inference_model_params
 
+
 def _multivariate_normal(
     rng: jax.Array,
     shape: tuple[int, ...],
@@ -36,4 +37,3 @@ def _multivariate_normal(
     mean = jnp.full(dim, fill_value=mean)
     cov = jnp.diag(jnp.full(dim, fill_value=cov))
     return jax.random.multivariate_normal(rng, mean=mean, cov=cov, shape=shape)
-

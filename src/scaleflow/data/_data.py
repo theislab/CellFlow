@@ -4,13 +4,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+import anndata as ad
 import numpy as np
+import pandas as pd
 import zarr
 
-import anndata as ad
-from scaleflow.data._utils import write_sharded, write_dist_data_threaded
-
-import pandas as pd
+from scaleflow.data._utils import write_dist_data_threaded, write_sharded
 
 __all__ = [
     "GroupedDistribution",

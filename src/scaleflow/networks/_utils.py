@@ -569,9 +569,9 @@ class AdaLNModulation(nn.Module):
             If use_gate=False, gate is None.
         """
         num_outputs = 3 if self.use_gate else 2
-        modulation = nn.Dense(num_outputs * self.hidden_dim,
-                            kernel_init=initializers.zeros,
-                            bias_init=initializers.zeros)(self.act_fn(conditioning))
+        modulation = nn.Dense(
+            num_outputs * self.hidden_dim, kernel_init=initializers.zeros, bias_init=initializers.zeros
+        )(self.act_fn(conditioning))
 
         if self.use_gate:
             scale, shift, gate = jnp.split(modulation, 3, axis=-1)

@@ -1,14 +1,14 @@
+import concurrent.futures
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 import anndata as ad
+import numpy as np
+import tqdm
 import zarr
 from zarr.abc.codec import BytesBytesCodec
 from zarr.codecs import BloscCodec
 
-import numpy as np
-import concurrent.futures
-import tqdm
 
 def _get_size(shape: tuple[int, ...], chunk_size: int, shard_size: int) -> tuple[int, int]:
     shard_size_used = shard_size
@@ -18,8 +18,6 @@ def _get_size(shape: tuple[int, ...], chunk_size: int, shard_size: int) -> tuple
     elif chunk_size < shape[0] and shard_size > shape[0]:
         chunk_size_used = shard_size_used = shape[0]
     return chunk_size_used, shard_size_used
-
-
 
 
 def write_single_array(group, key: str, arr: np.ndarray, chunk_size: int, shard_size: int) -> str:
@@ -36,14 +34,13 @@ def write_single_array(group, key: str, arr: np.ndarray, chunk_size: int, shard_
 
 
 def write_dist_data_threaded(
-    group, 
-    dist_data: dict[int, np.ndarray], 
-    chunk_size: int, 
-    shard_size: int, 
+    group,
+    dist_data: dict[int, np.ndarray],
+    chunk_size: int,
+    shard_size: int,
     max_workers: int = 24,
 ) -> None:
     """Write distribution data using threading for I/O parallelism"""
-
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all write tasks
         future_to_key = {
@@ -68,6 +65,7 @@ def write_dist_data_threaded(
             except Exception as exc:
                 print(f"Array {key} generated an exception: {exc}")
                 raise
+
 
 def write_sharded(
     group: zarr.Group,
@@ -99,7 +97,6 @@ def write_sharded(
     # when it is no longer public we should use the function from arrayloaders
     # https://github.com/laminlabs/arrayloaders/blob/main/arrayloaders/io/store_creation.py
     ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
-
 
     def callback(
         func: ad.experimental.Write,

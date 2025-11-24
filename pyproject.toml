@@ -26,6 +26,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 
 dynamic = [ "version" ]
@@ -88,14 +89,14 @@ optional-dependencies.pp = [
   "rdkit",
 ]
 optional-dependencies.test = [
-  "scaleflow-tools[embedding]",
-  "scaleflow-tools[external]",
-  "scaleflow-tools[pp]",
   "coverage[toml]>=7",
   "pytest",
   "pytest-cov>=6",
   "pytest-mock>=3.5",
   "pytest-xdist>=3",
+  "scaleflow-tools[embedding]",
+  "scaleflow-tools[external]",
+  "scaleflow-tools[pp]",
 ]
 
 urls.Documentation = "https://scaleflow.readthedocs.io/"

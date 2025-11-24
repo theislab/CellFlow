@@ -5,7 +5,7 @@ import numpy as np
 
 from scaleflow.compat import TorchIterableDataset
 from scaleflow.data._data import MappedCellData
-from scaleflow.data._dataloader import TrainSampler, ReservoirSampler
+from scaleflow.data._dataloader import ReservoirSampler, TrainSampler
 
 
 def _worker_init_fn_helper(worker_id, random_generators):

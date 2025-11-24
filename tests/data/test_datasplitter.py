@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scaleflow.data import GroupedDistribution
 from scaleflow.data._data_splitter import AnnotationSplitter
 
 
@@ -275,7 +274,7 @@ class TestAnnotationSplitterSplit:
         df_split2 = splitter2._split_df()
 
         # Results should be different
-        assert not df_split1[["split","drug","gene"]].equals(df_split2[["split","drug","gene"]])
+        assert not df_split1[["split", "drug", "gene"]].equals(df_split2[["split", "drug", "gene"]])
 
     def test_split_no_duplicate_combinations_in_multiple_splits(self, sample_grouped_distribution):
         """Test that no combination appears in multiple splits."""
@@ -913,7 +912,6 @@ class TestCheckDfUniqueColumns:
 
         # Should not raise with empty list
         AnnotationSplitter._check_df_unique_columns(df, [])
-
 
     def test_split_two_with_not_in_training_key(self):
         """Test _split_two respects not_in_training_key."""

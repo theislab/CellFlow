@@ -1,8 +1,9 @@
 """Data splitter for creating train/validation/test splits from TrainingData objects."""
 
 import logging
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import pandas as pd
 

@@ -1,23 +1,21 @@
 import math
+import os
+import threading
+from abc import ABC, abstractmethod
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import nullcontext
 from typing import Any
 
 import numpy as np
-import os
-import threading
-from concurrent.futures import ThreadPoolExecutor, Future
 
 from scaleflow.data._data import (
     GroupedDistribution,
 )
 
-from contextlib import nullcontext
-from abc import ABC, abstractmethod
-
 __all__ = [
     "ReservoirSampler",
     "SamplerABC",
 ]
-
 
 
 class SamplerABC(ABC):
@@ -28,6 +26,7 @@ class SamplerABC(ABC):
     @abstractmethod
     def init_sampler(self, rng: np.random.Generator) -> None:
         pass
+
 
 class ReservoirSampler:
     """Data sampler with gradual pool replacement using reservoir sampling.
@@ -88,10 +87,8 @@ class ReservoirSampler:
         self._executor = None
         self._pending_replacements = {}
         if not self._cache_all:
-            self._executor = ThreadPoolExecutor(max_workers=2) # TODO: avoid magic numbers
+            self._executor = ThreadPoolExecutor(max_workers=2)  # TODO: avoid magic numbers
             self._pending_replacements: dict[int, dict[str, Any]] = {}
-
-    
 
     def init_sampler(self, rng) -> None:
         if self._initialized:
@@ -107,7 +104,6 @@ class ReservoirSampler:
         else:
             self._src_idx_pool = rng.choice(self.n_source_dists, size=self._pool_size, replace=False)
         return None
-
 
     def sample(self, rng) -> dict[str, Any]:
         """Sample a batch for gene expression (flow matching) task.
@@ -128,19 +124,16 @@ class ReservoirSampler:
         print(f"sampled source batch: {source_batch.shape}")
         target_batch = self._sample_target_cells(rng, source_dist_idx, target_dist_idx)
         print(f"sampled target batch: {target_batch.shape}")
-        res = {
-            "src_cell_data": source_batch,
-            "tgt_cell_data": target_batch
-        }
+        res = {"src_cell_data": source_batch, "tgt_cell_data": target_batch}
         res["condition"] = self._data.data.conditions[target_dist_idx]
         return res
 
-
     def _load_targets_parallel(self, tgt_indices):
         """Load multiple target distributions in parallel."""
+
         def _load_tgt(j: int):
             return j, self._data.data.tgt_data[j][...]
-        
+
         max_workers = min(32, (os.cpu_count() or 4))  # TODO: avoid magic numbers
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             results = list(ex.map(_load_tgt, tgt_indices))
@@ -149,32 +142,28 @@ class ReservoirSampler:
     def _init_cache_pool_elements(self) -> None:
         with self._lock:
             self._cached_srcs = {i: self._data.data.src_data[i][...] for i in self._src_idx_pool}
-        
+
         tgt_indices = sorted({int(j) for i in self._src_idx_pool for j in self._data.data.src_to_tgt_dist_map[i]})
-        
+
         with self._lock:
             self._cached_tgts = self._load_targets_parallel(tgt_indices)
-        
+
         return None
-
-
 
     def _sample_target_dist_idx(self, rng, source_dist_idx: int) -> int:
         """Sample a target distribution index given the source distribution index."""
         return rng.choice(self._data.data.src_to_tgt_dist_map[source_dist_idx])
-
-
-
-
 
     def _sample_source_dist_idx(self, rng) -> int:
         """Sample a source distribution index with gradual pool replacement."""
         if not self._initialized:
             raise ValueError("Sampler not initialized. Call init_sampler() first.")
 
-        return (self._sample_source_dist_idx_in_pool(rng) if not self._cache_all else \
-            self._sample_source_dist_idx_in_memory(rng))
-
+        return (
+            self._sample_source_dist_idx_in_pool(rng)
+            if not self._cache_all
+            else self._sample_source_dist_idx_in_memory(rng)
+        )
 
     def _sample_source_dist_idx_in_memory(self, rng) -> int:
         source_idx = rng.choice(sorted(self._cached_srcs.keys()))
@@ -193,7 +182,7 @@ class ReservoirSampler:
         # Gradually replace elements based on replacement probability (schedule only)
         if rng.random() < self._replacement_prob:
             self._schedule_replacement(rng)
-        
+
         return source_idx
 
     def _schedule_replacement(self, rng):
@@ -233,14 +222,14 @@ class ReservoirSampler:
 
     def _load_targets_parallel(self, tgt_indices):
         """Load multiple target distributions in parallel."""
+
         def _load_tgt(j: int):
             return j, self._data.data.tgt_data[j][...]
-        
+
         max_workers = min(32, (os.cpu_count() or 4))  # TODO: avoid magic numbers
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             results = list(ex.map(_load_tgt, tgt_indices))
         return {j: arr for j, arr in results}
-
 
     def _apply_ready_replacements(self):
         if self._cache_all:
@@ -290,7 +279,6 @@ class ReservoirSampler:
         tgt_dict = {k: self._data.data.tgt_data[k][...] for k in self._data.data.src_to_tgt_dist_map[src_idx]}
         return {"src": src_arr, "tgts": tgt_dict}
 
-
     def _sample_source_cells(self, rng, source_dist_idx: int) -> np.ndarray:
         with self._lock:
             arr = self._cached_srcs[source_dist_idx]
@@ -303,4 +291,3 @@ class ReservoirSampler:
             arr = self._cached_tgts[target_dist_idx]
         idxs = rng.choice(arr.shape[0], size=self.batch_size, replace=True)
         return arr[idxs]
-
