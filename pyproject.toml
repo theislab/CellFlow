@@ -8,17 +8,17 @@ description = "Modeling complex perturbations with flow matching at single-cell 
 readme = "README.md"
 license = "PolyForm-Noncommercial-1.0.0"
 maintainers = [
-  { name = "Dominik Klein" },
-  { name = "Selman Oezleyen" },
-  { name = "Jonas Simon Fleck" },
   { name = "Daniil Bobrovskiy" },
+  { name = "Dominik Klein" },
   { name = "Guillaume Huguet" },
+  { name = "Jonas Simon Fleck" },
+  { name = "Selman Oezleyen" },
 ]
 authors = [
-  { name = "Dominik Klein" },
-  { name = "Jonas Simon Fleck" },
   { name = "Daniil Bobrovskiy" },
+  { name = "Dominik Klein" },
   { name = "Guillaume Huguet" },
+  { name = "Jonas Simon Fleck" },
 ]
 requires-python = ">=3.11"
 classifiers = [
@@ -26,6 +26,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 
 dynamic = [ "version" ]
@@ -170,12 +171,6 @@ markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 
-[tool.coverage.run]
-branch = true
-source = [ "src/" ]
-concurrency = [ "multiprocessing" ]
-parallel = "true"
-
 [tool.coverage.report]
 exclude_lines = [
   '\#.*pragma:\s*no.?cover',
@@ -188,6 +183,12 @@ precision = 2
 show_missing = true
 skip_empty = true
 sort = "Miss"
+
+[tool.coverage.run]
+branch = true
+source = [ "src/" ]
+concurrency = [ "multiprocessing" ]
+parallel = "true"
 
 [tool.tox]
 legacy_tox_ini = """
