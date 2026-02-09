@@ -36,6 +36,7 @@ dependencies = [
   "coverage",
   "dask",
   "diffrax",
+  "equinox>=0.12.2",
   "flax",
   "orbax",
   "ott-jax==0.5",
