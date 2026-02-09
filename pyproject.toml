@@ -8,17 +8,17 @@ description = "Modeling complex perturbations with flow matching at single-cell 
 readme = "README.md"
 license = "PolyForm-Noncommercial-1.0.0"
 maintainers = [
-  { name = "Dominik Klein" },
-  { name = "Selman Oezleyen" },
-  { name = "Jonas Simon Fleck" },
   { name = "Daniil Bobrovskiy" },
+  { name = "Dominik Klein" },
   { name = "Guillaume Huguet" },
+  { name = "Jonas Simon Fleck" },
+  { name = "Selman Oezleyen" },
 ]
 authors = [
-  { name = "Dominik Klein" },
-  { name = "Jonas Simon Fleck" },
   { name = "Daniil Bobrovskiy" },
+  { name = "Dominik Klein" },
   { name = "Guillaume Huguet" },
+  { name = "Jonas Simon Fleck" },
 ]
 requires-python = ">=3.11"
 classifiers = [
@@ -26,8 +26,8 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
-
 dynamic = [ "version" ]
 dependencies = [
   "adjusttext",
@@ -45,7 +45,6 @@ dependencies = [
   "scipy<1.16",          # see https://github.com/statsmodels/statsmodels/issues/9584
   "session-info",
 ]
-
 optional-dependencies.dev = [
   "furo",
   "myst-nb",
@@ -66,7 +65,7 @@ optional-dependencies.docs = [
   "myst-nb>=1.1",
   "pandas",
   "scvi-tools>=1.3.1",
-  "setuptools",               # Until pybtex >0.23.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
+  "setuptools",                      # Until pybtex >0.23.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
   "sphinx>=8",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
@@ -97,23 +96,19 @@ optional-dependencies.test = [
   "pytest-mock>=3.5",
   "pytest-xdist>=3",
 ]
-
 urls.Documentation = "https://cellflow.readthedocs.io/"
 urls.Home-page = "https://github.com/theislab/cellflow"
 urls.Source = "https://github.com/theislab/cellflow"
 
-[tool.hatch.build.targets.wheel]
-packages = [ 'src/cellflow' ]
-
-[tool.hatch.version]
-source = "vcs"
-fallback-version = "0.1.0"
+[tool.hatch]
+build.targets.wheel.packages = [ "src/cellflow" ]
+version.source = "vcs"
+version.fallback-version = "0.1.0"
 
 [tool.ruff]
 line-length = 120
 src = [ "src" ]
 extend-include = [ "*.ipynb" ]
-
 format.docstring-code-format = true
 lint.select = [
   "B",      # flake8-bugbear
@@ -160,145 +155,77 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
-[tool.pytest.ini_options]
-testpaths = [ "tests" ]
-xfail_strict = true
-addopts = [
+[tool.pytest]
+ini_options.testpaths = [ "tests" ]
+ini_options.xfail_strict = true
+ini_options.addopts = [
   "--import-mode=importlib", # allow using test files with same name
 ]
-markers = [
+ini_options.markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 
-[tool.coverage.run]
-branch = true
-source = [ "src/" ]
-concurrency = [ "multiprocessing" ]
-parallel = "true"
-
-[tool.coverage.report]
-exclude_lines = [
-  '\#.*pragma:\s*no.?cover',
+[tool.coverage]
+run.branch = true
+run.concurrency = [ "multiprocessing" ]
+run.parallel = "true"
+run.source = [ "src/" ]
+report.exclude_lines = [
+  "\\#.*pragma:\\s*no.?cover",
+  "^\\s*raise AssertionError\\b",
+  "^\\s*raise NotImplementedError\\b",
+  "^\\s*return NotImplemented\\b",
   "^if __name__ == .__main__.:$",
-  '^\s*raise AssertionError\b',
-  '^\s*raise NotImplementedError\b',
-  '^\s*return NotImplemented\b',
 ]
-precision = 2
-show_missing = true
-skip_empty = true
-sort = "Miss"
+report.precision = 2
+report.show_missing = true
+report.skip_empty = true
+report.sort = "Miss"
 
 [tool.tox]
-legacy_tox_ini = """
-[tox]
-min_version = 4.0
-env_list = lint-code,py{3.11,3.12,3.13}
-skip_missing_interpreters = true
-
-[testenv]
-extras = test,pp,external,embedding
-pass_env = PYTEST_*,CI
-commands =
-    coverage run -m pytest {tty:--color=yes} {posargs: \
-        --cov={env_site_packages_dir}{/}cellflow --cov-config={tox_root}{/}pyproject.toml \
-        --no-cov-on-fail --cov-report=xml --cov-report=term-missing:skip-covered}
-
-[testenv:lint-code]
-extras = test,pp,external,embedding
-description = Lint the code.
-deps = pre-commit>=3.0.0
-skip_install = true
-commands =
-    pre-commit run --all-files --show-diff-on-failure
-
-[testenv:lint-docs]
-description = Lint the documentation.
-extras = test,pp,external,embedding
-ignore_errors = true
-allowlist_externals = make
-pass_env = PYENCHANT_LIBRARY_PATH
-set_env = SPHINXOPTS = -W -q --keep-going
-changedir = {tox_root}{/}docs
-commands =
-    make linkcheck {posargs}
-    # make spelling {posargs}
-
-[testenv:examples-docs]
-extras = test,pp,external,embedding
-allowlist_externals = bash
-description = Run the notebooks.
-use_develop = true
-deps =
-    ipykernel
-    jupytext
-    nbconvert
-    leidenalg
-changedir = {tox_root}{/}docs
-commands =
-    python -m ipykernel install --user --name=cellflow
-    bash {tox_root}/.run_notebooks.sh {tox_root}{/}docs/notebooks
-
-[testenv:clean-docs]
-description = Remove the documentation.
-deps =
-skip_install = true
-changedir = {tox_root}{/}docs
-allowlist_externals = make
-commands =
-    make clean
-
-[testenv:build-docs]
-description = Build the documentation.
-deps =
-extras = test,pp,external,embedding
-allowlist_externals = make
-changedir = {tox_root}{/}docs
-commands =
-    make html {posargs}
-commands_post =
-    python -c 'import pathlib; print("Documentation is under:", pathlib.Path("{tox_root}") / "docs" / "_build" / "html" / "index.html")'
-
-[testenv:build-package]
-description = Build the package.
-deps =
-    build
-    twine
-allowlist_externals = rm
-commands =
-    rm -rf {tox_root}{/}dist
-    python -m build --sdist --wheel --outdir {tox_root}{/}dist{/} {posargs:}
-    python -m twine check {tox_root}{/}dist{/}*
-commands_post =
-    python -c 'import pathlib; print(f"Package is under:", pathlib.Path("{tox_root}") / "dist")'
-
-[testenv:format-references]
-description = Format references.bib.
-deps =
-skip_install = true
-allowlist_externals = biber
-commands = biber --tool --output_file={tox_root}{/}docs{/}references.bib --nolog \
-    --output_align --output_indent=2 --output_fieldcase=lower \
-    --output_legacy_dates --output-field-replace=journaltitle:journal,thesis:phdthesis,institution:school \
-    {tox_root}{/}docs{/}references.bib
-"""
+legacy_tox_ini = """\
+  [tox]\nmin_version = 4.0\nenv_list = lint-code,py{3.11,3.12,3.13}\nskip_missing_interpreters = \
+  true\n\n[testenv]\nextras = test,pp,external,embedding\npass_env = PYTEST_*,CI\ncommands =\n    coverage run -m \
+  pytest {tty:--color=yes} {posargs: \\\n        --cov={env_site_packages_dir}{/}cellflow \
+  --cov-config={tox_root}{/}pyproject.toml \\\n        --no-cov-on-fail --cov-report=xml \
+  --cov-report=term-missing:skip-covered}\n\n[testenv:lint-code]\nextras = test,pp,external,embedding\ndescription = \
+  Lint the code.\ndeps = pre-commit>=3.0.0\nskip_install = true\ncommands =\n    pre-commit run --all-files \
+  --show-diff-on-failure\n\n[testenv:lint-docs]\ndescription = Lint the documentation.\nextras = \
+  test,pp,external,embedding\nignore_errors = true\nallowlist_externals = make\npass_env = \
+  PYENCHANT_LIBRARY_PATH\nset_env = SPHINXOPTS = -W -q --keep-going\nchangedir = {tox_root}{/}docs\ncommands =\n    \
+  make linkcheck {posargs}\n    # make spelling {posargs}\n\n[testenv:examples-docs]\nextras = \
+  test,pp,external,embedding\nallowlist_externals = bash\ndescription = Run the notebooks.\nuse_develop = true\ndeps \
+  =\n    ipykernel\n    jupytext\n    nbconvert\n    leidenalg\nchangedir = {tox_root}{/}docs\ncommands =\n    python \
+  -m ipykernel install --user --name=cellflow\n    bash {tox_root}/.run_notebooks.sh \
+  {tox_root}{/}docs/notebooks\n\n[testenv:clean-docs]\ndescription = Remove the documentation.\ndeps =\nskip_install = \
+  true\nchangedir = {tox_root}{/}docs\nallowlist_externals = make\ncommands =\n    make \
+  clean\n\n[testenv:build-docs]\ndescription = Build the documentation.\ndeps =\nextras = \
+  test,pp,external,embedding\nallowlist_externals = make\nchangedir = {tox_root}{/}docs\ncommands =\n    make html \
+  {posargs}\ncommands_post =\n    python -c 'import pathlib; print(\"Documentation is under:\", \
+  pathlib.Path(\"{tox_root}\") / \"docs\" / \"_build\" / \"html\" / \
+  \"index.html\")'\n\n[testenv:build-package]\ndescription = Build the package.\ndeps =\n    build\n    \
+  twine\nallowlist_externals = rm\ncommands =\n    rm -rf {tox_root}{/}dist\n    python -m build --sdist --wheel \
+  --outdir {tox_root}{/}dist{/} {posargs:}\n    python -m twine check {tox_root}{/}dist{/}*\ncommands_post =\n    \
+  python -c 'import pathlib; print(f\"Package is under:\", pathlib.Path(\"{tox_root}\") / \
+  \"dist\")'\n\n[testenv:format-references]\ndescription = Format references.bib.\ndeps =\nskip_install = \
+  true\nallowlist_externals = biber\ncommands = biber --tool --output_file={tox_root}{/}docs{/}references.bib --nolog \
+  \\\n    --output_align --output_indent=2 --output_fieldcase=lower \\\n    --output_legacy_dates \
+  --output-field-replace=journaltitle:journal,thesis:phdthesis,institution:school \\\n    \
+  {tox_root}{/}docs{/}references.bib\n\
+  """
 
 [tool.mypy]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
 python_version = "3.11"
 plugins = "numpy.typing.mypy_plugin"
-
 ignore_errors = false
-
 warn_redundant_casts = true
 warn_unused_configs = true
 warn_unused_ignores = true
-
 disallow_untyped_calls = false
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_any_generics = true
-
 strict_optional = true
 strict_equality = true
 warn_return_any = false
@@ -307,12 +234,10 @@ check_untyped_defs = true
 no_implicit_optional = true
 no_implicit_reexport = true
 no_warn_no_return = true
-
 show_error_codes = true
 show_column_numbers = true
 error_summary = true
 ignore_missing_imports = true
-
 disable_error_code = [ "assignment", "comparison-overlap", "no-untyped-def", "override" ]
 
 [tool.cruft]
