@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import pandas as pd
-from ott.neural.methods.flows import dynamics
+from cellflow._compat import BrownianBridge, ConstantNoiseFlow
 
 from cellflow import _constants
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
@@ -477,9 +477,9 @@ class CellFlow:
 
         probability_path, noise = next(iter(probability_path.items()))
         if probability_path == "constant_noise":
-            probability_path = dynamics.ConstantNoiseFlow(noise)
+            probability_path = ConstantNoiseFlow(noise)
         elif probability_path == "bridge":
-            probability_path = dynamics.BrownianBridge(noise)
+            probability_path = BrownianBridge(noise)
         else:
             raise NotImplementedError(
                 f"The key of `probability_path` must be `'constant_noise'` or `'bridge'` but found {probability_path}."

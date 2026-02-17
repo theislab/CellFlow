@@ -38,7 +38,7 @@ dependencies = [
   "diffrax",
   "flax",
   "orbax",
-  "ott-jax==0.5",
+  "ott-jax[neural]>=0.5.0",
   "pyarrow",             # required for dask.dataframe
   "scanpy",
   "scikit-learn==1.5.1",

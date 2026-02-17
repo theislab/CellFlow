@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax.core import frozen_dict
 from flax.training import train_state
-from ott.neural.methods.flows import dynamics
+from cellflow._compat import BaseFlow
 from ott.solvers import utils as solver_utils
 
 from cellflow import utils
@@ -47,7 +47,7 @@ class OTFlowMatching:
     def __init__(
         self,
         vf: ConditionalVelocityField,
-        probability_path: dynamics.BaseFlow,
+        probability_path: BaseFlow,
         match_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None,
         time_sampler: Callable[[jax.Array, int], jnp.ndarray] = solver_utils.uniform_sampler,
         **kwargs: Any,
