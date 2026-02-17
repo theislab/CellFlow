@@ -28,21 +28,15 @@ except ImportError:
             self.sigma = sigma
 
         @abc.abstractmethod
-        def compute_mu_t(
-            self, t: jnp.ndarray, x0: jnp.ndarray, x1: jnp.ndarray
-        ) -> jnp.ndarray: ...
+        def compute_mu_t(self, t: jnp.ndarray, x0: jnp.ndarray, x1: jnp.ndarray) -> jnp.ndarray: ...
 
         @abc.abstractmethod
         def compute_sigma_t(self, t: jnp.ndarray) -> jnp.ndarray: ...
 
         @abc.abstractmethod
-        def compute_ut(
-            self, t: jnp.ndarray, x: jnp.ndarray, x0: jnp.ndarray, x1: jnp.ndarray
-        ) -> jnp.ndarray: ...
+        def compute_ut(self, t: jnp.ndarray, x: jnp.ndarray, x0: jnp.ndarray, x1: jnp.ndarray) -> jnp.ndarray: ...
 
-        def compute_xt(
-            self, rng: jax.Array, t: jnp.ndarray, x0: jnp.ndarray, x1: jnp.ndarray
-        ) -> jnp.ndarray:
+        def compute_xt(self, rng: jax.Array, t: jnp.ndarray, x0: jnp.ndarray, x1: jnp.ndarray) -> jnp.ndarray:
             """Sample from the probability path."""
             noise = jax.random.normal(rng, shape=x0.shape)
             mu_t = self.compute_mu_t(t, x0, x1)

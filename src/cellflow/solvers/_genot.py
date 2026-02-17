@@ -6,13 +6,12 @@ import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
-from flax.training import train_state
 from flax import linen as nn
+from flax.training import train_state
 from ott.solvers import utils as solver_utils
 
-from cellflow._compat import BaseFlow
-
 from cellflow import utils
+from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.model._utils import _multivariate_normal
 

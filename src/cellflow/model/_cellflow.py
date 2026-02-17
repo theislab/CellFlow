@@ -13,9 +13,9 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import pandas as pd
-from cellflow._compat import BrownianBridge, ConstantNoiseFlow
 
 from cellflow import _constants
+from cellflow._compat import BrownianBridge, ConstantNoiseFlow
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
 from cellflow.data._data import ConditionData, TrainingData, ValidationData
 from cellflow.data._dataloader import OOCTrainSampler, PredictionSampler, TrainSampler, ValidationSampler

@@ -8,10 +8,10 @@ import jax.numpy as jnp
 import numpy as np
 from flax.core import frozen_dict
 from flax.training import train_state
-from cellflow._compat import BaseFlow
 from ott.solvers import utils as solver_utils
 
 from cellflow import utils
+from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.networks._velocity_field import ConditionalVelocityField
 from cellflow.solvers.utils import ema_update

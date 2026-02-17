@@ -5,9 +5,9 @@ import jax
 import numpy as np
 import optax
 import pytest
-from cellflow._compat import ConstantNoiseFlow
 
 import cellflow
+from cellflow._compat import ConstantNoiseFlow
 from cellflow.solvers import _genot, _otfm
 from cellflow.utils import match_linear
 
