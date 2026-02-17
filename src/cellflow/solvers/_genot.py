@@ -6,12 +6,12 @@ import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import linen as nn
 from flax.training import train_state
-from ott.neural.methods.flows import dynamics
-from ott.neural.networks import velocity_field
 from ott.solvers import utils as solver_utils
 
 from cellflow import utils
+from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.model._utils import _multivariate_normal
 
@@ -57,8 +57,8 @@ class GENOT:
 
     def __init__(
         self,
-        vf: velocity_field.VelocityField,
-        probability_path: dynamics.BaseFlow,
+        vf: nn.Module,
+        probability_path: BaseFlow,
         data_match_fn: DataMatchFn,
         *,
         source_dim: int,

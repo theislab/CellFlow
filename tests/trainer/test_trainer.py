@@ -5,9 +5,9 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
-from ott.neural.methods.flows import dynamics
 
 import cellflow
+from cellflow._compat import ConstantNoiseFlow
 from cellflow.solvers import _otfm
 from cellflow.training import CellFlowTrainer, ComputationCallback, Metrics
 from cellflow.utils import match_linear
@@ -55,7 +55,7 @@ class TestTrainer:
         model = _otfm.OTFlowMatching(
             vf=vf,
             match_fn=match_linear,
-            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            probability_path=ConstantNoiseFlow(0.0),
             optimizer=opt,
             conditions=cond,
             rng=vf_rng,
@@ -91,7 +91,7 @@ class TestTrainer:
         model = _otfm.OTFlowMatching(
             vf=vf,
             match_fn=match_linear,
-            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            probability_path=ConstantNoiseFlow(0.0),
             optimizer=opt,
             conditions=cond,
             rng=vf_rng,
@@ -137,7 +137,7 @@ class TestTrainer:
         solver = _otfm.OTFlowMatching(
             vf=vf,
             match_fn=match_linear,
-            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            probability_path=ConstantNoiseFlow(0.0),
             optimizer=opt,
             conditions=cond,
             rng=vf_rng,
@@ -181,7 +181,7 @@ class TestTrainer:
         model_1 = _otfm.OTFlowMatching(
             vf=vf_1,
             match_fn=match_linear,
-            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            probability_path=ConstantNoiseFlow(0.0),
             optimizer=opt_1,
             conditions=cond,
             rng=vf_rng,
@@ -189,7 +189,7 @@ class TestTrainer:
         model_2 = _otfm.OTFlowMatching(
             vf=vf_2,
             match_fn=match_linear,
-            probability_path=dynamics.ConstantNoiseFlow(0.0),
+            probability_path=ConstantNoiseFlow(0.0),
             optimizer=opt_2,
             conditions=cond,
             rng=vf_rng,
