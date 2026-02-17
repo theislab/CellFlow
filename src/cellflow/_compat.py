@@ -8,6 +8,17 @@ This module re-exports the symbols needed by CellFlow so that both
 
 # ---------------------------------------------------------------------------
 # Probability-path dynamics (BaseFlow, ConstantNoiseFlow, BrownianBridge)
+#
+# For ott-jax <0.6 we import directly from ott.  For ott-jax >=0.6 the
+# module was removed, so we provide a vendored copy below.
+#
+# The fallback classes are a verbatim copy of
+#   ott.neural.methods.flows.dynamics
+# from ott-jax 0.5.0 (commit 690b1ae, 2024-12-03).
+# ott-jax is licensed under the Apache License 2.0, which permits
+# reproduction and distribution of derivative works provided the license
+# and copyright notice are retained.  See:
+#   https://github.com/ott-jax/ott/blob/0.5.0/LICENSE
 # ---------------------------------------------------------------------------
 try:
     from ott.neural.methods.flows.dynamics import (  # ott-jax <0.6
@@ -16,6 +27,10 @@ try:
         ConstantNoiseFlow,
     )
 except ImportError:
+    # -- Vendored from ott-jax 0.5.0 (Apache-2.0) --------------------------
+    # Source: src/ott/neural/methods/flows/dynamics.py
+    # Copyright OTT-JAX contributors
+    # -----------------------------------------------------------------------
     import abc
 
     import jax
