@@ -87,13 +87,11 @@ except ImportError:
             return drift_term + control_term
 
 
-
 # ---------------------------------------------------------------------------
 # Optional embedding dependencies (torch, transformers)
 # ---------------------------------------------------------------------------
 _EMBEDDING_ERR_MSG = (
-    "To use gene embedding, please install `transformers` and `torch` "
-    "e.g. via `pip install cellflow['embedding']`."
+    "To use gene embedding, please install `transformers` and `torch` e.g. via `pip install cellflow['embedding']`."
 )
 
 try:
