@@ -5,8 +5,8 @@ import jax.numpy as jnp
 import numpyro.distributions as dist
 from scvi import REGISTRY_KEYS
 from scvi.distributions import JaxNegativeBinomialMeanDisp as NegativeBinomial
-from scvi.module._jaxvae import FlaxDecoder, FlaxEncoder
-from scvi.module.base import JaxBaseModuleClass, LossOutput, flax_configure
+from scvi.module._jaxvae import FlaxDecoder, FlaxEncoder, LossOutput
+from scvi.module.base import JaxBaseModuleClass, flax_configure
 
 
 def _get_dict_if_none(param):
