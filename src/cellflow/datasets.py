@@ -2,7 +2,7 @@ import os
 from typing import Any
 
 import anndata as ad
-from scanpy.readwrite import _check_datafile_present_and_download
+import pooch
 
 from cellflow._types import PathLike
 
@@ -121,10 +121,23 @@ def _load_dataset_from_url(
     fpath = os.path.expanduser(fpath)
     if not fpath.endswith(".h5ad"):
         fpath += ".h5ad"
-    if force_download and os.path.exists(fpath):
+    if os.path.exists(fpath) and (force_download or os.path.getsize(fpath) == 0):
         os.remove(fpath)
-    if not _check_datafile_present_and_download(backup_url=backup_url, path=fpath):
-        raise FileNotFoundError(f"File `{fpath}` not found or download failed.")
+    fpath = pooch.retrieve(
+        url=backup_url,
+        known_hash=None,
+        fname=os.path.basename(fpath),
+        path=os.path.dirname(fpath),
+        progressbar=True,
+    )
+    if os.path.getsize(fpath) == 0:
+        os.remove(fpath)
+        raise RuntimeError(
+            f"Downloaded file from {backup_url} is empty (0 bytes). "
+            "The remote server may be blocking programmatic downloads. "
+            "Try downloading the file manually in a browser and placing it at: "
+            f"{fpath}"
+        )
     data = ad.read_h5ad(filename=fpath, **kwargs)
 
     # TODO: enable the dataset shape check

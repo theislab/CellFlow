@@ -1,28 +1,22 @@
+from __future__ import annotations
+
 import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import anndata as ad
-import pandas as pd
-
-from cellflow._logging import logger
-
-try:
-    import requests  # type: ignore[import-untyped]
+if TYPE_CHECKING:
     import torch
     from torch.utils.data import DataLoader
     from transformers import AutoTokenizer, EsmModel
-except ImportError as e:
-    torch = None
-    DataLoader = None
-    AutoTokenizer = None
-    EsmModel = None
-    raise ImportError(
-        "To use gene embedding, please install `transformers` and `torch` \
-            e.g. via `pip install cellflow['embedding']`."
-    ) from e
+
+import anndata as ad
+import pandas as pd
+import requests  # type: ignore[import-untyped]
+
+from cellflow._compat import check_embedding_deps
+from cellflow._logging import logger
 
 __all__ = [
     "get_esm_embedding",
@@ -189,6 +183,9 @@ def create_dataloader(
     toks_per_batch: int,
     collate_fn: Callable,  # type: ignore[type-arg]
 ) -> DataLoader:
+    check_embedding_deps()
+    from torch.utils.data import DataLoader
+
     dataset = BatchedDataset(prot_names, sequences)
     batches = dataset.get_batch_indices(toks_per_batch, extra_toks_per_seq=1)
     data_loader = DataLoader(
@@ -222,6 +219,9 @@ def _get_esm_collate_fn(
 
 
 def get_model_and_tokenizer(model_name: str, use_cuda: bool, cache_dir: None | str) -> tuple[EsmModel, AutoTokenizer]:
+    check_embedding_deps()
+    from transformers import AutoTokenizer, EsmModel
+
     model_path = os.path.join("facebook", model_name)
     model = EsmModel.from_pretrained(model_path, cache_dir=cache_dir, add_pooling_layer=False)
     model.eval()
@@ -271,6 +271,8 @@ def protein_features_from_genes(
             "HF_HOME environment variable is not set and `cache_dir` is None. \
                 Cache will be stored in the current directory."
         )
+    import torch
+
     metadata = prot_sequence_from_ensembl(genes)
     to_emb = metadata[metadata.protein_sequence.notnull()]
     use_cuda = use_cuda and torch.cuda.is_available()

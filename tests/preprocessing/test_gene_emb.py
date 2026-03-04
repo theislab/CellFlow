@@ -4,7 +4,10 @@ from collections import Counter
 import anndata as ad
 import pandas as pd
 import pytest
-import torch
+
+from cellflow._compat import HAS_EMBEDDING_DEPS
+
+pytestmark = pytest.mark.skipif(not HAS_EMBEDDING_DEPS, reason="torch/transformers not installed")
 
 from cellflow.preprocessing._gene_emb import get_esm_embedding
 
@@ -63,6 +66,8 @@ class TestGeneEmb:
     @pytest.mark.skipif(os.getenv("CI") is not None, reason="Skip ESM model download tests in CI environment")
     def test_legacy_emb(self, adata_test_legacy):
         """Test if we can reproduce the original embeddings we used."""
+        import torch
+
         adata = get_esm_embedding(adata_test_legacy, gene_key="gene", copy=True)
         all_genes = adata.obs.gene.tolist()
         for gene in all_genes:

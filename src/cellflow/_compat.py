@@ -1,9 +1,12 @@
-"""Compatibility layer for ``ott-jax`` across versions.
+"""Compatibility helpers for optional and version-gated dependencies.
 
 ``ott-jax>=0.6`` removed ``ott.neural.methods.flows.dynamics`` and the
 ``ott.neural.networks.velocity_field.VelocityField`` (flax linen) class.
 This module re-exports the symbols needed by CellFlow so that both
 ``ott-jax>=0.5,<0.6`` and ``ott-jax>=0.6`` are supported.
+
+The embedding helpers (``torch``, ``transformers``) are optional and only
+required when using gene-embedding functionality.
 """
 
 # ---------------------------------------------------------------------------
@@ -84,4 +87,34 @@ except ImportError:
             return drift_term + control_term
 
 
-__all__ = ["BaseFlow", "ConstantNoiseFlow", "BrownianBridge"]
+
+# ---------------------------------------------------------------------------
+# Optional embedding dependencies (torch, transformers)
+# ---------------------------------------------------------------------------
+_EMBEDDING_ERR_MSG = (
+    "To use gene embedding, please install `transformers` and `torch` "
+    "e.g. via `pip install cellflow['embedding']`."
+)
+
+try:
+    import torch  # noqa: F401
+    import transformers  # noqa: F401
+
+    HAS_EMBEDDING_DEPS = True
+except ImportError:
+    HAS_EMBEDDING_DEPS = False
+
+
+def check_embedding_deps() -> None:
+    """Raise a helpful error if torch/transformers are not installed."""
+    if not HAS_EMBEDDING_DEPS:
+        raise ImportError(_EMBEDDING_ERR_MSG)
+
+
+__all__ = [
+    "BaseFlow",
+    "BrownianBridge",
+    "ConstantNoiseFlow",
+    "HAS_EMBEDDING_DEPS",
+    "check_embedding_deps",
+]
