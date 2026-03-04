@@ -20,6 +20,7 @@ class TestCallbacks:
 
     @pytest.mark.parametrize("metrics", [["r_squared"]])
     def test_vae_reconstruction(self, metrics):
+        pytest.importorskip("scvi", reason="scvi-tools not installed")
         from scvi.data import synthetic_iid
 
         from cellflow.external import CFJaxSCVI

@@ -1,7 +1,11 @@
 import pytest
-from scvi.data import synthetic_iid
+
+from cellflow.external._scvi import _HAS_SCVI
+
+pytestmark = pytest.mark.skipif(not _HAS_SCVI, reason="scvi-tools not installed")
 
 from cellflow.external import CFJaxSCVI
+from scvi.data import synthetic_iid
 
 
 class TestCFJaxSCVI:

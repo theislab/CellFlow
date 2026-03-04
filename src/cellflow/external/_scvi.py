@@ -18,17 +18,26 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["CFJaxSCVI"]
 
+_SCVI_ERR_MSG = (
+    "scvi-tools is required for cellflow.external. "
+    "Please install via `pip install 'cellflow[external]'`."
+)
+
 try:
     from scvi.model import JaxSCVI
+
+    _HAS_SCVI = True
 except ImportError:
+    _HAS_SCVI = False
     JaxSCVI = object
 
 
+def _check_scvi_deps() -> None:
+    if not _HAS_SCVI:
+        raise ImportError(_SCVI_ERR_MSG)
+
+
 class CFJaxSCVI(JaxSCVI):
-    from cellflow.external._scvi_utils import CFJaxVAE
-
-    _module_cls = CFJaxVAE
-
     def __init__(
         self,
         adata: AnnData,
@@ -38,10 +47,12 @@ class CFJaxSCVI(JaxSCVI):
         gene_likelihood: Literal["nb", "poisson", "normal"] = "normal",
         **model_kwargs,
     ):
-        if JaxSCVI is not object:
-            super().__init__(adata)
-        else:
-            pass
+        _check_scvi_deps()
+        from cellflow.external._scvi_utils import CFJaxVAE
+
+        self._module_cls = CFJaxVAE
+
+        super().__init__(adata)
 
         n_batch = self.summary_stats.n_batch
 
