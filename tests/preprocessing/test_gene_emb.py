@@ -9,7 +9,7 @@ from cellflow._compat import HAS_EMBEDDING_DEPS
 
 pytestmark = pytest.mark.skipif(not HAS_EMBEDDING_DEPS, reason="torch/transformers not installed")
 
-from cellflow.preprocessing._gene_emb import get_esm_embedding
+from cellflow.preprocessing._gene_emb import get_esm_embedding  # noqa: E402
 
 IS_PROT_CODING = Counter(["ENSG00000139618", "ENSG00000206450", "ENSG00000049192"])
 ARTIFACTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../test_artifacts/")

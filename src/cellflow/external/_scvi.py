@@ -18,10 +18,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["CFJaxSCVI"]
 
-_SCVI_ERR_MSG = (
-    "scvi-tools is required for cellflow.external. "
-    "Please install via `pip install 'cellflow[external]'`."
-)
+_SCVI_ERR_MSG = "scvi-tools is required for cellflow.external. Please install via `pip install 'cellflow[external]'`."
 
 try:
     from scvi.model import JaxSCVI
