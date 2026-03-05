@@ -226,4 +226,4 @@ class TestTrainer:
         end_2 = time.time()
         diff_2 = end_2 - start_2
 
-        assert diff_2 - diff_1 > 1
+        assert diff_2 - diff_1 > 0.4

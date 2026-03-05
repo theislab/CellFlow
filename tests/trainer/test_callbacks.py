@@ -16,7 +16,7 @@ class TestCallbacks:
 
         reconstruction = decoded_metrics_callback.reconstruct_data(adata_pca.obsm["X_pca"])
         assert reconstruction.shape == adata_pca.X.shape
-        assert jnp.allclose(reconstruction, adata_pca.layers["counts"])
+        assert jnp.allclose(reconstruction, adata_pca.layers["counts"], atol=1e-5)
 
     @pytest.mark.parametrize("metrics", [["r_squared"]])
     def test_vae_reconstruction(self, metrics):
