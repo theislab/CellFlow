@@ -39,7 +39,7 @@ dependencies = [
   "flax",
   "orbax",
   "ott-jax[neural]>=0.5",
-  "pooch",
+  "huggingface_hub",
   "pyarrow",              # required for dask.dataframe
   "scanpy",
   "scikit-learn==1.5.1",
@@ -169,6 +169,7 @@ addopts = [
 ]
 markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "internet: marks tests that require internet access (deselect with '-m \"not internet\"')",
 ]
 
 [tool.coverage.run]
