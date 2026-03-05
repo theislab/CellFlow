@@ -25,7 +25,6 @@ try:
     from scvi.data import AnnDataManager
     from scvi.data.fields import CategoricalObsField, LayerField
     from scvi.model.base import BaseModelClass, JaxTrainingMixin
-    from scvi.utils import setup_anndata_dsp
 
     _HAS_SCVI = True
 except ImportError:
