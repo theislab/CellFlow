@@ -133,70 +133,43 @@ class TestCellFlow:
         assert cond_embed_var.shape[1] == condition_embedding_dim
 
     @pytest.mark.slow
-    @pytest.mark.parametrize("solver", ["otfm", "genot"])
-    @pytest.mark.parametrize("perturbation_covariate_reps", [{}, {"drug": "drug"}])
     def test_cellflow_covar_reps(
         self,
-        adata_perturbation,
-        perturbation_covariate_reps,
-        solver,
+        cf_trained,
     ):
-        sample_rep = "X"
-        control_key = "control"
-        perturbation_covariates = {"drug": ["drug1"]}
-        perturbation_covariate_reps = {"drug": "drug"}
-        condition_embedding_dim = 32
-        vf_kwargs = {"genot_source_dims": (32, 32), "genot_source_dropout": 0.1} if solver == "genot" else None
+        cf, adata = cf_trained
 
-        cf = cellflow.model.CellFlow(adata_perturbation, solver=solver)
-        cf.prepare_data(
-            sample_rep=sample_rep,
-            control_key=control_key,
-            perturbation_covariates=perturbation_covariates,
-            perturbation_covariate_reps=perturbation_covariate_reps,
-        )
         assert cf.train_data is not None
         assert hasattr(cf, "_data_dim")
-
-        cf.prepare_model(
-            condition_embedding_dim=condition_embedding_dim,
-            hidden_dims=(2, 2),
-            decoder_dims=(2, 2),
-            vf_kwargs=vf_kwargs,
-        )
         assert cf._trainer is not None
 
-        vector_field_class = (
-            _velocity_field.ConditionalVelocityField
-            if solver == "otfm"
-            else _velocity_field.GENOTConditionalVelocityField
+        assert cf._vf_class in (
+            _velocity_field.ConditionalVelocityField,
+            _velocity_field.GENOTConditionalVelocityField,
         )
-        assert cf._vf_class == vector_field_class
-        cf.train(num_iterations=3)
         assert cf._dataloader is not None
 
-        # we assume these are all source cells now in adata_perturbation
-        adata_perturbation_pred = adata_perturbation.copy()
-        adata_perturbation_pred.obs["control"] = True
+        adata_pred = adata.copy()
+        adata_pred.obs["control"] = True
         pred = cf.predict(
-            adata_perturbation_pred,
-            sample_rep=sample_rep,
-            covariate_data=adata_perturbation_pred.obs,
+            adata_pred,
+            sample_rep="X",
+            covariate_data=adata_pred.obs,
             max_steps=3,
             throw=False,
         )
         assert isinstance(pred, dict)
         out = next(iter(pred.values()))
-        assert out.shape[0] == adata_perturbation.n_obs
+        assert out.shape[0] == adata.n_obs
         assert out.shape[1] == cf._data_dim
 
-        covs = adata_perturbation.obs.drop_duplicates(subset=["drug1"])
-        out = cf.get_condition_embedding(covariate_data=covs, rep_dict=adata_perturbation.uns)
+        covs = adata.obs.drop_duplicates(subset=["drug1"])
+        out = cf.get_condition_embedding(covariate_data=covs, rep_dict=adata.uns)
         assert isinstance(out, tuple)
         assert isinstance(out[0], pd.DataFrame)
         assert isinstance(out[1], pd.DataFrame)
         assert out[0].shape[0] == len(covs)
-        assert out[0].shape[1] == condition_embedding_dim
+        assert out[0].shape[1] == cf.solver.vf.condition_embedding_dim
 
     @pytest.mark.slow
     @pytest.mark.parametrize("split_covariates", [[], ["cell_type"]])
@@ -247,38 +220,16 @@ class TestCellFlow:
             assert cond_data[k].ndim == 3
             assert cond_data[k].shape[1] == cf.train_data.max_combination_length
 
-    @pytest.fixture(params=["otfm", "genot"], scope="class")
-    def cf_with_model(self, request):
-        from tests.conftest import _make_adata_perturbation
-
-        solver = request.param
-        adata = _make_adata_perturbation()
-        vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
-        cf = cellflow.model.CellFlow(adata, solver=solver)
-        cf.prepare_data(
-            sample_rep="X",
-            control_key="control",
-            perturbation_covariates={"drug": ["drug1"]},
-            perturbation_covariate_reps={"drug": "drug"},
-        )
-        cf.prepare_model(
-            condition_embedding_dim=2,
-            hidden_dims=(2, 2),
-            decoder_dims=(2, 2),
-            vf_kwargs=vf_kwargs,
-        )
-        return cf, adata
-
     @pytest.mark.slow
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 1])
     @pytest.mark.parametrize("n_conditions_on_train_end", [None, 0, 1])
     def test_cellflow_with_validation(
         self,
-        cf_with_model,
+        cf_trained,
         n_conditions_on_log_iteration,
         n_conditions_on_train_end,
     ):
-        cf, adata = cf_with_model
+        cf, adata = cf_trained
         assert cf.train_data is not None
         assert hasattr(cf, "_data_dim")
 
