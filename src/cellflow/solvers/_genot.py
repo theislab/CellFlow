@@ -284,6 +284,11 @@ class GENOT:
 
             pred_targets = batched_predict(src_inputs, batched_conditions)
             return {k: pred_targets[i] for i, k in enumerate(keys)}
+        elif isinstance(x, dict):
+            return {
+                k: np.array(self._predict_jit(x[k], condition[k], rng, rng_genot, **kwargs))
+                for k in x
+            }
         else:
             x_pred = self._predict_jit(x, condition, rng, rng_genot, **kwargs)
             return np.array(x_pred)
