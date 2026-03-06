@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import linen as nn
+from flax.core import frozen_dict
 from flax.training import train_state
 from ott.solvers import utils as solver_utils
 
@@ -14,7 +15,6 @@ from cellflow import utils
 from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.model._utils import _multivariate_normal
-from cellflow.solvers.utils import predict_multi_condition
 
 __all__ = ["GENOT"]
 
@@ -85,6 +85,7 @@ class GENOT:
             **kwargs,
         )
         self.vf_step_fn = self._get_vf_step_fn()
+        self._predict_fn_cache: dict[tuple, Any] = {}
 
     def _get_vf_step_fn(self) -> Callable:  #  type: ignore[type-arg]
         @jax.jit
@@ -235,7 +236,6 @@ class GENOT:
         condition: dict[str, ArrayLike] | None = None,
         rng: ArrayLike | None = None,
         rng_genot: ArrayLike | None = None,
-        batched: bool = False,
         **kwargs: Any,
     ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
         """Generate the push-forward of ``x`` under condition ``condition``.
@@ -255,10 +255,6 @@ class GENOT:
             mean embedding is used.
         rng_genot
             Random generate used to sample from the latent distribution in cell space.
-        batched
-            Whether to use batched prediction. This is only supported if the input has
-            the same number of cells for each condition. For example, this works when using
-            :class:`~cellflow.data.ValidationSampler` to sample the validation data.
         kwargs
             Keyword arguments for :func:`diffrax.diffeqsolve`.
 
@@ -270,34 +266,22 @@ class GENOT:
             return {}
 
         if isinstance(x, dict):
-            return predict_multi_condition(
-                predict_fn=lambda x, condition: self._predict_jit(x, condition, rng, rng_genot, **kwargs),
-                predict_fn_unbatched=functools.partial(self._predict_jit, rng=rng, rng_genot=rng_genot, **kwargs),
-                x=x,
-                condition=condition,
-            )
+            jax_results = {k: self._predict_jit(x[k], condition[k], rng, rng_genot, **kwargs) for k in x}
+            return {k: np.array(v) for k, v in jax_results.items()}
         else:
             x_pred = self._predict_jit(x, condition, rng, rng_genot, **kwargs)
             return np.array(x_pred)
 
-    def _predict_jit(
-        self,
-        x: ArrayLike,
-        condition: dict[str, ArrayLike] | None = None,
-        rng: ArrayLike | None = None,
-        rng_genot: ArrayLike | None = None,
-        **kwargs: Any,
-    ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
-        kwargs.setdefault("dt0", None)
-        kwargs.setdefault("solver", diffrax.Tsit5())
-        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+    def _get_predict_fn(self, kwargs_frozen: frozen_dict.FrozenDict) -> Callable:
+        """Build and cache a jit+vmap predict function for the given diffrax kwargs.
 
-        noise_dim = (1, self.vf.condition_embedding_dim)
-        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
-        rng = utils.default_prng_key(rng)
-        encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
-        rng_genot = utils.default_prng_key(rng_genot)
-        latent = self.latent_noise_fn(rng_genot, (x.shape[0],))
+        The returned function is created once per unique set of diffrax kwargs,
+        then reused on subsequent calls.
+        """
+        if kwargs_frozen in self._predict_fn_cache:
+            return self._predict_fn_cache[kwargs_frozen]
+
+        kwargs = dict(kwargs_frozen)
 
         def vf(t: float, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
             params = self.vf_state.params
@@ -318,8 +302,32 @@ class GENOT:
             )
             return sol.ys[0]
 
-        x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None, None]))(latent, x, condition, encoder_noise)
-        return x_pred
+        fn = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None, None]))
+        self._predict_fn_cache[kwargs_frozen] = fn
+        return fn
+
+    def _predict_jit(
+        self,
+        x: ArrayLike,
+        condition: dict[str, ArrayLike] | None = None,
+        rng: ArrayLike | None = None,
+        rng_genot: ArrayLike | None = None,
+        **kwargs: Any,
+    ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
+        kwargs.setdefault("dt0", None)
+        kwargs.setdefault("solver", diffrax.Tsit5())
+        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+        kwargs_frozen = frozen_dict.freeze(kwargs)
+
+        noise_dim = (1, self.vf.condition_embedding_dim)
+        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
+        rng = utils.default_prng_key(rng)
+        encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
+        rng_genot = utils.default_prng_key(rng_genot)
+        latent = self.latent_noise_fn(rng_genot, (x.shape[0],))
+
+        predict_fn = self._get_predict_fn(kwargs_frozen)
+        return predict_fn(latent, x, condition, encoder_noise)
 
     @property
     def is_trained(self) -> bool:

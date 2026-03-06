@@ -247,30 +247,43 @@ class TestCellFlow:
             assert cond_data[k].ndim == 3
             assert cond_data[k].shape[1] == cf.train_data.max_combination_length
 
-    @pytest.mark.slow
-    @pytest.mark.parametrize("solver", ["otfm", "genot"])
-    @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 1])
-    @pytest.mark.parametrize("n_conditions_on_train_end", [None, 0, 1])
-    def test_cellflow_with_validation(
-        self,
-        adata_perturbation,
-        solver,
-        n_conditions_on_log_iteration,
-        n_conditions_on_train_end,
-    ):
+    @pytest.fixture(params=["otfm", "genot"], scope="class")
+    def cf_with_model(self, request):
+        from tests.conftest import _make_adata_perturbation
+
+        solver = request.param
+        adata = _make_adata_perturbation()
         vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
-        cf = cellflow.model.CellFlow(adata_perturbation, solver=solver)
+        cf = cellflow.model.CellFlow(adata, solver=solver)
         cf.prepare_data(
             sample_rep="X",
             control_key="control",
             perturbation_covariates={"drug": ["drug1"]},
             perturbation_covariate_reps={"drug": "drug"},
         )
+        cf.prepare_model(
+            condition_embedding_dim=2,
+            hidden_dims=(2, 2),
+            decoder_dims=(2, 2),
+            vf_kwargs=vf_kwargs,
+        )
+        return cf, adata
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 0, 1])
+    @pytest.mark.parametrize("n_conditions_on_train_end", [None, 0, 1])
+    def test_cellflow_with_validation(
+        self,
+        cf_with_model,
+        n_conditions_on_log_iteration,
+        n_conditions_on_train_end,
+    ):
+        cf, adata = cf_with_model
         assert cf.train_data is not None
         assert hasattr(cf, "_data_dim")
 
         cf.prepare_validation_data(
-            adata_perturbation,
+            adata,
             name="val",
             n_conditions_on_log_iteration=n_conditions_on_log_iteration,
             n_conditions_on_train_end=n_conditions_on_train_end,
@@ -286,19 +299,7 @@ class TestCellFlow:
         assert cond_data["drug"].ndim == 3
         assert cond_data["drug"].shape[1] == cf.train_data.max_combination_length
 
-        condition_encoder_kwargs = {}
-        if solver == "genot":
-            condition_encoder_kwargs["genot_source_layers"] = (({"dims": (32, 32)}),)
-            condition_encoder_kwargs["genot_source_dim"] = 32
-
-        cf.prepare_model(
-            condition_embedding_dim=2,
-            hidden_dims=(2, 2),
-            decoder_dims=(2, 2),
-            vf_kwargs=vf_kwargs,
-        )
         assert cf._trainer is not None
-
         metric_to_compute = "r_squared"
         metrics_callback = cellflow.training.Metrics(metrics=[metric_to_compute])
 

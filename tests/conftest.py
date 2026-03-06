@@ -72,8 +72,7 @@ def big_validdata():
     return {"big_val": ValidDataToSubsample()}
 
 
-@pytest.fixture()
-def adata_perturbation() -> ad.AnnData:
+def _make_adata_perturbation() -> ad.AnnData:
     n_obs = 500
     n_vars = 50
     n_pca = 10
@@ -143,6 +142,11 @@ def adata_perturbation() -> ad.AnnData:
     adata.uns["cell_type"] = cell_type_emb
 
     return adata
+
+
+@pytest.fixture()
+def adata_perturbation() -> ad.AnnData:
+    return _make_adata_perturbation()
 
 
 @pytest.fixture()
