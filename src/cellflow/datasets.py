@@ -1,19 +1,17 @@
-import os
 from typing import Any
 
 import anndata as ad
-from scanpy.readwrite import _check_datafile_present_and_download
-
-from cellflow._types import PathLike
+from huggingface_hub import hf_hub_download
 
 __all__ = [
     "ineurons",
     "pbmc_cytokines",
 ]
 
+_HF_REPO = "theislab/cellflow-datasets"
+
 
 def ineurons(
-    path: PathLike = "~/.cache/cellflow/ineurons.h5ad",
     force_download: bool = False,
     **kwargs: Any,
 ) -> ad.AnnData:
@@ -24,28 +22,23 @@ def ineurons(
 
     Parameters
     ----------
-    path
-        Path where to save the file.
     force_download
         Whether to force-download the data.
     kwargs
-        Keyword arguments for :func:`scanpy.read`.
+        Keyword arguments for :func:`anndata.read_h5ad`.
 
     Returns
     -------
     Annotated data object.
     """
-    return _load_dataset_from_url(
-        path,
-        backup_url="https://figshare.com/ndownloader/files/52852961",
-        expected_shape=(54134, 2000),  # TODO: adapt this, and enable check
+    return _load_dataset(
+        filename="ineurons.h5ad",
         force_download=force_download,
         **kwargs,
     )
 
 
 def pbmc_cytokines(
-    path: PathLike = "~/.cache/cellflow/pbmc_parse.h5ad",
     force_download: bool = False,
     **kwargs: Any,
 ) -> ad.AnnData:
@@ -57,28 +50,23 @@ def pbmc_cytokines(
 
     Parameters
     ----------
-    path
-        Path where to save the file.
     force_download
         Whether to force-download the data.
     kwargs
-        Keyword arguments for :func:`scanpy.read`.
+        Keyword arguments for :func:`anndata.read_h5ad`.
 
     Returns
     -------
     Annotated data object.
     """
-    return _load_dataset_from_url(
-        path,
-        backup_url="https://figshare.com/ndownloader/files/53372768",
-        expected_shape=(54134, 2000),  # TODO: adapt this, and enable check
+    return _load_dataset(
+        filename="pbmc_parse.h5ad",
         force_download=force_download,
         **kwargs,
     )
 
 
 def zesta(
-    path: PathLike = "~/.cache/cellflow/zesta.h5ad",
     force_download: bool = False,
     **kwargs: Any,
 ) -> ad.AnnData:
@@ -90,47 +78,33 @@ def zesta(
 
     Parameters
     ----------
-    path
-        Path where to save the file.
     force_download
         Whether to force-download the data.
     kwargs
-        Keyword arguments for :func:`scanpy.read`.
+        Keyword arguments for :func:`anndata.read_h5ad`.
 
     Returns
     -------
     Annotated data object.
     """
-    return _load_dataset_from_url(
-        path,
-        backup_url="https://figshare.com/ndownloader/files/52966469",
-        expected_shape=(54134, 2000),  # TODO: adapt this, and enable check
+    return _load_dataset(
+        filename="zesta.h5ad",
         force_download=force_download,
         **kwargs,
     )
 
 
-def _load_dataset_from_url(
-    fpath: PathLike,
+def _load_dataset(
+    filename: str,
     *,
-    backup_url: str,
-    expected_shape: tuple[int, int],
+    repo_id: str = _HF_REPO,
     force_download: bool = False,
     **kwargs: Any,
 ) -> ad.AnnData:
-    fpath = os.path.expanduser(fpath)
-    if not fpath.endswith(".h5ad"):
-        fpath += ".h5ad"
-    if force_download and os.path.exists(fpath):
-        os.remove(fpath)
-    if not _check_datafile_present_and_download(backup_url=backup_url, path=fpath):
-        raise FileNotFoundError(f"File `{fpath}` not found or download failed.")
-    data = ad.read_h5ad(filename=fpath, **kwargs)
-
-    # TODO: enable the dataset shape check
-    # if data.shape != expected_shape:
-    #    raise ValueError(
-    #        f"Expected AnnData object to have shape `{expected_shape}`, found `{data.shape}`."
-    #    )
-
-    return data
+    fpath = hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        repo_type="dataset",
+        force_download=force_download,
+    )
+    return ad.read_h5ad(fpath, **kwargs)

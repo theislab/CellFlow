@@ -37,12 +37,13 @@ dependencies = [
   "dask",
   "diffrax",
   "flax",
+  "huggingface-hub",
   "orbax",
-  "ott-jax==0.5",
-  "pyarrow",             # required for dask.dataframe
+  "ott-jax[neural]>=0.5",
+  "pyarrow",              # required for dask.dataframe
   "scanpy",
   "scikit-learn==1.5.1",
-  "scipy<1.16",          # see https://github.com/statsmodels/statsmodels/issues/9584
+  "scipy<1.16",           # see https://github.com/statsmodels/statsmodels/issues/9584
   "session-info",
 ]
 
@@ -168,6 +169,7 @@ addopts = [
 ]
 markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "internet: marks tests that require internet access (deselect with '-m \"not internet\"')",
 ]
 
 [tool.coverage.run]

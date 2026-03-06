@@ -8,13 +8,13 @@ import jax.numpy as jnp
 import numpy as np
 from flax.core import frozen_dict
 from flax.training import train_state
-from ott.neural.methods.flows import dynamics
 from ott.solvers import utils as solver_utils
 
 from cellflow import utils
+from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.networks._velocity_field import ConditionalVelocityField
-from cellflow.solvers.utils import ema_update
+from cellflow.solvers.utils import ema_update, predict_multi_condition
 
 __all__ = ["OTFlowMatching"]
 
@@ -47,7 +47,7 @@ class OTFlowMatching:
     def __init__(
         self,
         vf: ConditionalVelocityField,
-        probability_path: dynamics.BaseFlow,
+        probability_path: BaseFlow,
         match_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None,
         time_sampler: Callable[[jax.Array, int], jnp.ndarray] = solver_utils.uniform_sampler,
         **kwargs: Any,
@@ -257,30 +257,15 @@ class OTFlowMatching:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
-        if batched and not x:
+        if isinstance(x, dict) and not x:
             return {}
 
-        if batched:
-            keys = sorted(x.keys())
-            condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
-            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
-            batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
-            # assert that the number of cells is the same for each condition
-            n_cells = x[keys[0]].shape[0]
-            for k in keys:
-                assert x[k].shape[0] == n_cells, "The number of cells must be the same for each condition"
-            src_inputs = jnp.stack([x[k] for k in keys], axis=0)
-            batched_conditions = {}
-            for cond_key in condition_keys:
-                batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
-
-            pred_targets = batched_predict(src_inputs, batched_conditions)
-            return {k: pred_targets[i] for i, k in enumerate(keys)}
-        elif isinstance(x, dict):
-            return jax.tree.map(
-                partial(self._predict_jit, rng=rng, **kwargs),
-                x,
-                condition,  # type: ignore[attr-defined]
+        if isinstance(x, dict):
+            return predict_multi_condition(
+                predict_fn=lambda x, condition: self._predict_jit(x, condition, rng, **kwargs),
+                predict_fn_unbatched=partial(self._predict_jit, rng=rng, **kwargs),
+                x=x,
+                condition=condition,
             )
         else:
             x_pred = self._predict_jit(x, condition, rng, **kwargs)

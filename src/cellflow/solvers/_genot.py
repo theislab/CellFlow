@@ -6,14 +6,15 @@ import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import linen as nn
 from flax.training import train_state
-from ott.neural.methods.flows import dynamics
-from ott.neural.networks import velocity_field
 from ott.solvers import utils as solver_utils
 
 from cellflow import utils
+from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.model._utils import _multivariate_normal
+from cellflow.solvers.utils import predict_multi_condition
 
 __all__ = ["GENOT"]
 
@@ -57,8 +58,8 @@ class GENOT:
 
     def __init__(
         self,
-        vf: velocity_field.VelocityField,
-        probability_path: dynamics.BaseFlow,
+        vf: nn.Module,
+        probability_path: BaseFlow,
         data_match_fn: DataMatchFn,
         *,
         source_dim: int,
@@ -265,25 +266,16 @@ class GENOT:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
-        if batched and not x:
+        if isinstance(x, dict) and not x:
             return {}
 
-        if batched:
-            keys = sorted(x.keys())
-            condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
-            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
-            batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
-            # assert that the number of cells is the same for each condition
-            n_cells = x[keys[0]].shape[0]
-            for k in keys:
-                assert x[k].shape[0] == n_cells, "The number of cells must be the same for each condition"
-            src_inputs = jnp.stack([x[k] for k in keys], axis=0)
-            batched_conditions = {}
-            for cond_key in condition_keys:
-                batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
-
-            pred_targets = batched_predict(src_inputs, batched_conditions)
-            return {k: pred_targets[i] for i, k in enumerate(keys)}
+        if isinstance(x, dict):
+            return predict_multi_condition(
+                predict_fn=lambda x, condition: self._predict_jit(x, condition, rng, rng_genot, **kwargs),
+                predict_fn_unbatched=functools.partial(self._predict_jit, rng=rng, rng_genot=rng_genot, **kwargs),
+                x=x,
+                condition=condition,
+            )
         else:
             x_pred = self._predict_jit(x, condition, rng, rng_genot, **kwargs)
             return np.array(x_pred)
