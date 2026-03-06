@@ -235,8 +235,8 @@ class CellFlow:
         predict_kwargs = predict_kwargs or {}
         if (
             "predict_kwargs" in self._validation_data
-            and self._validation_data["predict_kwargs"]
-            and len(predict_kwargs)
+            and len(self._validation_data["predict_kwargs"]) > 0
+            and len(predict_kwargs) > 0
         ):
             self._validation_data["predict_kwargs"].update(predict_kwargs)
             predict_kwargs = self._validation_data["predict_kwargs"]
@@ -564,7 +564,7 @@ class CellFlow:
         else:
             self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
         validation_loaders = {k: ValidationSampler(v) for k, v in self.validation_data.items() if k != "predict_kwargs"}
-        self._trainer.predict_kwargs = self.validation_data.get("predict_kwargs", {}) or {}
+        self._trainer.predict_kwargs = self.validation_data.get("predict_kwargs", {})
 
         self._solver = self.trainer.train(
             dataloader=self._dataloader,
