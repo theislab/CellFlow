@@ -274,9 +274,7 @@ class GENOT:
             n_cells_per_key = {k: x[k].shape[0] for k in keys}
             min_cells = min(n_cells_per_key.values())
 
-            _predict_jit = jax.jit(
-                lambda x, condition: self._predict_jit(x, condition, rng, rng_genot, **kwargs)
-            )
+            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, rng_genot, **kwargs))
             batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
 
             src_inputs = jnp.stack([x[k][:min_cells] for k in keys], axis=0)
