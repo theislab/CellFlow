@@ -233,7 +233,11 @@ class CellFlow:
         )
         self._validation_data[name] = val_data
         predict_kwargs = predict_kwargs or {}
-        if "predict_kwargs" in self._validation_data and self._validation_data["predict_kwargs"] and len(predict_kwargs):
+        if (
+            "predict_kwargs" in self._validation_data
+            and self._validation_data["predict_kwargs"]
+            and len(predict_kwargs)
+        ):
             self._validation_data["predict_kwargs"].update(predict_kwargs)
             predict_kwargs = self._validation_data["predict_kwargs"]
         self._validation_data["predict_kwargs"] = predict_kwargs
