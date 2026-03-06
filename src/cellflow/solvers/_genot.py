@@ -265,27 +265,41 @@ class GENOT:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
-        if batched and not x:
+        if isinstance(x, dict) and not x:
             return {}
 
-        if batched:
+        if isinstance(x, dict):
             keys = sorted(x.keys())
             condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
-            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
+            n_cells_per_key = {k: x[k].shape[0] for k in keys}
+            min_cells = min(n_cells_per_key.values())
+
+            _predict_jit = jax.jit(
+                lambda x, condition: self._predict_jit(x, condition, rng, rng_genot, **kwargs)
+            )
             batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
-            # assert that the number of cells is the same for each condition
-            n_cells = x[keys[0]].shape[0]
-            for k in keys:
-                assert x[k].shape[0] == n_cells, "The number of cells must be the same for each condition"
-            src_inputs = jnp.stack([x[k] for k in keys], axis=0)
+
+            src_inputs = jnp.stack([x[k][:min_cells] for k in keys], axis=0)
             batched_conditions = {}
             for cond_key in condition_keys:
                 batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
 
             pred_targets = batched_predict(src_inputs, batched_conditions)
-            return {k: pred_targets[i] for i, k in enumerate(keys)}
-        elif isinstance(x, dict):
-            return {k: np.array(self._predict_jit(x[k], condition[k], rng, rng_genot, **kwargs)) for k in x}
+            result = {k: pred_targets[i] for i, k in enumerate(keys)}
+
+            remainder_keys = [k for k in keys if n_cells_per_key[k] > min_cells]
+            if remainder_keys:
+                remainder_x = {k: x[k][min_cells:] for k in remainder_keys}
+                remainder_cond = {k: condition[k] for k in remainder_keys}
+                remainder_pred = jax.tree.map(
+                    functools.partial(self._predict_jit, rng=rng, rng_genot=rng_genot, **kwargs),
+                    remainder_x,
+                    remainder_cond,
+                )
+                for k in remainder_keys:
+                    result[k] = jnp.concatenate([result[k], remainder_pred[k]], axis=0)
+
+            return result
         else:
             x_pred = self._predict_jit(x, condition, rng, rng_genot, **kwargs)
             return np.array(x_pred)
