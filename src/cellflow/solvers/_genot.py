@@ -1,4 +1,5 @@
 import functools
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -262,6 +263,15 @@ class GENOT:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
+        if "batched" in kwargs:
+            warnings.warn(
+                "The `batched` argument is deprecated and will be removed in a future version. "
+                "Batched prediction is now the default behavior when passing a dictionary.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            kwargs.pop("batched")
+
         if isinstance(x, dict) and not x:
             return {}
 
