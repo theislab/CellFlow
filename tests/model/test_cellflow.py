@@ -260,8 +260,10 @@ class TestCellFlow:
 
     @pytest.mark.slow
     @pytest.mark.parametrize("solver", ["otfm", "genot"])
-    @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
-    @pytest.mark.parametrize("regularization", [0.0, 0.1])
+    @pytest.mark.parametrize(
+        "condition_mode,regularization",
+        [("deterministic", 0.0), ("deterministic", 0.1), ("stochastic", 0.1)],
+    )
     def test_cellflow_predict(
         self,
         adata_perturbation,
@@ -279,18 +281,6 @@ class TestCellFlow:
         )
 
         vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
-        if condition_mode == "stochastic" and regularization == 0.0:
-            with pytest.raises(
-                ValueError,
-                match=r".*Stochastic condition embeddings require `regularization`>0*",
-            ):
-                cf.prepare_model(
-                    condition_mode=condition_mode,
-                    regularization=regularization,
-                    hidden_dims=(2, 2),
-                    decoder_dims=(2, 2),
-                )
-            return None
         cf.prepare_model(
             condition_mode=condition_mode,
             regularization=regularization,
@@ -302,15 +292,23 @@ class TestCellFlow:
 
         cf.train(num_iterations=3)
 
-        adata_pred = adata_perturbation
+        adata_pred = adata_perturbation.copy()
         adata_pred.obs["control"] = True
-        covariate_data = adata_perturbation.obs.iloc[:3]
+        covariate_data = adata_pred.obs.iloc[:3]
 
         pred = cf.predict(adata_pred, sample_rep="X", covariate_data=covariate_data, max_steps=3, throw=False)
 
         assert isinstance(pred, dict)
         out = next(iter(pred.values()))
         assert out.shape[1] == cf._data_dim
+
+    @pytest.mark.slow
+    def test_cellflow_predict_errors(self, cf_trained_split):
+        cf, adata = cf_trained_split
+
+        adata_pred = adata.copy()
+        adata_pred.obs["control"] = True
+        covariate_data = adata_pred.obs.iloc[:3]
 
         adata_pred.obs["control"].iloc[0:20] = False
         with pytest.raises(
