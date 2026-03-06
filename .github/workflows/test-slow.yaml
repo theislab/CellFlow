@@ -25,10 +25,24 @@ jobs:
         include:
           - os: ubuntu-latest
             python: "3.12"
+            group: 1
+          - os: ubuntu-latest
+            python: "3.12"
+            group: 2
+          - os: ubuntu-latest
+            python: "3.12"
+            group: 3
           - os: macos-latest
             python: "3.12"
+            group: 1
+          - os: macos-latest
+            python: "3.12"
+            group: 2
+          - os: macos-latest
+            python: "3.12"
+            group: 3
 
-    name: ${{ matrix.name }} Python ${{ matrix.python }}
+    name: ${{ matrix.name }} Python ${{ matrix.python }} (group ${{ matrix.group }}/3)
 
     env:
       OS: ${{ matrix.os }}
@@ -53,9 +67,9 @@ jobs:
           pip install wandb omegaconf
       - name: Test slow functions
         run: |
-          tox -e py-${{ matrix.python }} -- -m "slow"
+          tox -e py-${{ matrix.python }} -- -m "slow" --splits 3 --group ${{ matrix.group }} --splitting-algorithm least_duration
         env:
-          PYTEST_ADDOPTS: -vv -n 2
+          PYTEST_ADDOPTS: -vv
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

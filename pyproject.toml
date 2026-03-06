@@ -97,6 +97,7 @@ optional-dependencies.test = [
   "pytest-cov>=6",
   "pytest-mock>=3.5",
   "pytest-xdist>=3",
+  "pytest-split",
 ]
 
 urls.Documentation = "https://cellflow.readthedocs.io/"
