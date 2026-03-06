@@ -14,7 +14,7 @@ from cellflow import utils
 from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.networks._velocity_field import ConditionalVelocityField
-from cellflow.solvers.utils import ema_update
+from cellflow.solvers.utils import ema_update, predict_multi_condition
 
 __all__ = ["OTFlowMatching"]
 
@@ -261,35 +261,12 @@ class OTFlowMatching:
             return {}
 
         if isinstance(x, dict):
-            keys = sorted(x.keys())
-            condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
-            n_cells_per_key = {k: x[k].shape[0] for k in keys}
-            min_cells = min(n_cells_per_key.values())
-
-            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
-            batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
-
-            src_inputs = jnp.stack([x[k][:min_cells] for k in keys], axis=0)
-            batched_conditions = {}
-            for cond_key in condition_keys:
-                batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
-
-            pred_targets = batched_predict(src_inputs, batched_conditions)
-            result = {k: pred_targets[i] for i, k in enumerate(keys)}
-
-            remainder_keys = [k for k in keys if n_cells_per_key[k] > min_cells]
-            if remainder_keys:
-                remainder_x = {k: x[k][min_cells:] for k in remainder_keys}
-                remainder_cond = {k: condition[k] for k in remainder_keys}
-                remainder_pred = jax.tree.map(
-                    partial(self._predict_jit, rng=rng, **kwargs),
-                    remainder_x,
-                    remainder_cond,
-                )
-                for k in remainder_keys:
-                    result[k] = jnp.concatenate([result[k], remainder_pred[k]], axis=0)
-
-            return result
+            return predict_multi_condition(
+                predict_fn=lambda x, condition: self._predict_jit(x, condition, rng, **kwargs),
+                predict_fn_unbatched=partial(self._predict_jit, rng=rng, **kwargs),
+                x=x,
+                condition=condition,
+            )
         else:
             x_pred = self._predict_jit(x, condition, rng, **kwargs)
             return np.array(x_pred)
