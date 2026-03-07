@@ -64,7 +64,7 @@ class OTFlowMatching:
         self.vf_state = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_state_inference = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_step_fn = self._get_vf_step_fn()
-        self._predict_fn_cache: dict[tuple, Any] = {}
+        self._predict_fn_cache: dict[frozen_dict.FrozenDict, Any] = {}
 
     def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
         @jax.jit
