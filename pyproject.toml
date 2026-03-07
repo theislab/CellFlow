@@ -96,6 +96,7 @@ optional-dependencies.test = [
   "pytest",
   "pytest-cov>=6",
   "pytest-mock>=3.5",
+  "pytest-split",
   "pytest-xdist>=3",
 ]
 

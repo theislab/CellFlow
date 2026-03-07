@@ -1,5 +1,5 @@
+import warnings
 from collections.abc import Callable
-from functools import partial
 from typing import Any
 
 import diffrax
@@ -14,7 +14,7 @@ from cellflow import utils
 from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.networks._velocity_field import ConditionalVelocityField
-from cellflow.solvers.utils import ema_update, predict_multi_condition
+from cellflow.solvers.utils import ema_update
 
 __all__ = ["OTFlowMatching"]
 
@@ -64,6 +64,7 @@ class OTFlowMatching:
         self.vf_state = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_state_inference = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_step_fn = self._get_vf_step_fn()
+        self._predict_fn_cache: dict[frozen_dict.FrozenDict, Any] = {}
 
     def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
         @jax.jit
@@ -186,19 +187,16 @@ class OTFlowMatching:
             return np.asarray(cond_mean), np.asarray(cond_logvar)
         return cond_mean, cond_logvar
 
-    def _predict_jit(
-        self, x: ArrayLike, condition: dict[str, ArrayLike], rng: jax.Array | None = None, **kwargs: Any
-    ) -> ArrayLike:
-        """See :meth:`OTFlowMatching.predict`."""
-        kwargs.setdefault("dt0", None)
-        kwargs.setdefault("solver", diffrax.Tsit5())
-        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
-        kwargs = frozen_dict.freeze(kwargs)
+    def _get_predict_fn(self, kwargs_frozen: frozen_dict.FrozenDict) -> Callable:
+        """Build and cache a jit+vmap predict function for the given diffrax kwargs.
 
-        noise_dim = (1, self.vf.condition_embedding_dim)
-        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
-        rng = utils.default_prng_key(rng)
-        encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
+        The returned function is created once per unique set of diffrax kwargs,
+        then reused on subsequent calls.
+        """
+        if kwargs_frozen in self._predict_fn_cache:
+            return self._predict_fn_cache[kwargs_frozen]
+
+        kwargs = dict(kwargs_frozen)
 
         def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
             params = self.vf_state_inference.params
@@ -217,15 +215,36 @@ class OTFlowMatching:
             )
             return result.ys[0]
 
-        x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))(x, condition, encoder_noise)
-        return x_pred
+        fn = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))
+        self._predict_fn_cache[kwargs_frozen] = fn
+        return fn
+
+    def _predict_jit(
+        self,
+        x: ArrayLike,
+        condition: dict[str, ArrayLike],
+        rng: jax.Array | None = None,
+        **kwargs: Any,
+    ) -> ArrayLike:
+        """See :meth:`OTFlowMatching.predict`."""
+        kwargs.setdefault("dt0", None)
+        kwargs.setdefault("solver", diffrax.Tsit5())
+        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+        kwargs_frozen = frozen_dict.freeze(kwargs)
+
+        noise_dim = (1, self.vf.condition_embedding_dim)
+        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
+        rng = utils.default_prng_key(rng)
+        encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
+
+        predict_fn = self._get_predict_fn(kwargs_frozen)
+        return predict_fn(x, condition, encoder_noise)
 
     def predict(
         self,
         x: ArrayLike | dict[str, ArrayLike],
         condition: dict[str, ArrayLike] | dict[str, dict[str, ArrayLike]],
         rng: jax.Array | None = None,
-        batched: bool = False,
         **kwargs: Any,
     ) -> ArrayLike | dict[str, ArrayLike]:
         """Predict the translated source ``x`` under condition ``condition``.
@@ -237,19 +256,14 @@ class OTFlowMatching:
         ----------
         x
             A dictionary with keys indicating the name of the condition and values containing
-            the input data as arrays. If ``batched=False`` provide an array of shape [batch_size, ...].
+            the input data as arrays.
         condition
             A dictionary with keys indicating the name of the condition and values containing
-            the condition of input data as arrays. If ``batched=False`` provide an array of shape
-            [batch_size, ...].
+            the condition of input data as arrays.
         rng
             Random number generator to sample from the latent distribution,
             only used if ``condition_mode='stochastic'``. If :obj:`None`, the
             mean embedding is used.
-        batched
-            Whether to use batched prediction. This is only supported if the input has
-            the same number of cells for each condition. For example, this works when using
-            :class:`~cellflow.data.ValidationSampler` to sample the validation data.
         kwargs
             Keyword arguments for :func:`diffrax.diffeqsolve`.
 
@@ -257,16 +271,21 @@ class OTFlowMatching:
         -------
         The push-forward distribution of ``x`` under condition ``condition``.
         """
+        if "batched" in kwargs:
+            warnings.warn(
+                "The `batched` argument is deprecated and will be removed in a future version. "
+                "Batched prediction is now the default behavior when passing a dictionary.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            kwargs.pop("batched")
+
         if isinstance(x, dict) and not x:
             return {}
 
         if isinstance(x, dict):
-            return predict_multi_condition(
-                predict_fn=lambda x, condition: self._predict_jit(x, condition, rng, **kwargs),
-                predict_fn_unbatched=partial(self._predict_jit, rng=rng, **kwargs),
-                x=x,
-                condition=condition,
-            )
+            jax_results = {k: self._predict_jit(x[k], condition[k], rng, **kwargs) for k in x}
+            return {k: np.array(v) for k, v in jax_results.items()}
         else:
             x_pred = self._predict_jit(x, condition, rng, **kwargs)
             return np.array(x_pred)

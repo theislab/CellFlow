@@ -72,8 +72,7 @@ def big_validdata():
     return {"big_val": ValidDataToSubsample()}
 
 
-@pytest.fixture()
-def adata_perturbation() -> ad.AnnData:
+def _make_adata_perturbation() -> ad.AnnData:
     n_obs = 500
     n_vars = 50
     n_pca = 10
@@ -143,6 +142,70 @@ def adata_perturbation() -> ad.AnnData:
     adata.uns["cell_type"] = cell_type_emb
 
     return adata
+
+
+@pytest.fixture()
+def adata_perturbation() -> ad.AnnData:
+    return _make_adata_perturbation()
+
+
+@pytest.fixture(params=["otfm", "genot"], scope="module")
+def cf_trained(request):
+    """A trained CellFlow model, cached per solver across tests in a module.
+
+    Returns (cf, adata) so tests can reuse the model without paying
+    JIT compilation cost for every parametrization.
+    """
+    import cellflow
+
+    solver = request.param
+    adata = _make_adata_perturbation()
+    vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
+    cf = cellflow.model.CellFlow(adata, solver=solver)
+    cf.prepare_data(
+        sample_rep="X",
+        control_key="control",
+        perturbation_covariates={"drug": ["drug1"]},
+        perturbation_covariate_reps={"drug": "drug"},
+    )
+    cf.prepare_model(
+        condition_embedding_dim=2,
+        hidden_dims=(2, 2),
+        decoder_dims=(2, 2),
+        vf_kwargs=vf_kwargs,
+    )
+    cf.train(num_iterations=3)
+    return cf, adata
+
+
+@pytest.fixture(params=["otfm", "genot"], scope="module")
+def cf_trained_split(request):
+    """A trained CellFlow with split_covariates, cached per solver.
+
+    Uses split_covariates=["cell_type"] so predict error paths
+    involving split covariates can be tested.
+    """
+    import cellflow
+
+    solver = request.param
+    adata = _make_adata_perturbation()
+    vf_kwargs = {"genot_source_dims": (2, 2), "genot_source_dropout": 0.1} if solver == "genot" else None
+    cf = cellflow.model.CellFlow(adata, solver=solver)
+    cf.prepare_data(
+        sample_rep="X",
+        control_key="control",
+        perturbation_covariates={"drug": ["drug1"], "cell_type": ["cell_type"]},
+        perturbation_covariate_reps={"drug": "drug", "cell_type": "cell_type"},
+        split_covariates=["cell_type"],
+    )
+    cf.prepare_model(
+        condition_embedding_dim=2,
+        hidden_dims=(2, 2),
+        decoder_dims=(2, 2),
+        vf_kwargs=vf_kwargs,
+    )
+    cf.train(num_iterations=3)
+    return cf, adata
 
 
 @pytest.fixture()

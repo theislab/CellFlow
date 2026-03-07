@@ -1,5 +1,4 @@
-import functools
-import time
+import warnings
 
 import jax
 import numpy as np
@@ -66,19 +65,13 @@ class TestSolver:
             num_iterations=2,
             valid_freq=1,
         )
-        start_batched = time.time()
-        x_pred_batched = solver.predict(src, cond, batched=True)
-        end_batched = time.time()
-        diff_batched = end_batched - start_batched
+        x_pred_batched = solver.predict(src, cond)
 
-        start_nonbatched = time.time()
         x_pred_nonbatched = jax.tree.map(
-            functools.partial(solver.predict, batched=False),
+            solver.predict,
             src,
             cond,  # type: ignore[attr-defined]
         )
-        end_nonbatched = time.time()
-        diff_nonbatched = end_nonbatched - start_nonbatched
 
         assert x_pred_batched[("drug_1",)].shape == x_pred_nonbatched[("drug_1",)].shape
         assert np.allclose(
@@ -87,7 +80,57 @@ class TestSolver:
             atol=1e-1,
             rtol=1e-2,
         )
-        assert diff_nonbatched - diff_batched > 0.5
+
+    @pytest.mark.parametrize("solver_class", ["otfm", "genot"])
+    def test_predict_batched_deprecation_warning(self, dataloader, solver_class):
+        if solver_class == "otfm":
+            vf_class = cellflow.networks.ConditionalVelocityField
+        else:
+            vf_class = cellflow.networks.GENOTConditionalVelocityField
+
+        opt = optax.adam(1e-3)
+        vf = vf_class(
+            output_dim=5,
+            max_combination_length=2,
+            condition_embedding_dim=12,
+            hidden_dims=(32, 32),
+            decoder_dims=(32, 32),
+        )
+        if solver_class == "otfm":
+            solver = _otfm.OTFlowMatching(
+                vf=vf,
+                match_fn=match_linear,
+                probability_path=ConstantNoiseFlow(0.0),
+                optimizer=opt,
+                conditions={"drug": np.random.rand(2, 1, 3)},
+                rng=vf_rng,
+            )
+        else:
+            solver = _genot.GENOT(
+                vf=vf,
+                data_match_fn=match_linear,
+                probability_path=ConstantNoiseFlow(0.0),
+                optimizer=opt,
+                source_dim=5,
+                target_dim=5,
+                conditions={"drug": np.random.rand(2, 1, 3)},
+                rng=vf_rng,
+            )
+
+        predict_kwargs = {"max_steps": 3, "throw": False}
+        trainer = cellflow.training.CellFlowTrainer(solver=solver, predict_kwargs=predict_kwargs)
+        trainer.train(
+            dataloader=dataloader,
+            num_iterations=2,
+            valid_freq=1,
+        )
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            solver.predict(src, cond, batched=True)
+            assert len(w) == 1
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "batched" in str(w[0].message)
 
     @pytest.mark.parametrize("ema", [0.5, 1.0])
     def test_EMA(self, dataloader, ema):

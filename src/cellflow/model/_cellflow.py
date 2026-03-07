@@ -232,16 +232,14 @@ class CellFlow:
             n_conditions_on_train_end=n_conditions_on_train_end,
         )
         self._validation_data[name] = val_data
-        # Batched prediction is not compatible with split covariates
-        # as all conditions need to be the same size
-        split_val = len(val_data.control_to_perturbation) > 1
         predict_kwargs = predict_kwargs or {}
-        # Check if predict_kwargs is alreday provided from an earlier call
-        if "predict_kwargs" in self._validation_data and len(predict_kwargs):
-            predict_kwargs = self._validation_data["predict_kwargs"].update(predict_kwargs)
-        # Set batched prediction to False if split_val is True
-        if split_val:
-            predict_kwargs["batched"] = False
+        if (
+            "predict_kwargs" in self._validation_data
+            and len(self._validation_data["predict_kwargs"]) > 0
+            and len(predict_kwargs) > 0
+        ):
+            self._validation_data["predict_kwargs"].update(predict_kwargs)
+            predict_kwargs = self._validation_data["predict_kwargs"]
         self._validation_data["predict_kwargs"] = predict_kwargs
 
     def prepare_model(
@@ -566,6 +564,7 @@ class CellFlow:
         else:
             self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
         validation_loaders = {k: ValidationSampler(v) for k, v in self.validation_data.items() if k != "predict_kwargs"}
+        self._trainer.predict_kwargs = self.validation_data.get("predict_kwargs", {})
 
         self._solver = self.trainer.train(
             dataloader=self._dataloader,
