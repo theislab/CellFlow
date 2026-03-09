@@ -36,6 +36,7 @@ dependencies = [
   "coverage",
   "dask",
   "diffrax",
+  "equinox>=0.12.2",
   "flax",
   "huggingface-hub",
   "orbax",
