@@ -284,9 +284,9 @@ class TestTrainer:
         for i in range(3):
             solver.step_fn(jax.random.PRNGKey(i), batch)
             valid_source_data, valid_true_data, valid_pred_data = trainer._validation_step(valid_loader)
-            metric_after = metrics_callback.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, solver)[
-                "val_e_distance_mean"
-            ]
+            metric_after = metrics_callback.on_log_iteration(
+                valid_source_data, valid_true_data, valid_pred_data, solver
+            )["val_e_distance_mean"]
             metric_diffs.append(abs(metric_after - metric_before))
             metric_before = metric_after
 

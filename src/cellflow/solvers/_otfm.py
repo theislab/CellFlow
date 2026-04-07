@@ -198,9 +198,7 @@ class OTFlowMatching:
 
         kwargs = dict(kwargs_frozen)
 
-        def vf(
-            t: jnp.ndarray, x: jnp.ndarray, args: tuple[Any, dict[str, jnp.ndarray], jnp.ndarray]
-        ) -> jnp.ndarray:
+        def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[Any, dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
             params, condition, encoder_noise = args
             return self.vf_state_inference.apply_fn({"params": params}, t, x, condition, encoder_noise, train=False)[0]
 
