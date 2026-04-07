@@ -8,7 +8,7 @@ import pytest
 
 import cellflow
 from cellflow._compat import ConstantNoiseFlow
-from cellflow.solvers import _otfm
+from cellflow.solvers import _genot, _otfm
 from cellflow.training import CellFlowTrainer, ComputationCallback, Metrics
 from cellflow.utils import match_linear
 
@@ -227,3 +227,68 @@ class TestTrainer:
         diff_2 = end_2 - start_2
 
         assert diff_2 - diff_1 > 0.4
+
+    @pytest.mark.parametrize("solver_class", ["otfm", "genot"])
+    def test_validation_metrics_change_when_predict_cache_is_reused(
+        self,
+        dataloader,
+        valid_loader,
+        solver_class,
+    ):
+        opt = optax.adam(1e-3)
+        if solver_class == "otfm":
+            vf = cellflow.networks.ConditionalVelocityField(
+                output_dim=5,
+                max_combination_length=2,
+                condition_embedding_dim=12,
+                hidden_dims=(32, 32),
+                decoder_dims=(32, 32),
+            )
+            solver = _otfm.OTFlowMatching(
+                vf=vf,
+                match_fn=match_linear,
+                probability_path=ConstantNoiseFlow(0.0),
+                optimizer=opt,
+                conditions=cond,
+                rng=vf_rng,
+            )
+        else:
+            vf = cellflow.networks.GENOTConditionalVelocityField(
+                output_dim=5,
+                max_combination_length=2,
+                condition_embedding_dim=12,
+                hidden_dims=(32, 32),
+                decoder_dims=(32, 32),
+            )
+            solver = _genot.GENOT(
+                vf=vf,
+                data_match_fn=match_linear,
+                probability_path=ConstantNoiseFlow(0.0),
+                optimizer=opt,
+                source_dim=5,
+                target_dim=5,
+                conditions=cond,
+                rng=vf_rng,
+            )
+
+        trainer = CellFlowTrainer(solver=solver, predict_kwargs={"max_steps": 3, "throw": False})
+        metrics_callback = Metrics(metrics=["e_distance"])
+
+        valid_source_data, valid_true_data, valid_pred_data = trainer._validation_step(valid_loader)
+        metric_before = metrics_callback.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, solver)[
+            "val_e_distance_mean"
+        ]
+
+        batch = dataloader.sample(None)
+        metric_diffs = []
+        for i in range(3):
+            solver.step_fn(jax.random.PRNGKey(i), batch)
+            valid_source_data, valid_true_data, valid_pred_data = trainer._validation_step(valid_loader)
+            metric_after = metrics_callback.on_log_iteration(valid_source_data, valid_true_data, valid_pred_data, solver)[
+                "val_e_distance_mean"
+            ]
+            metric_diffs.append(abs(metric_after - metric_before))
+            metric_before = metric_after
+
+        assert len(solver._predict_fn_cache) == 1
+        assert any(diff > 0 for diff in metric_diffs)
