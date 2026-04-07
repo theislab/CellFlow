@@ -198,24 +198,27 @@ class OTFlowMatching:
 
         kwargs = dict(kwargs_frozen)
 
-        def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
-            params = self.vf_state_inference.params
-            condition, encoder_noise = args
+        def vf(
+            t: jnp.ndarray, x: jnp.ndarray, args: tuple[Any, dict[str, jnp.ndarray], jnp.ndarray]
+        ) -> jnp.ndarray:
+            params, condition, encoder_noise = args
             return self.vf_state_inference.apply_fn({"params": params}, t, x, condition, encoder_noise, train=False)[0]
 
-        def solve_ode(x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray) -> jnp.ndarray:
+        def solve_ode(
+            params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
+        ) -> jnp.ndarray:
             ode_term = diffrax.ODETerm(vf)
             result = diffrax.diffeqsolve(
                 ode_term,
                 t0=0.0,
                 t1=1.0,
                 y0=x,
-                args=(condition, encoder_noise),
+                args=(params, condition, encoder_noise),
                 **kwargs,
             )
             return result.ys[0]
 
-        fn = jax.jit(jax.vmap(solve_ode, in_axes=[0, None, None]))
+        fn = jax.jit(jax.vmap(solve_ode, in_axes=[None, 0, None, None]))
         self._predict_fn_cache[kwargs_frozen] = fn
         return fn
 
@@ -238,7 +241,7 @@ class OTFlowMatching:
         encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
 
         predict_fn = self._get_predict_fn(kwargs_frozen)
-        return predict_fn(x, condition, encoder_noise)
+        return predict_fn(self.vf_state_inference.params, x, condition, encoder_noise)
 
     def predict(
         self,
