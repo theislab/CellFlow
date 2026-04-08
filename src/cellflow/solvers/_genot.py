@@ -293,13 +293,18 @@ class GENOT:
 
         kwargs = dict(kwargs_frozen)
 
-        def vf(t: float, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
-            params = self.vf_state.params
-            x_0, condition, encoder_noise = args
+        def vf(
+            t: float, x: jnp.ndarray, args: tuple[Any, jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray]
+        ) -> jnp.ndarray:
+            params, x_0, condition, encoder_noise = args
             return self.vf_state.apply_fn({"params": params}, t, x, x_0, condition, encoder_noise, train=False)[0]
 
         def solve_ode(
-            latent: jnp.ndarray, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
+            params: Any,
+            latent: jnp.ndarray,
+            x: jnp.ndarray,
+            condition: dict[str, jnp.ndarray],
+            encoder_noise: jnp.ndarray,
         ) -> jnp.ndarray:
             term = diffrax.ODETerm(vf)
             sol = diffrax.diffeqsolve(
@@ -307,12 +312,12 @@ class GENOT:
                 t0=0.0,
                 t1=1.0,
                 y0=latent,
-                args=(x, condition, encoder_noise),
+                args=(params, x, condition, encoder_noise),
                 **kwargs,
             )
             return sol.ys[0]
 
-        fn = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None, None]))
+        fn = jax.jit(jax.vmap(solve_ode, in_axes=[None, 0, 0, None, None]))
         self._predict_fn_cache[kwargs_frozen] = fn
         return fn
 
@@ -337,7 +342,7 @@ class GENOT:
         latent = self.latent_noise_fn(rng_genot, (x.shape[0],))
 
         predict_fn = self._get_predict_fn(kwargs_frozen)
-        return predict_fn(latent, x, condition, encoder_noise)
+        return predict_fn(self.vf_state.params, latent, x, condition, encoder_noise)
 
     @property
     def is_trained(self) -> bool:
