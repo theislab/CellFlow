@@ -11,6 +11,7 @@ Training
     training.LoggingCallback
     training.Metrics
     training.PCADecodedMetrics
+    training.PCADecodedMetrics2
     training.VAEDecodedMetrics
     training.WandbLogger
     training.CellFlowTrainer
