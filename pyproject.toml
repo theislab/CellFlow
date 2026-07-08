@@ -47,6 +47,9 @@ dependencies = [
   "session-info",
 ]
 
+optional-dependencies.annbatch = [
+  "annbatch>=0.2.1",
+]
 optional-dependencies.dev = [
   "furo",
   "myst-nb",
@@ -89,6 +92,7 @@ optional-dependencies.pp = [
   "rdkit",
 ]
 optional-dependencies.test = [
+  "cellflow-tools[annbatch]",
   "cellflow-tools[embedding]",
   "cellflow-tools[external]",
   "cellflow-tools[pp]",
@@ -105,7 +109,9 @@ urls.Home-page = "https://github.com/theislab/cellflow"
 urls.Source = "https://github.com/theislab/cellflow"
 
 [tool.hatch.build.targets.wheel]
-packages = [ 'src/cellflow' ]
+# `dagloader` is vendored for now but kept as a standalone top-level package (import path
+# `dagloader`) so it can later be extracted into an external dependency with no code changes.
+packages = [ 'src/cellflow', 'src/dagloader' ]
 
 [tool.hatch.version]
 source = "vcs"
