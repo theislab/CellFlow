@@ -116,10 +116,10 @@ class DAGLoader:
                 self._samplers[name][key] = sampler
                 self._loaders[name][key] = loader
 
-    def _node_reps(self, name: str) -> dict[str, np.ndarray]:
+    def _nodes_next(self, name: str) -> dict[str, np.ndarray]:
         """One batch per key of a node — identical samplers pick the same rows, so the reps are aligned."""
         node = self._st[name]["node"]
-        return {key: densify(next(self._iters[name][key])["X"]) for key in node.keys}
+        return {key: next(self._iters[name][key])["X"] for key in node.keys}
 
     def _build_bind_maps(self) -> None:
         """Precompute, per bound child, the maps to turn the parent's schedule into the child's."""
@@ -233,7 +233,7 @@ class DAGLoader:
         st = self._st[self.s.root]
         node = st["node"]
         leaf = st["leaves"][int(self._schedules[self.s.root][j])]  # per-batch category — from the schedule
-        reps = self._node_reps(self.s.root)
+        reps = self._nodes_next(self.s.root)
         target = reps[node.keys[0]]  # primary streamed rep
         B = target.shape[0]
 
