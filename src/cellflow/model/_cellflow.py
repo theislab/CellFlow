@@ -1,6 +1,7 @@
 import functools
 import os
 import types
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import field as dc_field
 from typing import Any, Literal
@@ -41,12 +42,23 @@ class CellFlow:
     Parameters
     ----------
         adata
-            An :class:`~anndata.AnnData` object to extract the training data from.
+            An :class:`~anndata.AnnData` object to extract the training data from. If :obj:`None`,
+            the model uses the annbatch/dagloader streaming path (see
+            :meth:`~cellflow.model.CellFlow.prepare_annbatch_data`) instead of the in-memory one.
         solver
             Solver to use for training. Either ``'otfm'`` or ``'genot'``.
     """
 
-    def __init__(self, adata: ad.AnnData, solver: Literal["otfm", "genot"] = "otfm"):
+    def __init__(self, adata: ad.AnnData | None = None, solver: Literal["otfm", "genot"] = "otfm"):
+        # `adata is None` selects the annbatch/dagloader streaming path (see `prepare_annbatch_data`);
+        # a provided `adata` is the traditional in-memory path (`prepare_data`).
+        if adata is not None:
+            warnings.warn(
+                "Passing `adata` to `CellFlow(...)` is deprecated and will be removed in a future "
+                "release; pass it to `prepare_data(adata=...)` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
         self._adata = adata
         self._solver_class = _otfm.OTFlowMatching if solver == "otfm" else _genot.GENOT
         self._vf_class = (
@@ -72,6 +84,7 @@ class CellFlow:
         split_covariates: Sequence[str] | None = None,
         max_combination_length: int | None = None,
         null_value: float = 0.0,
+        adata: ad.AnnData | None = None,
     ) -> None:
         """Prepare the dataloader for training from :attr:`~cellflow.model.CellFlow.adata`.
 
@@ -121,6 +134,9 @@ class CellFlow:
             as the maximal number of perturbations a cell has been treated with.
         null_value
             Value to use for padding to ``'max_combination_length'``.
+        adata
+            The :class:`~anndata.AnnData` object to extract the training data from. If :obj:`None`,
+            the object passed to the (deprecated) constructor argument is used instead.
 
         Returns
         -------
@@ -171,6 +187,14 @@ class CellFlow:
                     split_covariates=split_covariates,
                 )
         """
+        adata = adata if adata is not None else self._adata
+        if adata is None:
+            raise ValueError(
+                "No `adata` provided. Pass it as `prepare_data(adata=...)` (recommended) or "
+                "construct `CellFlow(adata=...)`."
+            )
+        self._adata = adata  # kept for downstream predict / validation / plotting
+
         self._dm = DataManager(
             self.adata,
             sample_rep=sample_rep,
@@ -812,8 +836,8 @@ class CellFlow:
         return model
 
     @property
-    def adata(self) -> ad.AnnData:
-        """The :class:`~anndata.AnnData` object used for training."""
+    def adata(self) -> ad.AnnData | None:
+        """The :class:`~anndata.AnnData` object used for training, or :obj:`None` in the annbatch path."""
         return self._adata
 
     @property
