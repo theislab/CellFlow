@@ -137,7 +137,7 @@ class Bind:
             raise ValueError("Bind: give either `common` (column matching) or `matched` (explicit pairing), not both.")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class SamplerConfig:
     """annbatch read parameters for a node's sampler — kept separate from the structural :class:`Node`.
 
@@ -155,13 +155,15 @@ class SamplerConfig:
         contiguous chunked reads (higher throughput on disk), assuming each sampled leaf sits in a
         contiguous run ≥ ``chunk_size``. Must divide ``batch_size`` (one category per batch).
     preload_nchunks
-        Chunks per annbatch read window. ``None`` (default) ⇒ ``batch_size // chunk_size`` (one batch
-        per window). If given, must be a positive multiple of ``batch_size // chunk_size``.
+        Chunks per annbatch read window. **Required** and explicit — there is no hidden default; set it
+        deliberately (e.g. ``batch_size // chunk_size`` for one batch per window). Must be a positive
+        multiple of ``batch_size // chunk_size``.
     """
 
     batch_size: int
     chunk_size: int = 1
     preload_nchunks: int
+
 
 @dataclass(frozen=True)
 class Scheme:

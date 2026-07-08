@@ -4,7 +4,7 @@ import types
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import field as dc_field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anndata as ad
 import cloudpickle
@@ -28,6 +28,9 @@ from cellflow.solvers import _genot, _otfm
 from cellflow.training._callbacks import BaseCallback
 from cellflow.training._trainer import CellFlowTrainer
 from cellflow.utils import match_linear
+
+if TYPE_CHECKING:
+    from annbatch import DatasetCollection  # optional dep — only imported for typing
 
 __all__ = ["CellFlow"]
 
@@ -210,6 +213,58 @@ class CellFlow:
 
         self.train_data = self._dm.get_train_data(self.adata)
         self._data_dim = self.train_data.cell_data.shape[-1]  # type: ignore[union-attr]
+
+    def prepare_annbatch_data(
+        self,
+        source: "DatasetCollection",
+        sample_rep: str,
+        control_key: str,
+        perturbation_covariates: dict[str, Sequence[str]],
+        perturbation_covariate_reps: dict[str, str] | None = None,
+        sample_covariates: Sequence[str] | None = None,
+        sample_covariate_reps: dict[str, str] | None = None,
+        split_covariates: Sequence[str] | None = None,
+        max_combination_length: int | None = None,
+        null_value: float = 0.0,
+        batch_size: int = 1024,
+        chunk_size: int = 1,
+        seed: int = 0,
+    ) -> None:
+        """Prepare an out-of-core, annbatch-streamed training path (no in-memory ``adata``).
+
+        The condition-covariate arguments — ``sample_rep``, ``control_key``,
+        ``perturbation_covariates``, ``perturbation_covariate_reps``, ``sample_covariates``,
+        ``sample_covariate_reps``, ``split_covariates``, ``max_combination_length`` and ``null_value``
+        — mean exactly what they do in :meth:`prepare_data`. The only difference is *where the cells
+        come from*: instead of materializing ``cell_data`` in memory, cells are streamed on demand from
+        an out-of-core :class:`annbatch.DatasetCollection` via the ``dagloader`` sampler.
+
+        Requires the ``annbatch`` optional dependency (``pip install cellflow-tools[annbatch]``) and a
+        model constructed **without** ``adata`` (``CellFlow()``) — that is what selects this path.
+
+        Parameters
+        ----------
+        source
+            An out-of-core :class:`annbatch.DatasetCollection` to stream cells from. Its ``obs`` supplies
+            the grouping / condition columns; ``sample_rep`` selects the streamed representation.
+        batch_size
+            Rows per streamed batch (the target/root batch size).
+        chunk_size
+            annbatch read-slice size: ``1`` (default) ⇒ per-row reads (any on-disk layout); ``>1`` ⇒
+            contiguous chunked reads for higher on-disk throughput.
+        seed
+            Reproducibility seed for the ``dagloader`` per-node RNG streams.
+
+        Returns
+        -------
+        :obj:`None`, and sets up the streaming training data used by :meth:`train`.
+        """
+        if self._adata is not None:
+            raise ValueError(
+                "`prepare_annbatch_data` is the out-of-core streaming path; construct the model "
+                "without `adata` (`CellFlow()`). Use `prepare_data(adata=...)` for the in-memory path."
+            )
+        raise NotImplementedError("prepare_annbatch_data: body not implemented yet.")
 
     def prepare_validation_data(
         self,

@@ -154,7 +154,7 @@ scheme = perturbation_scheme(
 )
 loader = DAGLoader(
     scheme,
-    SamplerConfig(batch_size=256),          # or chunk_size=… for chunked on-disk reads
+    SamplerConfig(batch_size=256, preload_nchunks=256),  # preload_nchunks is explicit (no hidden default)
     condition_fn=lambda leaf: DRUG_EMB[leaf[-1]],
 )
 batch = next(loader)  # {"target", "source", "condition"} — source is a matched-cell-line control
@@ -205,7 +205,7 @@ scheme = Scheme(
 )
 loader = DAGLoader(
     scheme,
-    SamplerConfig(batch_size=256),                       # or {"target": SamplerConfig(..., chunk_size=32), "control": SamplerConfig(...)}
+    SamplerConfig(batch_size=256, preload_nchunks=256),  # per-node: {"target": SamplerConfig(batch_size=256, chunk_size=32, preload_nchunks=8), "control": SamplerConfig(batch_size=256, preload_nchunks=256)}
     condition_fn=lambda leaf: concat(cell_emb[leaf[0]], drug_emb[leaf[1]]),  # *_reps combination
 )
 batch = next(loader)  # {"target", "source", "condition"}
