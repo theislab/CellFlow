@@ -281,6 +281,13 @@ class CellFlow:
             :class:`dagloader.SamplerConfig` applied to every split, or a per-split mapping
             ``{split_name: SamplerConfig}`` that must cover **all** splits (see
             :func:`dagloader.resolve_split_configs`). When no split is made the only split is ``"train"``.
+
+            ``chunk_size > 1`` reads contiguous on-disk slices and therefore **requires the source
+            grouped by the grouping columns** — each category (context+perturbation combination) a single
+            contiguous run of at least ``chunk_size`` cells. In-memory ``AnnData`` sources are grouped
+            automatically; an out-of-core :class:`~annbatch.DatasetCollection` must be created grouped
+            (``add_adatas(..., groupby=[...])``) or a clear error is raised. ``chunk_size = 1`` streams
+            per-row and needs no grouping.
         seed
             Reproducibility seed for the ``dagloader`` per-node RNG streams.
         split_by
@@ -352,6 +359,15 @@ class CellFlow:
         if sampler_config is None:
             raise ValueError("`sampler_config` is required: give a SamplerConfig or a {split: SamplerConfig} mapping.")
         self._annbatch_sampler_configs = resolve_split_configs(sampler_config, list(schemes))
+
+        # `chunk_size > 1` reads contiguous slices → the source must be grouped by the grouping columns
+        # (in-memory sources are auto-grouped above; out-of-core collections must be built grouped).
+        max_chunk = max(cfg.chunk_size for cfg in self._annbatch_sampler_configs.values())
+        if max_chunk > 1:
+            from cellflow.data._annbatch import assert_source_grouped
+
+            root = self._scheme.nodes[self._scheme.root]
+            assert_source_grouped(self._scheme.sources["data"], root.cols, max_chunk)
 
         # One streaming DAGLoader per split; the "train" split feeds `train()`, others are kept for reuse.
         self._annbatch_loaders = {

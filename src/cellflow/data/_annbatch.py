@@ -25,7 +25,40 @@ from cellflow.data._datamanager import DataManager
 if TYPE_CHECKING:
     from dagloader import Scheme
 
-__all__ = ["AnnbatchTraining", "build_annbatch_training", "sample_rep_to_key"]
+__all__ = ["AnnbatchTraining", "assert_source_grouped", "build_annbatch_training", "sample_rep_to_key"]
+
+
+def assert_source_grouped(source: Any, cols: Sequence[str], chunk_size: int) -> None:
+    """Assert ``source`` is grouped by ``cols`` — each category one contiguous run ≥ ``chunk_size``.
+
+    ``chunk_size > 1`` makes annbatch read contiguous slices, which is only coherent when every
+    category (context+perturbation combination) sits in a single contiguous block of at least
+    ``chunk_size`` cells. Reads ``obs`` only. Raises a :class:`ValueError` pointing at
+    ``DatasetCollection.add_adatas(groupby=...)`` if the assumption is violated (in-memory sources are
+    grouped automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs).
+    """
+    import numpy as np
+
+    from dagloader._io import leaf_codes, obs_columns
+
+    codes, _ = leaf_codes(obs_columns(source, list(cols)), list(cols))
+    if len(codes) == 0:
+        return
+    run_starts = np.concatenate([[0], np.flatnonzero(np.diff(codes) != 0) + 1])
+    run_codes = codes[run_starts]
+    if len(set(run_codes.tolist())) != len(run_codes):  # a category spread over more than one run
+        raise ValueError(
+            f"chunk_size={chunk_size} requires the source grouped by {list(cols)} (each category one "
+            f"contiguous block), but categories are interleaved. Create the DatasetCollection with "
+            f"`add_adatas(..., groupby={list(cols)})`, or use chunk_size=1."
+        )
+    run_lengths = np.diff(np.concatenate([run_starts, [len(codes)]]))
+    if int(run_lengths.min()) < chunk_size:
+        raise ValueError(
+            f"chunk_size={chunk_size} exceeds the smallest category's contiguous run "
+            f"({int(run_lengths.min())} cells); every category must have at least chunk_size cells. "
+            f"Reduce chunk_size."
+        )
 
 
 def sample_rep_to_key(sample_rep: str) -> str:
@@ -77,6 +110,15 @@ def build_annbatch_training(
     key = sample_rep_to_key(sample_rep)
 
     obs = obs_columns(source, [*cols, control_key])
+
+    # In-memory source: group (stable-sort) by the grouping columns so `chunk_size > 1` streams
+    # contiguous slices. A cheap one-time row reorder; cell order is irrelevant to sampling. Out-of-core
+    # sources are NOT reordered (a physical zarr re-sort is expensive) — they must be created grouped via
+    # `DatasetCollection.add_adatas(groupby=...)`; `assert_source_grouped` checks that when chunk_size > 1.
+    if isinstance(source, ad.AnnData):
+        order = obs[list(cols)].reset_index(drop=True).sort_values(list(cols), kind="stable").index.to_numpy()
+        source = source[order].copy()
+        obs = obs_columns(source, [*cols, control_key])
 
     # DataManager as a pure covariate-encoder factory. It reads only obs + uns (never X), so a cell-free
     # shell suffices; `sample_rep="X"` sidesteps obsm verification (the real rep is streamed by the Scheme).
