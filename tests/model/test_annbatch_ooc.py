@@ -1,8 +1,9 @@
 """Out-of-core streaming over a real annbatch ``DatasetCollection``, incl. the ``chunk_size>1`` rule.
 
-``chunk_size>1`` reads contiguous slices, so the collection must be **grouped** by the grouping
-columns. We build collections both ways: grouped via ``add_adatas(groupby=...)`` and interleaved
-(no groupby), and check chunked streaming trains on the former and errors clearly on the latter.
+``chunk_size>1`` reads contiguous slices, so every contiguous run of each category must be
+``>= chunk_size`` (annbatch's run-length rule; a category may span several runs). We build collections
+grouped via ``add_adatas(groupby=...)``, interleaved (short runs → error), and fragmented-but-valid
+(multiple long runs per category → accepted), and check chunked streaming behaves accordingly.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import anndata as ad
 from annbatch import DatasetCollection
 
 import cellflow
+from cellflow.data._annbatch import assert_source_chunkable
 from dagloader import SamplerConfig
 
 _PREP = {
@@ -108,3 +110,53 @@ class TestOutOfCore:
             **_PREP,
         )
         assert cf._dataloader.sample()["src_cell_data"].shape == (16, 5)
+
+    def test_fragmented_collection_chunked_ok(self, tmp_path):
+        # each category in TWO contiguous runs (fragmented) — valid as long as every run >= chunk_size.
+        # This is the case annbatch accepts but a "one run per class" check would wrongly reject.
+        block = 10
+        rows = [(cl, dr) for _ in range(2) for cl in ("A", "B") for dr in ("control", "d1", "d2") for _ in range(block)]
+        obs = pd.DataFrame(rows, columns=["cell_line", "drug"])
+        obs["control"] = obs["drug"] == "control"
+        obs.index = obs.index.astype(str)
+        x = np.random.default_rng(0).normal(size=(len(obs), 5)).astype("float32")
+        (tmp_path / "f.h5ad").parent.mkdir(exist_ok=True)
+        ad.AnnData(X=x, obs=obs).write_h5ad(tmp_path / "f.h5ad")
+        dc = DatasetCollection(str(tmp_path / "fc.zarr"), mode="a").add_adatas(
+            [str(tmp_path / "f.h5ad")], shuffle=False
+        )
+
+        from dagloader._io import leaf_codes, obs_columns
+
+        codes, _ = leaf_codes(obs_columns(dc, ["cell_line", "drug"]), ["cell_line", "drug"])
+        n_runs = 1 + int((np.diff(codes) != 0).sum())
+        assert n_runs > 6, f"expected a fragmented collection (>6 runs for 6 categories), got {n_runs}"
+
+        cf = cellflow.model.CellFlow()
+        cf.prepare_annbatch_data(  # chunk_size=4 <= run length 10 → must be accepted
+            source=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP
+        )
+        assert cf._dataloader.sample()["tgt_cell_data"].shape == (8, 5)
+
+
+class TestChunkableCheck:
+    """`assert_source_chunkable` matches annbatch's rule: runs >= chunk_size, fragmentation allowed."""
+
+    @staticmethod
+    def _frag(block):  # each (cell_line, drug) category appears in 2 runs of `block`
+        rows = [(cl, dr) for _ in range(2) for cl in ("A", "B") for dr in ("d1", "d2") for _ in range(block)]
+        obs = pd.DataFrame(rows, columns=["cell_line", "drug"])
+        obs.index = obs.index.astype(str)
+        return ad.AnnData(X=np.zeros((len(obs), 2), dtype="float32"), obs=obs)
+
+    def test_accepts_fragmented_runs(self):
+        # fragmented but every run (10) >= chunk_size (4) → no raise (annbatch accepts this too)
+        assert_source_chunkable(self._frag(10), ("cell_line", "drug"), 4)
+
+    def test_rejects_short_run(self):
+        # runs of 3 < chunk_size 4 → raise, with the groupby hint
+        with pytest.raises(ValueError, match="run of only 3|groupby|chunk_size"):
+            assert_source_chunkable(self._frag(3), ("cell_line", "drug"), 4)
+
+    def test_chunk_size_one_always_ok(self):
+        assert_source_chunkable(self._frag(1), ("cell_line", "drug"), 1)  # runs of 1 >= 1

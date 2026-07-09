@@ -25,17 +25,19 @@ from cellflow.data._datamanager import DataManager
 if TYPE_CHECKING:
     from dagloader import Scheme
 
-__all__ = ["AnnbatchTraining", "assert_source_grouped", "build_annbatch_training", "sample_rep_to_key"]
+__all__ = ["AnnbatchTraining", "assert_source_chunkable", "build_annbatch_training", "sample_rep_to_key"]
 
 
-def assert_source_grouped(source: Any, cols: Sequence[str], chunk_size: int) -> None:
-    """Assert ``source`` is grouped by ``cols`` — each category one contiguous run ≥ ``chunk_size``.
+def assert_source_chunkable(source: Any, cols: Sequence[str], chunk_size: int) -> None:
+    """Assert ``source`` satisfies annbatch's run-length rule for ``chunk_size``.
 
-    ``chunk_size > 1`` makes annbatch read contiguous slices, which is only coherent when every
-    category (context+perturbation combination) sits in a single contiguous block of at least
-    ``chunk_size`` cells. Reads ``obs`` only. Raises a :class:`ValueError` pointing at
-    ``DatasetCollection.add_adatas(groupby=...)`` if the assumption is violated (in-memory sources are
-    grouped automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs).
+    ``chunk_size > 1`` makes annbatch read contiguous slices, so **every contiguous run** of every
+    category (a ``cols`` combination) must be at least ``chunk_size`` cells long — exactly annbatch's
+    ``ClassSampler`` rule. A category may span *several* runs (the source need not be fully sorted); only
+    each run's length matters. Reads ``obs`` only and raises a clear :class:`ValueError` — pointing at
+    ``DatasetCollection.add_adatas(groupby=...)`` — if any run is shorter. In-memory sources are grouped
+    automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs. (annbatch
+    enforces the same rule at loader construction; this is a friendlier, earlier check.)
     """
     import numpy as np
 
@@ -45,19 +47,15 @@ def assert_source_grouped(source: Any, cols: Sequence[str], chunk_size: int) -> 
     if len(codes) == 0:
         return
     run_starts = np.concatenate([[0], np.flatnonzero(np.diff(codes) != 0) + 1])
-    run_codes = codes[run_starts]
-    if len(set(run_codes.tolist())) != len(run_codes):  # a category spread over more than one run
-        raise ValueError(
-            f"chunk_size={chunk_size} requires the source grouped by {list(cols)} (each category one "
-            f"contiguous block), but categories are interleaved. Create the DatasetCollection with "
-            f"`add_adatas(..., groupby={list(cols)})`, or use chunk_size=1."
-        )
     run_lengths = np.diff(np.concatenate([run_starts, [len(codes)]]))
-    if int(run_lengths.min()) < chunk_size:
+    shortest = int(run_lengths.min())
+    if shortest < chunk_size:
         raise ValueError(
-            f"chunk_size={chunk_size} exceeds the smallest category's contiguous run "
-            f"({int(run_lengths.min())} cells); every category must have at least chunk_size cells. "
-            f"Reduce chunk_size."
+            f"chunk_size={chunk_size} requires every contiguous run of each category (a {list(cols)} "
+            f"combination) to be at least chunk_size cells, but the source has a run of only {shortest}. "
+            f"Group the source so each category forms long runs — e.g. create the DatasetCollection with "
+            f"`add_adatas(..., groupby={list(cols)})` — or use chunk_size=1. (A category may span several "
+            f"runs; only each run's length matters.)"
         )
 
 
@@ -114,7 +112,7 @@ def build_annbatch_training(
     # In-memory source: group (stable-sort) by the grouping columns so `chunk_size > 1` streams
     # contiguous slices. A cheap one-time row reorder; cell order is irrelevant to sampling. Out-of-core
     # sources are NOT reordered (a physical zarr re-sort is expensive) — they must be created grouped via
-    # `DatasetCollection.add_adatas(groupby=...)`; `assert_source_grouped` checks that when chunk_size > 1.
+    # `DatasetCollection.add_adatas(groupby=...)`; `assert_source_chunkable` checks that when chunk_size > 1.
     if isinstance(source, ad.AnnData):
         order = obs[list(cols)].reset_index(drop=True).sort_values(list(cols), kind="stable").index.to_numpy()
         source = source[order].copy()
