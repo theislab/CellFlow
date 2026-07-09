@@ -441,6 +441,14 @@ class CellFlow:
     ) -> None:
         """Prepare the validation data.
 
+        Validation is always in-memory (computing metrics needs materialized cells): you pass a held-out
+        :class:`~anndata.AnnData`, and its cells (at ``sample_rep``) plus condition embeddings are read
+        into a ``ValidationData``. This works for **both** the in-memory (:meth:`prepare_data`) and the
+        streaming (:meth:`prepare_annbatch_data`) training paths. In the streaming path the ``adata`` must
+        carry the same ``sample_rep`` representation and the covariate embeddings in ``.uns`` that the run
+        was prepared with. (This is unrelated to the ``val`` split from :meth:`split_annbatch_data`, which
+        is a streaming loader, not a validation set.)
+
         Parameters
         ----------
         adata
@@ -466,9 +474,10 @@ class CellFlow:
         - :attr:`cellflow.model.CellFlow.validation_data` - a dictionary with the validation data.
 
         """
-        if self.train_data is None:
+        if self.train_data is None and self._scheme is None:
             raise ValueError(
-                "Dataloader not initialized. Training data needs to be set up before preparing validation data. Please call prepare_data first."
+                "Model data not initialized. Set up training first via `prepare_data` (in-memory) or "
+                "`prepare_annbatch_data` (streaming) before preparing validation data."
             )
         val_data = self._dm.get_validation_data(
             adata,

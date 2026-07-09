@@ -118,13 +118,14 @@ def build_annbatch_training(
         source = source[order].copy()
         obs = obs_columns(source, [*cols, control_key])
 
-    # DataManager as a pure covariate-encoder factory. It reads only obs + uns (never X), so a cell-free
-    # shell suffices; `sample_rep="X"` sidesteps obsm verification (the real rep is streamed by the Scheme).
+    # DataManager as a covariate-encoder factory: it reads only obs + uns (never the cell matrix), so a
+    # cell-free shell suffices. `sample_rep` is stored (and only read later by validation's `_get_cell_data`
+    # against the actual validation adata) — verification is type-only, so the real value is safe here.
     shell = ad.AnnData(obs=obs.copy())
     shell.uns = dict(rep_dict or {})
     dm = DataManager(
         shell,
-        sample_rep="X",
+        sample_rep=sample_rep,
         control_key=control_key,
         perturbation_covariates=dict(perturbation_covariates),
         perturbation_covariate_reps=dict(perturbation_covariate_reps) if perturbation_covariate_reps else None,
