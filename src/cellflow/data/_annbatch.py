@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
@@ -21,12 +21,15 @@ from cellflow.data._condition import _key_layout, build_condition_data, enumerat
 from cellflow.data._datamanager import DataManager
 
 if TYPE_CHECKING:
-    from dagloader import Scheme
+    from cellflow._types import ArrayLike
+    from dagloader import Container, Scheme
+
+Leaf = tuple[object, ...]  # a scheme leaf: one value per grouping column
 
 __all__ = ["AnnbatchTraining", "assert_source_chunkable", "build_annbatch_training", "sample_rep_to_key"]
 
 
-def assert_source_chunkable(source: Any, cols: Sequence[str], chunk_size: int) -> None:
+def assert_source_chunkable(source: Container, cols: Sequence[str], chunk_size: int) -> None:
     """Raise unless ``source`` satisfies annbatch's run-length rule for ``chunk_size`` (reads ``obs`` only).
 
     With ``chunk_size > 1`` annbatch reads contiguous slices, so every contiguous run of each category
@@ -34,8 +37,6 @@ def assert_source_chunkable(source: Any, cols: Sequence[str], chunk_size: int) -
     On a shorter run, raises pointing at ``DatasetCollection.add_adatas(groupby=...)``. In-memory sources
     are grouped automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs.
     """
-    import numpy as np
-
     from dagloader._io import leaf_codes, obs_columns
 
     codes, _ = leaf_codes(obs_columns(source, list(cols)), list(cols))
@@ -64,7 +65,7 @@ class AnnbatchTraining:
     """Everything the model needs to stream-train, assembled from a covariate spec (cells untouched)."""
 
     scheme: Scheme
-    condition_fn: Callable[[tuple], dict[str, np.ndarray]]
+    condition_fn: Callable[[Leaf], dict[str, np.ndarray]]
     condition_data: dict[str, np.ndarray]
     data_manager: DataManager
     data_dim: int
@@ -72,7 +73,7 @@ class AnnbatchTraining:
 
 
 def build_annbatch_training(
-    source: Any,
+    source: Container,
     *,
     sample_rep: str,
     control_key: str,
@@ -83,7 +84,7 @@ def build_annbatch_training(
     split_covariates: Sequence[str] | None = None,
     max_combination_length: int | None = None,
     null_value: float = 0.0,
-    rep_dict: Mapping[str, Any] | None = None,
+    rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
     seed: int = 0,
 ) -> AnnbatchTraining:
     """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).
@@ -161,7 +162,7 @@ def build_annbatch_training(
     cov_to_idx = {tuple(map(str, cov)): i for i, cov in idx_to_cov.items()}
     reorder = [cols.index(c) for c in tuple_keys]
 
-    def condition_fn(leaf: tuple) -> dict[str, np.ndarray]:
+    def condition_fn(leaf: Leaf) -> dict[str, np.ndarray]:
         idx = cov_to_idx[tuple(str(leaf[i]) for i in reorder)]
         return {group: condition_data[group][[idx]] for group in condition_data}
 

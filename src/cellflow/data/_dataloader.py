@@ -2,12 +2,16 @@ import abc
 import queue
 import threading
 from collections.abc import Generator
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import jax
 import numpy as np
 
+from cellflow._types import ArrayLike
 from cellflow.data._data import PredictionData, TrainingData, ValidationData
+
+if TYPE_CHECKING:
+    from dagloader import DAGLoader
 
 __all__ = [
     "TrainSampler",
@@ -18,13 +22,14 @@ __all__ = [
 ]
 
 
-def _densify(x: Any) -> np.ndarray:
+def _densify(x: ArrayLike) -> np.ndarray:
     """Densify a possibly-sparse streamed cell batch (dense batches pass through).
 
     Done at the model boundary, not in the loader: ``dagloader`` stays representation-agnostic while the
     solver needs dense arrays.
     """
-    return np.asarray(x.todense()) if hasattr(x, "todense") else x
+    todense = getattr(x, "todense", None)  # scipy sparse → dense; plain arrays lack this
+    return np.asarray(todense()) if todense is not None else np.asarray(x)
 
 
 class DAGLoaderTrainSampler:
@@ -35,17 +40,20 @@ class DAGLoaderTrainSampler:
     and streaming paths reach the solver identically.
     """
 
-    def __init__(self, loader: Any):
+    def __init__(self, loader: "DAGLoader"):
         self._loader = loader
         self._iter = iter(loader)
 
-    def sample(self, rng: Any = None) -> dict[str, Any]:
+    def sample(self, rng: np.random.Generator | None = None) -> dict[str, np.ndarray | dict[str, np.ndarray]]:
         """Return the next streamed batch as a trainer batch dict.
 
         ``rng`` is unused — the ``DAGLoader`` owns its own reproducible RNG.
         """
         batch = next(self._iter)
-        out = {"src_cell_data": _densify(batch["source"]), "tgt_cell_data": _densify(batch["target"])}
+        out: dict[str, np.ndarray | dict[str, np.ndarray]] = {
+            "src_cell_data": _densify(batch["source"]),
+            "tgt_cell_data": _densify(batch["target"]),
+        }
         if "condition" in batch:
             out["condition"] = batch["condition"]
         return out

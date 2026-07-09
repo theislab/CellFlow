@@ -55,7 +55,7 @@ class _ScheduleRng:
             raise AttributeError(name)  # don't delegate dunders — avoids recursion during (un)pickling / copy
         return getattr(self._rng, name)
 
-    def __reduce__(self):
+    def __reduce__(self) -> tuple[object, ...]:
         # A transient per-pass wrapper: pickle it AS the underlying real Generator so a checkpointed
         # DAGLoader restores a clean, unwrapped RNG (the wrapper is rebuilt each pass in `_sample`).
         return self._rng.__reduce__()

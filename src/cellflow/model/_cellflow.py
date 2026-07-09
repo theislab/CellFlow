@@ -38,7 +38,7 @@ from cellflow.utils import match_linear
 if TYPE_CHECKING:
     from annbatch import DatasetCollection  # optional dep — only imported for typing
 
-    from dagloader import SamplerConfig  # optional dep — only imported for typing
+    from dagloader import DAGLoader, SamplerConfig, Scheme  # optional dep — only imported for typing
 
 __all__ = ["CellFlow"]
 
@@ -87,11 +87,11 @@ class CellFlow:
         # annbatch/dagloader streaming path (set by `prepare_annbatch_data`, partitioned by
         # `split_annbatch_data`). Kept untyped here to avoid importing the optional `dagloader`/`annbatch`
         # dependency at module import time.
-        self._scheme = None
-        self._split_schemes: dict[str, Any] | None = None
+        self._scheme: Scheme | None = None
+        self._split_schemes: dict[str, Scheme] | None = None
         self._split_assignment: pd.DataFrame | None = None
-        self._annbatch_sampler_configs: dict[str, Any] | None = None
-        self._annbatch_loaders: dict[str, Any] | None = None  # {split: DAGLoader}
+        self._annbatch_sampler_configs: dict[str, SamplerConfig] | None = None
+        self._annbatch_loaders: dict[str, DAGLoader] | None = None
         self._condition_data: dict[str, np.ndarray] | None = None  # annbatch-path condition embeddings
         self._max_combination_length: int | None = None  # annbatch-path (in-memory keeps it on train_data)
 
@@ -245,12 +245,12 @@ class CellFlow:
         split_covariates: Sequence[str] | None = None,
         max_combination_length: int | None = None,
         null_value: float = 0.0,
-        rep_dict: Mapping[str, Any] | None = None,
+        rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
         sampler_config: "SamplerConfig | Mapping[str, SamplerConfig] | None" = None,
         seed: int = 0,
         split_by: Sequence[str] | None = None,
         split_ratios: Mapping[str, float] | None = None,
-        split_force_training_values: Mapping[str, Any] | None = None,
+        split_force_training_values: Mapping[str, object] | None = None,
         split_random_state: int = 42,
     ) -> None:
         """Prepare an out-of-core, annbatch-streamed training path (no in-memory ``adata``).
@@ -374,7 +374,7 @@ class CellFlow:
         *,
         split_by: Sequence[str],
         ratios: Mapping[str, float] | None = None,
-        force_training_values: Mapping[str, Any] | None = None,
+        force_training_values: Mapping[str, object] | None = None,
         random_state: int = 42,
     ) -> pd.DataFrame:
         """Partition the prepared annbatch ``Scheme``'s target combinations into named splits.
@@ -662,14 +662,16 @@ class CellFlow:
         - :attr:`cellflow.model.CellFlow.trainer` - an instance of the
           :class:`cellflow.training.CellFlowTrainer`.
         """
-        if self.train_data is None and self._scheme is None:
-            raise ValueError("Dataloader not initialized. Please call `prepare_data` or `prepare_annbatch_data` first.")
         # Condition embeddings + max combination length come from `train_data` (in-memory) or, on the
         # annbatch path, from what `prepare_annbatch_data` assembled.
-        condition_data = self.train_data.condition_data if self.train_data is not None else self._condition_data
-        max_combination_length = (
-            self.train_data.max_combination_length if self.train_data is not None else self._max_combination_length
-        )
+        if self.train_data is not None:
+            condition_data = self.train_data.condition_data
+            max_combination_length = self.train_data.max_combination_length
+        elif self._condition_data is not None and self._max_combination_length is not None:
+            condition_data = self._condition_data
+            max_combination_length = self._max_combination_length
+        else:
+            raise ValueError("Data not initialized. Please call `prepare_data` or `prepare_annbatch_data` first.")
 
         if condition_mode == "stochastic":
             if regularization == 0.0:

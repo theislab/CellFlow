@@ -242,7 +242,7 @@ class DAGLoader:
         self._pos = 0
 
     # ── pickling ─────────────────────────────────────────────────────────────
-    def __getstate__(self) -> dict:
+    def __getstate__(self) -> dict[str, object]:
         """Pickle without the live annbatch iterators (generators aren't picklable).
 
         The RNG streams, samplers, schedules and configs are kept, so a reloaded loader resumes the same
@@ -253,7 +253,7 @@ class DAGLoader:
         state["_iters"] = None
         return state
 
-    def __setstate__(self, state: dict) -> None:
+    def __setstate__(self, state: dict[str, object]) -> None:
         self.__dict__.update(state)
         self._iters = None  # force `_start_pass` on the next `__next__`, using the restored RNG state
 
