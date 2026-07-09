@@ -9,7 +9,38 @@ import numpy as np
 
 from cellflow.data._data import PredictionData, TrainingData, ValidationData
 
-__all__ = ["TrainSampler", "ValidationSampler", "PredictionSampler", "OOCTrainSampler"]
+__all__ = [
+    "TrainSampler",
+    "ValidationSampler",
+    "PredictionSampler",
+    "OOCTrainSampler",
+    "DAGLoaderTrainSampler",
+]
+
+
+class DAGLoaderTrainSampler:
+    """Adapt a ``dagloader.DAGLoader`` stream to the :meth:`TrainSampler.sample` batch contract.
+
+    ``DAGLoader`` yields ``{"target", "source", "condition"}`` (one perturbation per batch, the
+    condition already carrying the leading ``(1, ...)`` axis); the trainer/solver consumes
+    ``{"src_cell_data", "tgt_cell_data", "condition"}``. This is a key-rename over the stream — no cells
+    are copied — so the in-memory and streaming paths hit the solver through the same interface.
+    """
+
+    def __init__(self, loader: Any):
+        self._loader = loader
+        self._iter = iter(loader)
+
+    def sample(self, rng: Any = None) -> dict[str, Any]:
+        """Return the next streamed batch as a trainer batch dict.
+
+        ``rng`` is unused — the ``DAGLoader`` owns its own reproducible RNG.
+        """
+        batch = next(self._iter)
+        out = {"src_cell_data": batch["source"], "tgt_cell_data": batch["target"]}
+        if "condition" in batch:
+            out["condition"] = batch["condition"]
+        return out
 
 
 class TrainSampler:

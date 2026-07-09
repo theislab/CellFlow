@@ -1,8 +1,7 @@
-"""Tests for :meth:`cellflow.model.CellFlow.split_annbatch_data`.
+"""Tests for the annbatch path split wiring on :class:`~cellflow.model.CellFlow`.
 
-``prepare_annbatch_data`` is not implemented yet (it will build the ``Scheme`` from a
-``DatasetCollection``), so these inject a scheme built from a tiny in-memory ``AnnData`` directly onto
-the model — exercising the split wiring without a collection or a loader.
+The Scheme + condition + loaders are built from an in-memory ``AnnData`` used as the ``source`` (the
+``dagloader`` is container-agnostic), so no ``DatasetCollection`` is needed.
 """
 
 from __future__ import annotations
@@ -11,23 +10,29 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("annbatch")  # dagloader (and thus split_annbatch_data) needs annbatch
+pytest.importorskip("annbatch")  # dagloader (and thus the annbatch path) needs annbatch
 
 import anndata as ad
 
 import cellflow
 from dagloader import SamplerConfig, perturbation_scheme
 
+_CFG = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
 
-def _toy_scheme():
-    drugs = ["control", "d1", "d2", "d3", "d4", "d5"]
-    rows = [(cl, dr) for cl in ("A", "B") for dr in drugs for _ in range(2)]
+
+def _toy_adata(n_per_combo: int = 8, drugs=("control", "d1", "d2", "d3", "d4", "d5"), lines=("A", "B")):
+    rng = np.random.default_rng(0)
+    rows = [(cl, dr) for cl in lines for dr in drugs for _ in range(n_per_combo)]
     obs = pd.DataFrame(rows, columns=["cell_line", "drug"])
     obs["control"] = obs["drug"] == "control"
     obs.index = obs.index.astype(str)
-    adata = ad.AnnData(X=np.zeros((len(obs), 3), dtype="float32"), obs=obs)
+    x = rng.normal(size=(len(obs), 5)).astype("float32")
+    return ad.AnnData(X=x, obs=obs)
+
+
+def _toy_scheme():
     return perturbation_scheme(
-        adata,
+        _toy_adata(n_per_combo=2),
         context=["cell_line"],
         perturbation=["drug"],
         control_values={"drug": "control"},
@@ -36,6 +41,8 @@ def _toy_scheme():
 
 
 class TestSplitAnnbatchData:
+    """`split_annbatch_data` operates on an already-built Scheme (injected here)."""
+
     def test_without_scheme_raises(self):
         cf = cellflow.model.CellFlow()
         with pytest.raises(ValueError, match="No annbatch `Scheme`"):
@@ -43,135 +50,97 @@ class TestSplitAnnbatchData:
 
     def test_split_with_injected_scheme(self):
         cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()  # stand in for `prepare_annbatch_data` (still a TODO)
-
+        cf._scheme = _toy_scheme()
         df = cf.split_annbatch_data(split_by=["drug"], random_state=0)
-
-        assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["cell_line", "drug", "split"]
         assert set(df["split"]) == {"train", "val", "test"}
-        assert cf._split_schemes is not None
         assert set(cf._split_schemes) == {"train", "val", "test"}
-        # controls carried through into every split (matched-control availability)
-        for sch in cf._split_schemes.values():
+        for sch in cf._split_schemes.values():  # controls carried into every split
             assert sch.nodes["ctrl"].weights == cf._scheme.nodes["ctrl"].weights
 
-    def test_custom_ratios_and_force(self):
-        cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()
-        df = cf.split_annbatch_data(
-            split_by=["drug"],
-            ratios={"train": 0.8, "test": 0.2},
-            force_training_values={"drug": "d1"},
-            random_state=3,
+
+class TestPrepareAnnbatchData:
+    """`prepare_annbatch_data` builds Scheme + condition + loaders from an AnnData source."""
+
+    def _prepare(self, cf, **kwargs):
+        return cf.prepare_annbatch_data(
+            source=_toy_adata(),
+            sample_rep="X",
+            control_key="control",
+            perturbation_covariates={"drug": ["drug"]},
+            split_covariates=["cell_line"],
+            sampler_config=_CFG,
+            **kwargs,
         )
-        assert set(df["split"]) == {"train", "test"}
-        assert df.loc[df["drug"] == "d1", "split"].eq("train").all()
 
+    def test_rejects_adata_mode(self, adata_perturbation):
+        with pytest.warns(FutureWarning):
+            cf = cellflow.model.CellFlow(adata_perturbation)
+        with pytest.raises(ValueError, match="without `adata`"):
+            self._prepare(cf)
 
-class TestPrepareAnnbatchSplitStep:
-    """The split step wired into `prepare_annbatch_data` (the Scheme-building part is still a TODO)."""
-
-    def test_without_scheme_raises_not_implemented(self):
-        # normal path: no pre-built scheme → the Scheme-building TODO raises
+    def test_requires_sampler_config(self):
         cf = cellflow.model.CellFlow()
-        with pytest.raises(NotImplementedError, match="not implemented yet"):
+        with pytest.raises(ValueError, match="sampler_config` is required"):
             cf.prepare_annbatch_data(
-                source=None,
+                source=_toy_adata(),
                 sample_rep="X",
                 control_key="control",
                 perturbation_covariates={"drug": ["drug"]},
-                split_by=["drug"],
             )
 
-    def test_split_step_runs_when_scheme_present(self):
-        # inject a Scheme (stands in for the TODO Scheme-building) → the split step runs in-call
+    def test_builds_scheme_condition_and_loader_without_split(self):
         cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()
-        result = cf.prepare_annbatch_data(
-            source=None,
+        self._prepare(cf)
+        assert cf._scheme is not None and cf._scheme.root == "pert"
+        assert set(cf._annbatch_loaders) == {"train"}  # no split → single "train"
+        assert cf._dataloader is not None  # DAGLoaderTrainSampler wired for train()
+        # condition embeddings assembled (drug is categorical → one-hot), data dim from X
+        assert set(cf._condition_data) == {"drug"}
+        assert cf._data_dim == 5
+        assert cf._split_schemes is None
+
+    def test_split_builds_per_split_loaders(self):
+        cf = cellflow.model.CellFlow()
+        assert self._prepare(cf, split_by=["drug"], split_random_state=0) is None  # prepare_* returns None
+        assert set(cf._split_assignment["split"]) == {"train", "val", "test"}
+        assert set(cf._annbatch_loaders) == {"train", "val", "test"}
+        assert set(cf._annbatch_sampler_configs) == {"train", "val", "test"}
+        assert cf._dataloader is not None
+
+    def test_per_split_sampler_config(self):
+        cf = cellflow.model.CellFlow()
+        train = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
+        small = SamplerConfig(batch_size=4, chunk_size=1, preload_nchunks=4)
+        cf.prepare_annbatch_data(
+            source=_toy_adata(),
             sample_rep="X",
             control_key="control",
             perturbation_covariates={"drug": ["drug"]},
             split_covariates=["cell_line"],
             split_by=["drug"],
-            split_ratios={"train": 0.6, "val": 0.2, "test": 0.2},
-            split_random_state=0,
-        )
-        assert result is None  # prepare_* returns None, like prepare_data
-        assert cf._split_schemes is not None
-        assert set(cf._split_schemes) == {"train", "val", "test"}
-        assert isinstance(cf._split_assignment, pd.DataFrame)
-        assert set(cf._split_assignment["split"]) == {"train", "val", "test"}
-
-    def test_no_split_when_split_by_omitted(self):
-        cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()
-        cf.prepare_annbatch_data(
-            source=None,
-            sample_rep="X",
-            control_key="control",
-            perturbation_covariates={"drug": ["drug"]},
-        )
-        assert cf._split_schemes is None
-        assert cf._split_assignment is None
-
-
-class TestPrepareAnnbatchSamplerConfig:
-    """`sampler_config` resolves to one SamplerConfig per split (Scheme-building still a TODO)."""
-
-    def test_single_config_applies_to_all_splits(self):
-        cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()
-        cfg = SamplerConfig(batch_size=128, chunk_size=1, preload_nchunks=128)
-        cf.prepare_annbatch_data(
-            source=None,
-            sample_rep="X",
-            control_key="control",
-            perturbation_covariates={"drug": ["drug"]},
-            split_by=["drug"],
-            sampler_config=cfg,
-        )
-        assert set(cf._annbatch_sampler_configs) == {"train", "val", "test"}
-        assert all(c is cfg for c in cf._annbatch_sampler_configs.values())
-
-    def test_per_split_config(self):
-        cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()
-        train = SamplerConfig(batch_size=256, chunk_size=1, preload_nchunks=256)
-        small = SamplerConfig(batch_size=64, chunk_size=1, preload_nchunks=64)
-        cf.prepare_annbatch_data(
-            source=None,
-            sample_rep="X",
-            control_key="control",
-            perturbation_covariates={"drug": ["drug"]},
-            split_by=["drug"],
             sampler_config={"train": train, "val": small, "test": small},
         )
-        assert cf._annbatch_sampler_configs["train"].batch_size == 256
-        assert cf._annbatch_sampler_configs["val"].batch_size == 64
+        assert cf._annbatch_sampler_configs["train"].batch_size == 8
+        assert cf._annbatch_sampler_configs["val"].batch_size == 4
 
     def test_per_split_missing_split_raises(self):
         cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()
         with pytest.raises(ValueError, match="missing config"):
             cf.prepare_annbatch_data(
-                source=None,
+                source=_toy_adata(),
                 sample_rep="X",
                 control_key="control",
                 perturbation_covariates={"drug": ["drug"]},
+                split_covariates=["cell_line"],
                 split_by=["drug"],
-                sampler_config={"train": SamplerConfig(batch_size=1, chunk_size=1, preload_nchunks=1)},
+                sampler_config={"train": _CFG},
             )
 
-    def test_no_split_uses_single_train_config(self):
+    def test_streamed_batch_shapes(self):
         cf = cellflow.model.CellFlow()
-        cf._scheme = _toy_scheme()
-        cf.prepare_annbatch_data(
-            source=None,
-            sample_rep="X",
-            control_key="control",
-            perturbation_covariates={"drug": ["drug"]},
-            sampler_config=SamplerConfig(batch_size=32, chunk_size=1, preload_nchunks=32),
-        )
-        assert set(cf._annbatch_sampler_configs) == {"train"}  # no split → single "train" scheme
+        self._prepare(cf)
+        batch = cf._dataloader.sample()
+        assert batch["src_cell_data"].shape == (8, 5)
+        assert batch["tgt_cell_data"].shape == (8, 5)
+        assert batch["condition"]["drug"].shape[0] == 1  # one condition per batch, leading axis

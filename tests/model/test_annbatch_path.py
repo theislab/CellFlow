@@ -50,10 +50,3 @@ class TestAnnbatchPathScaffolding:
             cf.prepare_annbatch_data(
                 source=None, sample_rep="X", control_key="control", perturbation_covariates=PERT_COVARS
             )
-
-    def test_prepare_annbatch_guard_passes_then_not_implemented(self):
-        cf = cellflow.model.CellFlow()
-        with pytest.raises(NotImplementedError):
-            cf.prepare_annbatch_data(
-                source=None, sample_rep="X", control_key="control", perturbation_covariates=PERT_COVARS
-            )

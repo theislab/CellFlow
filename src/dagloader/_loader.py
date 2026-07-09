@@ -250,7 +250,7 @@ class DAGLoader:
 
         for b in self._children.get(self.s.root, []):  # bound child source, conditioned via its schedule
             cnode = self._st[b.child]["node"]
-            creps = self._node_reps(b.child)
+            creps = self._nodes_next(b.child)
             out["source"] = creps[cnode.keys[0]]
             if len(cnode.keys) > 1:
                 out["source_reps"] = creps
