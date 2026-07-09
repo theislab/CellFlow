@@ -12,6 +12,7 @@ cellflow and sc-flow-tools use-cases.
 """
 
 from dagloader._loader import DAGLoader
+from dagloader._scheduled_sampler import ScheduledClassSampler
 from dagloader._schema import (
     Bind,
     Container,
@@ -23,8 +24,8 @@ from dagloader._schema import (
     inverse_frequency,
     uniform,
 )
-from dagloader._scheduled_sampler import ScheduledClassSampler
 from dagloader._schemes import perturbation_scheme
+from dagloader._split import split_assignment, split_scheme
 
 __all__ = [
     "Bind",
@@ -38,5 +39,7 @@ __all__ = [
     "frequency",
     "inverse_frequency",
     "perturbation_scheme",
+    "split_assignment",
+    "split_scheme",
     "uniform",
 ]

@@ -2,7 +2,7 @@ import functools
 import os
 import types
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field as dc_field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -75,6 +75,12 @@ class CellFlow:
         self._solver: _otfm.OTFlowMatching | _genot.GENOT | None = None
         self._condition_dim: int | None = None
         self._vf: _velocity_field.ConditionalVelocityField | _velocity_field.GENOTConditionalVelocityField | None = None
+        # annbatch/dagloader streaming path (set by `prepare_annbatch_data`, partitioned by
+        # `split_annbatch_data`). Kept untyped here to avoid importing the optional `dagloader`/`annbatch`
+        # dependency at module import time.
+        self._scheme = None
+        self._split_schemes: dict[str, Any] | None = None
+        self._split_assignment: pd.DataFrame | None = None
 
     def prepare_data(
         self,
@@ -229,6 +235,10 @@ class CellFlow:
         batch_size: int = 1024,
         chunk_size: int = 1,
         seed: int = 0,
+        split_by: Sequence[str] | None = None,
+        split_ratios: Mapping[str, float] | None = None,
+        split_force_training_values: Mapping[str, Any] | None = None,
+        split_random_state: int = 42,
     ) -> None:
         """Prepare an out-of-core, annbatch-streamed training path (no in-memory ``adata``).
 
@@ -254,17 +264,112 @@ class CellFlow:
             contiguous chunked reads for higher on-disk throughput.
         seed
             Reproducibility seed for the ``dagloader`` per-node RNG streams.
+        split_by
+            If given, split the prepared ``Scheme``'s target combinations into train/val/test in the
+            same call (delegates to :meth:`split_annbatch_data`). Columns whose unique combinations are
+            held out (⊆ the target columns). If :obj:`None`, no split is made (the model would train on
+            all combinations).
+        split_ratios
+            ``{split_name: fraction}`` summing to 1.0 for the split. Defaults to
+            ``{"train": 0.6, "val": 0.2, "test": 0.2}``. Only used when ``split_by`` is given.
+        split_force_training_values
+            ``{column: value}`` (keys ⊆ ``split_by``) forced into the training split. Only used when
+            ``split_by`` is given.
+        split_random_state
+            Seed for the split's combination shuffle. Only used when ``split_by`` is given.
 
         Returns
         -------
         :obj:`None`, and sets up the streaming training data used by :meth:`train`.
+
+        Notes
+        -----
+        Building the ``Scheme`` (and the loader) from the annbatch ``source`` is **not implemented
+        yet** — that step is a TODO. The splitting step is already wired here and delegated to
+        :meth:`split_annbatch_data`; it runs once the ``Scheme`` exists.
         """
         if self._adata is not None:
             raise ValueError(
                 "`prepare_annbatch_data` is the out-of-core streaming path; construct the model "
                 "without `adata` (`CellFlow()`). Use `prepare_data(adata=...)` for the in-memory path."
             )
-        raise NotImplementedError("prepare_annbatch_data: body not implemented yet.")
+
+        # TODO(annbatch): build the streaming `Scheme` (+ `SamplerConfig`, `condition_fn`, `DAGLoader`)
+        # from `source` and the covariate spec, and set `self._scheme` / the train loader here. Until
+        # that lands, the normal path (no pre-built scheme) raises below; the splitting step further
+        # down is already wired and is exercised in tests by injecting `self._scheme`.
+        if self._scheme is None:
+            raise NotImplementedError(
+                "prepare_annbatch_data: building the `Scheme` from an annbatch source is not implemented yet."
+            )
+
+        # Splitting step — kept in `prepare_annbatch_data` so preparing and splitting are one call.
+        if split_by is not None:
+            self._split_assignment = self.split_annbatch_data(
+                split_by=split_by,
+                ratios=split_ratios,
+                force_training_values=split_force_training_values,
+                random_state=split_random_state,
+            )
+
+    def split_annbatch_data(
+        self,
+        *,
+        split_by: Sequence[str],
+        ratios: Mapping[str, float] | None = None,
+        force_training_values: Mapping[str, Any] | None = None,
+        random_state: int = 42,
+    ) -> pd.DataFrame:
+        """Partition the prepared annbatch ``Scheme``'s target combinations into named splits.
+
+        Must be called after :meth:`prepare_annbatch_data` (which builds the ``Scheme``). Splits are
+        over whole *combinations* of ``split_by`` — a subset of the perturbation / split-covariate
+        columns — not over cells, so this holds out entire conditions (an out-of-distribution split),
+        mirroring CellFlow2's combination-level splitter. Because a leaf's weight *is* the selection in
+        the ``dagloader`` model, each split is the same ``Scheme`` with the target (root) node's weights
+        restricted to that split's combinations; the control / source populations are carried through
+        unchanged (a matched control must stay available in every split).
+
+        Parameters
+        ----------
+        split_by
+            Columns whose unique combinations are partitioned across splits (⊆ the scheme's target
+            columns).
+        ratios
+            ``{split_name: fraction}`` summing to 1.0. Defaults to
+            ``{"train": 0.6, "val": 0.2, "test": 0.2}``. The first split is the training split.
+        force_training_values
+            ``{column: value}`` (keys ⊆ ``split_by``): any combination matching a value is forced into
+            the training (first) split.
+        random_state
+            Seed for the combination shuffle.
+
+        Returns
+        -------
+        A :class:`~pandas.DataFrame` of the target combinations and their assigned split. Also stores
+        the per-split schemes on the model.
+        """
+        from dagloader import split_assignment, split_scheme
+
+        if self._scheme is None:
+            raise ValueError(
+                "No annbatch `Scheme` to split. Call `prepare_annbatch_data(...)` first "
+                "(the out-of-core streaming path)."
+            )
+        self._split_schemes = split_scheme(
+            self._scheme,
+            split_by=split_by,
+            ratios=ratios,
+            force_training_values=force_training_values,
+            random_state=random_state,
+        )
+        # TODO(annbatch): wire the split Schemes into loaders once `prepare_annbatch_data` builds the
+        # Scheme + SamplerConfig + condition_fn. That step (which needs the DatasetCollection and the
+        # DAGLoader) will set, from `self._split_schemes`:
+        #   self._dataloader             = DAGLoader(self._split_schemes["train"], sampler_config, condition_fn)
+        #   self._validation_data["val"] = <validation sampler over self._split_schemes["val"]>
+        # and keep self._split_schemes["test"] for prediction / final evaluation.
+        return split_assignment(self._split_schemes)
 
     def prepare_validation_data(
         self,
