@@ -277,8 +277,10 @@ class SelfAttention(BaseModule):
             if self.layer_norm:
                 z = nn.LayerNorm()(z)
             # FC layer with residual connection
-            z_ = self.act_fn(nn.Dense(self.qkv_dim)(z))
-            z_ = nn.Dropout(self.dropout_rate)(z, deterministic=not training)
+            # project back to the residual-stream dimension so the residual add is valid
+            # for any ``qkv_dim`` (the attention output keeps the input dimension)
+            z_ = self.act_fn(nn.Dense(z.shape[-1])(z))
+            z_ = nn.Dropout(self.dropout_rate)(z_, deterministic=not training)
             z = z + z_
 
         return z.squeeze(1) if squeeze else z
@@ -426,7 +428,6 @@ class SeedAttentionPooling(BaseModule):
         Q_ = jnp.concatenate(jnp.split(Q, self.num_heads, axis=2), axis=0)
         K_ = jnp.concatenate(jnp.split(K, self.num_heads, axis=2), axis=0)
         V_ = jnp.concatenate(jnp.split(V, self.num_heads, axis=2), axis=0)
-        A = jnp.matmul(Q_, K_.transpose(0, 2, 1)) / jnp.sqrt(self.v_dim)
         A = jnp.matmul(Q_, K_.transpose(0, 2, 1)) / jnp.sqrt(self.v_dim)
         if mask is not None:
             # mask from (batch_, 1 | num_heads, set_, set_) to (batch_ * num_heads, 1, set_)
