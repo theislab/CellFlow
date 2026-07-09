@@ -357,7 +357,10 @@ def get_esm_embedding(
     genes_todo = []
     for col in columns:
         genes_todo.extend(adata.obs[col].unique().tolist())
-    unique_genes = list(set(genes_todo) - {null_value, None})
+    # Drop null gene ids. Under pandas>=3, missing values in (Arrow-backed) string
+    # columns surface as NaN (a float) rather than None after `.unique().tolist()`, so
+    # filter any pandas null in addition to the explicit `null_value`/`None` sentinels.
+    unique_genes = [g for g in set(genes_todo) if g != null_value and not pd.isna(g)]
     results, metadata = protein_features_from_genes(
         genes=unique_genes,
         esm_model_name=esm_model_name,
