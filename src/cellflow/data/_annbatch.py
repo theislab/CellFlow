@@ -1,13 +1,11 @@
 """Build the annbatch/dagloader streaming training path from a CellFlow covariate spec.
 
-Turns the same ``prepare_data`` covariate arguments into a :class:`dagloader.Scheme` (perturbed root,
-matched-control child) plus a ``condition_fn`` that maps a sampled leaf to its per-condition embedding.
-The condition embeddings reuse the **in-memory** machinery unchanged: a cell-free "shell" ``AnnData``
-(``obs`` + ``uns`` only, no ``X``) drives a :class:`~cellflow.data._datamanager.DataManager` purely as a
-covariate-encoder factory, and :func:`~cellflow.data._condition.build_condition_data` assembles the
-embeddings — byte-for-byte identical to the in-memory path (parity-tested), so nothing is duplicated.
-
-Only ``obs`` (and the embedding tables) are read here; cells are streamed later by ``dagloader``.
+Turns the ``prepare_data`` covariate arguments into a :class:`dagloader.Scheme` (perturbed root,
+matched-control child) and a ``condition_fn`` mapping each sampled leaf to its condition embedding. The
+embeddings reuse the in-memory machinery — a cell-free ``AnnData`` shell (``obs`` + ``uns``) drives a
+:class:`~cellflow.data._datamanager.DataManager` and
+:func:`~cellflow.data._condition.build_condition_data` — so they match the in-memory path exactly. Only
+``obs`` (and the embedding tables) are read here; cells are streamed later by ``dagloader``.
 """
 
 from __future__ import annotations
@@ -29,15 +27,12 @@ __all__ = ["AnnbatchTraining", "assert_source_chunkable", "build_annbatch_traini
 
 
 def assert_source_chunkable(source: Any, cols: Sequence[str], chunk_size: int) -> None:
-    """Assert ``source`` satisfies annbatch's run-length rule for ``chunk_size``.
+    """Raise unless ``source`` satisfies annbatch's run-length rule for ``chunk_size`` (reads ``obs`` only).
 
-    ``chunk_size > 1`` makes annbatch read contiguous slices, so **every contiguous run** of every
-    category (a ``cols`` combination) must be at least ``chunk_size`` cells long — exactly annbatch's
-    ``ClassSampler`` rule. A category may span *several* runs (the source need not be fully sorted); only
-    each run's length matters. Reads ``obs`` only and raises a clear :class:`ValueError` — pointing at
-    ``DatasetCollection.add_adatas(groupby=...)`` — if any run is shorter. In-memory sources are grouped
-    automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs. (annbatch
-    enforces the same rule at loader construction; this is a friendlier, earlier check.)
+    With ``chunk_size > 1`` annbatch reads contiguous slices, so every contiguous run of each category
+    (a ``cols`` combination) must be at least ``chunk_size`` cells; a category may span several runs.
+    On a shorter run, raises pointing at ``DatasetCollection.add_adatas(groupby=...)``. In-memory sources
+    are grouped automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs.
     """
     import numpy as np
 
@@ -93,10 +88,9 @@ def build_annbatch_training(
 ) -> AnnbatchTraining:
     """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).
 
-    ``source`` is an out-of-core :class:`annbatch.DatasetCollection` or an in-memory ``AnnData`` (the
-    dagloader is container-agnostic). ``rep_dict`` supplies the covariate embedding tables that
-    ``adata.uns`` would hold in the in-memory path (keys match ``*_covariate_reps`` values); it may be
-    :obj:`None` when the primary covariate is categorical (one-hot encoded, no external embeddings).
+    ``source`` is an out-of-core :class:`annbatch.DatasetCollection` or an in-memory ``AnnData``.
+    ``rep_dict`` holds the covariate embedding tables (as ``adata.uns`` would); pass :obj:`None` when the
+    primary covariate is categorical (one-hot).
     """
     from dagloader import Bind, Node, Scheme, uniform
     from dagloader._io import key_backings, obs_columns
@@ -109,18 +103,16 @@ def build_annbatch_training(
 
     obs = obs_columns(source, [*cols, control_key])
 
-    # In-memory source: group (stable-sort) by the grouping columns so `chunk_size > 1` streams
-    # contiguous slices. A cheap one-time row reorder; cell order is irrelevant to sampling. Out-of-core
-    # sources are NOT reordered (a physical zarr re-sort is expensive) — they must be created grouped via
-    # `DatasetCollection.add_adatas(groupby=...)`; `assert_source_chunkable` checks that when chunk_size > 1.
+    # In-memory source: stable-sort by the grouping columns so `chunk_size > 1` reads contiguous slices
+    # (cheap, and cell order is irrelevant). Out-of-core sources aren't reordered (expensive zarr re-sort)
+    # — they must be built grouped; `assert_source_chunkable` enforces that.
     if isinstance(source, ad.AnnData):
         order = obs[list(cols)].reset_index(drop=True).sort_values(list(cols), kind="stable").index.to_numpy()
         source = source[order].copy()
         obs = obs_columns(source, [*cols, control_key])
 
-    # DataManager as a covariate-encoder factory: it reads only obs + uns (never the cell matrix), so a
-    # cell-free shell suffices. `sample_rep` is stored (and only read later by validation's `_get_cell_data`
-    # against the actual validation adata) — verification is type-only, so the real value is safe here.
+    # DataManager as a covariate-encoder factory: reads only obs + uns, so a cell-free shell suffices.
+    # `sample_rep` is stored for validation's `_get_cell_data` (verification is type-only, so it's safe here).
     shell = ad.AnnData(obs=obs.copy())
     shell.uns = dict(rep_dict or {})
     dm = DataManager(
@@ -155,10 +147,9 @@ def build_annbatch_training(
         null_value=null_value,
     )
 
-    # leaf (in `cols` order) → perturbation index → per-condition embedding. `enumerate_perturbations`
-    # lays its covariate tuples out in `tuple_keys` order (pert + sample/split), which differs from
-    # `cols`, so re-project the leaf onto that layout before the lookup. String-normalize both sides so
-    # dtype quirks (categorical / numpy scalars) never break the match.
+    # leaf → perturbation index → embedding. `enumerate_perturbations` lays tuples out in `tuple_keys`
+    # order (differs from `cols`), so re-project the leaf; string-normalize both sides so dtype quirks
+    # (categorical / numpy scalars) don't break the match.
     idx_to_cov = enumerate_perturbations(
         obs,
         control_key=control_key,

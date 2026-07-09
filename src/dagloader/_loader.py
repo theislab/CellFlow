@@ -245,10 +245,9 @@ class DAGLoader:
     def __getstate__(self) -> dict:
         """Pickle without the live annbatch iterators (generators aren't picklable).
 
-        Everything that defines the stream is kept — the per-node RNG streams (``_rngs`` / ``_row_seqs``),
-        the samplers (with their advanced RNG), the drawn ``_schedules`` and the configs — so a reloaded
-        loader continues the *same* reproducible RNG sequence. Only the transient ``_iters`` are dropped;
-        the next ``__next__`` rebuilds them (a fresh pass) from the restored RNG state.
+        The RNG streams, samplers, schedules and configs are kept, so a reloaded loader resumes the same
+        reproducible sequence; only ``_iters`` is dropped and rebuilt (a fresh pass) on the next
+        ``__next__``.
         """
         state = self.__dict__.copy()
         state["_iters"] = None

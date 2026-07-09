@@ -255,15 +255,12 @@ class CellFlow:
     ) -> None:
         """Prepare an out-of-core, annbatch-streamed training path (no in-memory ``adata``).
 
-        The condition-covariate arguments — ``sample_rep``, ``control_key``,
-        ``perturbation_covariates``, ``perturbation_covariate_reps``, ``sample_covariates``,
-        ``sample_covariate_reps``, ``split_covariates``, ``max_combination_length`` and ``null_value``
-        — mean exactly what they do in :meth:`prepare_data`. The only difference is *where the cells
-        come from*: instead of materializing ``cell_data`` in memory, cells are streamed on demand from
-        an out-of-core :class:`annbatch.DatasetCollection` via the ``dagloader`` sampler.
-
-        Requires the ``annbatch`` optional dependency (``pip install cellflow-tools[annbatch]``) and a
-        model constructed **without** ``adata`` (``CellFlow()``) — that is what selects this path.
+        The covariate arguments (``sample_rep``, ``control_key``, ``perturbation_covariates``,
+        ``perturbation_covariate_reps``, ``sample_covariates``, ``sample_covariate_reps``,
+        ``split_covariates``, ``max_combination_length``, ``null_value``) mean exactly what they do in
+        :meth:`prepare_data`; only the cells differ — streamed from an out-of-core
+        :class:`annbatch.DatasetCollection` instead of materialized. Requires the ``annbatch`` extra and
+        a model built **without** ``adata`` (``CellFlow()``).
 
         Parameters
         ----------
@@ -277,17 +274,13 @@ class CellFlow:
             when a covariate group is embedded; may be :obj:`None` when the primary covariate is
             categorical (one-hot encoded).
         sampler_config
-            The read parameters for the streamed loader(s), **one per split**. Either a single
-            :class:`dagloader.SamplerConfig` applied to every split, or a per-split mapping
-            ``{split_name: SamplerConfig}`` that must cover **all** splits (see
-            :func:`dagloader.resolve_split_configs`). When no split is made the only split is ``"train"``.
-
-            ``chunk_size > 1`` reads contiguous on-disk slices and therefore requires **every contiguous
-            run of each category** (context+perturbation combination) to be at least ``chunk_size`` cells
-            (a category may span several runs; only each run's length matters — annbatch's run-length
-            rule). In-memory ``AnnData`` sources are grouped automatically; an out-of-core
-            :class:`~annbatch.DatasetCollection` must be created grouped (``add_adatas(..., groupby=[...])``)
-            or a clear error is raised. ``chunk_size = 1`` streams per-row and needs no grouping.
+            Read parameters for the streamed loader(s), **one per split**: a single
+            :class:`dagloader.SamplerConfig` for all splits, or a ``{split_name: SamplerConfig}`` mapping
+            covering every split (see :func:`dagloader.resolve_split_configs`). With no split the only
+            split is ``"train"``. ``chunk_size > 1`` reads contiguous slices, so every run of each
+            category must be at least ``chunk_size`` cells — in-memory sources are grouped automatically,
+            an out-of-core :class:`~annbatch.DatasetCollection` must be built grouped
+            (``add_adatas(..., groupby=[...])``) or a clear error is raised.
         seed
             Reproducibility seed for the ``dagloader`` per-node RNG streams.
         split_by
@@ -386,13 +379,9 @@ class CellFlow:
     ) -> pd.DataFrame:
         """Partition the prepared annbatch ``Scheme``'s target combinations into named splits.
 
-        Must be called after :meth:`prepare_annbatch_data` (which builds the ``Scheme``). Splits are
-        over whole *combinations* of ``split_by`` — a subset of the perturbation / split-covariate
-        columns — not over cells, so this holds out entire conditions (an out-of-distribution split),
-        mirroring CellFlow2's combination-level splitter. Because a leaf's weight *is* the selection in
-        the ``dagloader`` model, each split is the same ``Scheme`` with the target (root) node's weights
-        restricted to that split's combinations; the control / source populations are carried through
-        unchanged (a matched control must stay available in every split).
+        Call after :meth:`prepare_annbatch_data`. Splits hold out whole *combinations* of ``split_by``
+        (a subset of the perturbation / split-covariate columns), not cells; controls are carried through
+        every split. See :func:`dagloader.split_scheme` for the mechanics.
 
         Parameters
         ----------
@@ -441,13 +430,12 @@ class CellFlow:
     ) -> None:
         """Prepare the validation data.
 
-        Validation is always in-memory (computing metrics needs materialized cells): you pass a held-out
-        :class:`~anndata.AnnData`, and its cells (at ``sample_rep``) plus condition embeddings are read
-        into a ``ValidationData``. This works for **both** the in-memory (:meth:`prepare_data`) and the
-        streaming (:meth:`prepare_annbatch_data`) training paths. In the streaming path the ``adata`` must
-        carry the same ``sample_rep`` representation and the covariate embeddings in ``.uns`` that the run
-        was prepared with. (This is unrelated to the ``val`` split from :meth:`split_annbatch_data`, which
-        is a streaming loader, not a validation set.)
+        Validation is always in-memory (metrics need materialized cells): pass a held-out
+        :class:`~anndata.AnnData` and its cells (at ``sample_rep``) + condition embeddings become a
+        ``ValidationData``. Works for both the in-memory and streaming training paths; in the streaming
+        path the ``adata`` must carry the same ``sample_rep`` and the covariate embeddings in ``.uns``.
+        (Unrelated to the ``val`` split from :meth:`split_annbatch_data`, a streaming loader — not a
+        validation set.)
 
         Parameters
         ----------

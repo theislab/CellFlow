@@ -1,16 +1,11 @@
 """Split a :class:`~dagloader.Scheme`'s target combinations into named splits — weights-only.
 
-A "split" needs no new data structure here. Because a leaf's **weight is the selection** (weight 0 /
-absent ⇒ not sampled), holding out conditions is just restricting the root node's weights to a subset
-of its combinations. :func:`split_scheme` partitions the root's positive-weight combinations — grouped
-by ``split_by`` (a subset of the root's ``cols``) — into named splits and returns one :class:`Scheme`
-per split, identical to the input except the root's ``weights`` are restricted. Bound children
-(controls / sources) are **carried through unchanged**: a matched control must stay available in every
-split, since each batch's control is drawn from whatever context the (split) target carries.
-
-This mirrors CellFlow2's ``GroupedDistributionSplitter`` — split whole *combinations*, not cells (an
-out-of-distribution generalization split) — but expressed over the ``Scheme``, so it touches no cells,
-no ``DatasetCollection`` and no loader: it only rewrites a weights dict.
+A leaf's weight *is* its selection (weight 0 / absent ⇒ not sampled), so a split just restricts the
+root node's weights to a subset of combinations. :func:`split_scheme` returns one :class:`Scheme` per
+split, identical to the input but with the root weights restricted; bound children (controls) are
+carried through unchanged, since a matched control must stay available in every split. Like CellFlow2's
+combination-level splitter (hold out whole conditions, not cells), but on the ``Scheme`` — no cells, no
+``DatasetCollection``, no loader.
 """
 
 from __future__ import annotations
@@ -49,9 +44,8 @@ def split_scheme(
 ) -> dict[str, Scheme]:
     """Partition the root (target) combinations of ``scheme`` into named splits.
 
-    Splits are over whole *combinations* of ``split_by`` (all combos sharing the same ``split_by``
-    values land in the same split — CellFlow2's ``drop_duplicates(subset=split_by)`` + merge-back), so
-    this is an out-of-distribution split that holds out entire conditions rather than random cells.
+    Splits are over whole *combinations* of ``split_by`` — combos sharing the same ``split_by`` values
+    land in the same split — so entire conditions are held out rather than random cells.
 
     Parameters
     ----------

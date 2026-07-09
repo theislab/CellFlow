@@ -19,11 +19,10 @@ __all__ = [
 
 
 def _densify(x: Any) -> np.ndarray:
-    """Materialize a possibly-sparse streamed cell batch to dense (annbatch yields sparse for sparse X).
+    """Densify a possibly-sparse streamed cell batch (dense batches pass through).
 
-    Densification is done here, at the model boundary, rather than in the loader: ``dagloader`` streams
-    whatever the source stores (sparse or dense) and stays representation-agnostic; the solver needs
-    dense arrays. Dense batches pass through untouched.
+    Done at the model boundary, not in the loader: ``dagloader`` stays representation-agnostic while the
+    solver needs dense arrays.
     """
     return np.asarray(x.todense()) if hasattr(x, "todense") else x
 
@@ -31,10 +30,9 @@ def _densify(x: Any) -> np.ndarray:
 class DAGLoaderTrainSampler:
     """Adapt a ``dagloader.DAGLoader`` stream to the :meth:`TrainSampler.sample` batch contract.
 
-    ``DAGLoader`` yields ``{"target", "source", "condition"}`` (one perturbation per batch, the
-    condition already carrying the leading ``(1, ...)`` axis); the trainer/solver consumes
-    ``{"src_cell_data", "tgt_cell_data", "condition"}``. This renames the stream's keys and densifies the
-    cell batches (:func:`_densify`) so the in-memory and streaming paths hit the solver identically.
+    Renames the loader's ``{"target", "source", "condition"}`` batch to the trainer's
+    ``{"src_cell_data", "tgt_cell_data", "condition"}`` and densifies the cell arrays, so the in-memory
+    and streaming paths reach the solver identically.
     """
 
     def __init__(self, loader: Any):
