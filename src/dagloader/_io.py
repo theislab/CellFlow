@@ -16,12 +16,7 @@ import pandas as pd
 
 from dagloader._schema import Container
 
-__all__ = ["densify", "key_backings", "leaf_codes", "obs_columns"]
-
-
-def densify(x) -> np.ndarray:
-    """A streamed batch → a dense float32 array (annbatch may yield sparse for a sparse source)."""
-    return np.asarray(x.todense() if hasattr(x, "todense") else x, dtype=np.float32)
+__all__ = ["key_backings", "leaf_codes", "obs_columns"]
 
 
 def key_backings(source: Container, loc: str) -> list:

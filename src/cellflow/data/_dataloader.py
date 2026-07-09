@@ -18,13 +18,23 @@ __all__ = [
 ]
 
 
+def _densify(x: Any) -> np.ndarray:
+    """Materialize a possibly-sparse streamed cell batch to dense (annbatch yields sparse for sparse X).
+
+    Densification is done here, at the model boundary, rather than in the loader: ``dagloader`` streams
+    whatever the source stores (sparse or dense) and stays representation-agnostic; the solver needs
+    dense arrays. Dense batches pass through untouched.
+    """
+    return np.asarray(x.todense()) if hasattr(x, "todense") else x
+
+
 class DAGLoaderTrainSampler:
     """Adapt a ``dagloader.DAGLoader`` stream to the :meth:`TrainSampler.sample` batch contract.
 
     ``DAGLoader`` yields ``{"target", "source", "condition"}`` (one perturbation per batch, the
     condition already carrying the leading ``(1, ...)`` axis); the trainer/solver consumes
-    ``{"src_cell_data", "tgt_cell_data", "condition"}``. This is a key-rename over the stream — no cells
-    are copied — so the in-memory and streaming paths hit the solver through the same interface.
+    ``{"src_cell_data", "tgt_cell_data", "condition"}``. This renames the stream's keys and densifies the
+    cell batches (:func:`_densify`) so the in-memory and streaming paths hit the solver identically.
     """
 
     def __init__(self, loader: Any):
@@ -37,7 +47,7 @@ class DAGLoaderTrainSampler:
         ``rng`` is unused — the ``DAGLoader`` owns its own reproducible RNG.
         """
         batch = next(self._iter)
-        out = {"src_cell_data": batch["source"], "tgt_cell_data": batch["target"]}
+        out = {"src_cell_data": _densify(batch["source"]), "tgt_cell_data": _densify(batch["target"])}
         if "condition" in batch:
             out["condition"] = batch["condition"]
         return out

@@ -144,3 +144,22 @@ class TestPrepareAnnbatchData:
         assert batch["src_cell_data"].shape == (8, 5)
         assert batch["tgt_cell_data"].shape == (8, 5)
         assert batch["condition"]["drug"].shape[0] == 1  # one condition per batch, leading axis
+
+    def test_sparse_source_batches_densified(self):
+        # dagloader streams sparse for a sparse source; the model-boundary adapter densifies.
+        import scipy.sparse as sp
+
+        adata = _toy_adata()
+        adata.X = sp.csr_matrix(adata.X)
+        cf = cellflow.model.CellFlow()
+        cf.prepare_annbatch_data(
+            source=adata,
+            sample_rep="X",
+            control_key="control",
+            perturbation_covariates={"drug": ["drug"]},
+            split_covariates=["cell_line"],
+            sampler_config=_CFG,
+        )
+        batch = cf._dataloader.sample()
+        assert not sp.issparse(batch["src_cell_data"]) and not sp.issparse(batch["tgt_cell_data"])
+        assert batch["src_cell_data"].shape == (8, 5) and batch["tgt_cell_data"].shape == (8, 5)
