@@ -16,7 +16,7 @@ pytest.importorskip("annbatch")  # dagloader (and thus split_annbatch_data) need
 import anndata as ad
 
 import cellflow
-from dagloader import perturbation_scheme
+from dagloader import SamplerConfig, perturbation_scheme
 
 
 def _toy_scheme():
@@ -115,3 +115,63 @@ class TestPrepareAnnbatchSplitStep:
         )
         assert cf._split_schemes is None
         assert cf._split_assignment is None
+
+
+class TestPrepareAnnbatchSamplerConfig:
+    """`sampler_config` resolves to one SamplerConfig per split (Scheme-building still a TODO)."""
+
+    def test_single_config_applies_to_all_splits(self):
+        cf = cellflow.model.CellFlow()
+        cf._scheme = _toy_scheme()
+        cfg = SamplerConfig(batch_size=128, chunk_size=1, preload_nchunks=128)
+        cf.prepare_annbatch_data(
+            source=None,
+            sample_rep="X",
+            control_key="control",
+            perturbation_covariates={"drug": ["drug"]},
+            split_by=["drug"],
+            sampler_config=cfg,
+        )
+        assert set(cf._annbatch_sampler_configs) == {"train", "val", "test"}
+        assert all(c is cfg for c in cf._annbatch_sampler_configs.values())
+
+    def test_per_split_config(self):
+        cf = cellflow.model.CellFlow()
+        cf._scheme = _toy_scheme()
+        train = SamplerConfig(batch_size=256, chunk_size=1, preload_nchunks=256)
+        small = SamplerConfig(batch_size=64, chunk_size=1, preload_nchunks=64)
+        cf.prepare_annbatch_data(
+            source=None,
+            sample_rep="X",
+            control_key="control",
+            perturbation_covariates={"drug": ["drug"]},
+            split_by=["drug"],
+            sampler_config={"train": train, "val": small, "test": small},
+        )
+        assert cf._annbatch_sampler_configs["train"].batch_size == 256
+        assert cf._annbatch_sampler_configs["val"].batch_size == 64
+
+    def test_per_split_missing_split_raises(self):
+        cf = cellflow.model.CellFlow()
+        cf._scheme = _toy_scheme()
+        with pytest.raises(ValueError, match="missing config"):
+            cf.prepare_annbatch_data(
+                source=None,
+                sample_rep="X",
+                control_key="control",
+                perturbation_covariates={"drug": ["drug"]},
+                split_by=["drug"],
+                sampler_config={"train": SamplerConfig(batch_size=1, chunk_size=1, preload_nchunks=1)},
+            )
+
+    def test_no_split_uses_single_train_config(self):
+        cf = cellflow.model.CellFlow()
+        cf._scheme = _toy_scheme()
+        cf.prepare_annbatch_data(
+            source=None,
+            sample_rep="X",
+            control_key="control",
+            perturbation_covariates={"drug": ["drug"]},
+            sampler_config=SamplerConfig(batch_size=32, chunk_size=1, preload_nchunks=32),
+        )
+        assert set(cf._annbatch_sampler_configs) == {"train"}  # no split → single "train" scheme

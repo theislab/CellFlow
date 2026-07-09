@@ -15,7 +15,14 @@ pytest.importorskip("annbatch")  # dagloader imports annbatch; skip the module i
 
 import anndata as ad
 
-from dagloader import Scheme, perturbation_scheme, split_assignment, split_scheme
+from dagloader import (
+    SamplerConfig,
+    Scheme,
+    perturbation_scheme,
+    resolve_split_configs,
+    split_assignment,
+    split_scheme,
+)
 
 
 def _toy_scheme(n_drugs: int = 5, cell_lines: tuple[str, ...] = ("A", "B"), seed: int = 0) -> Scheme:
@@ -153,3 +160,36 @@ class TestSplitValidation:
         # 2 cell lines cannot fill 3 non-empty splits
         with pytest.raises(ValueError, match="received 0 of"):
             split_scheme(_toy_scheme(cell_lines=("A", "B")), split_by=["cell_line"])
+
+
+class TestResolveSplitConfigs:
+    NAMES = ["train", "val", "test"]
+
+    def test_single_config_object_applies_to_all(self):
+        cfg = SamplerConfig(batch_size=256, chunk_size=1, preload_nchunks=256)
+        out = resolve_split_configs(cfg, self.NAMES)
+        assert set(out) == set(self.NAMES)
+        assert all(out[n] is cfg for n in self.NAMES)  # same object shared
+
+    def test_per_split_mapping_ok(self):
+        train, val, test = (
+            SamplerConfig(batch_size=256, chunk_size=1, preload_nchunks=256),
+            SamplerConfig(batch_size=64, chunk_size=1, preload_nchunks=64),
+            SamplerConfig(batch_size=64, chunk_size=1, preload_nchunks=64),
+        )
+        out = resolve_split_configs({"train": train, "val": val, "test": test}, self.NAMES)
+        assert out == {"train": train, "val": val, "test": test}
+
+    def test_per_split_missing_split_raises(self):
+        with pytest.raises(ValueError, match="missing config"):
+            resolve_split_configs({"train": SamplerConfig(batch_size=1, chunk_size=1, preload_nchunks=1)}, self.NAMES)
+
+    def test_per_split_unknown_split_raises(self):
+        cfg = SamplerConfig(batch_size=1, chunk_size=1, preload_nchunks=1)
+        with pytest.raises(ValueError, match="unknown split"):
+            resolve_split_configs({"train": cfg, "val": cfg, "test": cfg, "bogus": cfg}, self.NAMES)
+
+    def test_per_split_non_sampler_config_value_raises(self):
+        cfg = SamplerConfig(batch_size=1, chunk_size=1, preload_nchunks=1)
+        with pytest.raises(ValueError, match="must be SamplerConfig"):
+            resolve_split_configs({"train": cfg, "val": cfg, "test": {"batch_size": 1}}, self.NAMES)

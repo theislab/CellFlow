@@ -25,7 +25,7 @@ from dagloader._schema import (
     uniform,
 )
 from dagloader._schemes import perturbation_scheme
-from dagloader._split import split_assignment, split_scheme
+from dagloader._split import resolve_split_configs, split_assignment, split_scheme
 
 __all__ = [
     "Bind",
@@ -39,6 +39,7 @@ __all__ = [
     "frequency",
     "inverse_frequency",
     "perturbation_scheme",
+    "resolve_split_configs",
     "split_assignment",
     "split_scheme",
     "uniform",

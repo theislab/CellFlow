@@ -151,9 +151,10 @@ class SamplerConfig:
     batch_size
         Rows per emitted batch for this node (target rows for the root; source rows for a bound child).
     chunk_size
-        annbatch read-slice size. ``1`` (default) ⇒ per-row reads (any on-disk layout). ``>1`` ⇒
-        contiguous chunked reads (higher throughput on disk), assuming each sampled leaf sits in a
-        contiguous run ≥ ``chunk_size``. Must divide ``batch_size`` (one category per batch).
+        annbatch read-slice size. **Required** and explicit — there is no hidden default; set it
+        deliberately. ``1`` ⇒ per-row reads (any on-disk layout); ``>1`` ⇒ contiguous chunked reads
+        (higher throughput on disk), assuming each sampled leaf sits in a contiguous run ≥
+        ``chunk_size``. Must divide ``batch_size`` (one category per batch).
     preload_nchunks
         Chunks per annbatch read window. **Required** and explicit — there is no hidden default; set it
         deliberately (e.g. ``batch_size // chunk_size`` for one batch per window). Must be a positive
@@ -161,7 +162,7 @@ class SamplerConfig:
     """
 
     batch_size: int
-    chunk_size: int = 1
+    chunk_size: int
     preload_nchunks: int
 
 

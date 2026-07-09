@@ -21,9 +21,9 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 
-from dagloader._schema import Scheme
+from dagloader._schema import SamplerConfig, Scheme
 
-__all__ = ["split_assignment", "split_scheme"]
+__all__ = ["resolve_split_configs", "split_assignment", "split_scheme"]
 
 _DEFAULT_RATIOS = {"train": 0.6, "val": 0.2, "test": 0.2}
 
@@ -165,3 +165,45 @@ def split_assignment(splits: Mapping[str, Scheme]) -> pd.DataFrame:
     rows = [(*combo, name) for name, sch in splits.items() for combo, w in sch.nodes[sch.root].weights.items() if w > 0]
     df = pd.DataFrame(rows, columns=[*cols, "split"])
     return df.sort_values(["split", *cols]).reset_index(drop=True)
+
+
+def resolve_split_configs(
+    config: SamplerConfig | Mapping[str, SamplerConfig],
+    split_names: Sequence[str],
+) -> dict[str, SamplerConfig]:
+    """Resolve a read-parameter spec into exactly one :class:`SamplerConfig` per split.
+
+    ``config`` is either
+
+    * **a single** :class:`SamplerConfig` — applied to every split; or
+    * **a per-split mapping** ``{split_name: SamplerConfig}`` — in which case **every** split in
+      ``split_names`` must be present (no partial specs, no unknown split names).
+
+    Returns ``{split_name: SamplerConfig}`` for exactly ``split_names``.
+    """
+    names = list(split_names)
+    if not names:
+        raise ValueError("split_names must be non-empty.")
+
+    if isinstance(config, SamplerConfig):  # one config → all splits
+        return dict.fromkeys(names, config)
+
+    if isinstance(config, Mapping):  # per-split mapping: every split specified, no extras
+        missing = [n for n in names if n not in config]
+        if missing:
+            raise ValueError(
+                f"sampler_config is per-split but is missing config(s) for split(s) {missing}; specify all of {names}."
+            )
+        extra = [k for k in config if k not in names]
+        if extra:
+            raise ValueError(f"sampler_config has config(s) for unknown split(s) {extra}; splits are {names}.")
+        bad = [k for k, v in config.items() if not isinstance(v, SamplerConfig)]
+        if bad:
+            raise ValueError(
+                f"sampler_config values must be SamplerConfig instances; got a non-SamplerConfig for {bad}."
+            )
+        return {name: config[name] for name in names}
+
+    raise ValueError(
+        f"sampler_config must be a SamplerConfig or a {{split: SamplerConfig}} mapping; got {type(config).__name__}."
+    )

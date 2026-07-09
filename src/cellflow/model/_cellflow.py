@@ -32,6 +32,8 @@ from cellflow.utils import match_linear
 if TYPE_CHECKING:
     from annbatch import DatasetCollection  # optional dep — only imported for typing
 
+    from dagloader import SamplerConfig  # optional dep — only imported for typing
+
 __all__ = ["CellFlow"]
 
 
@@ -81,6 +83,7 @@ class CellFlow:
         self._scheme = None
         self._split_schemes: dict[str, Any] | None = None
         self._split_assignment: pd.DataFrame | None = None
+        self._annbatch_sampler_configs: dict[str, Any] | None = None
 
     def prepare_data(
         self,
@@ -232,8 +235,7 @@ class CellFlow:
         split_covariates: Sequence[str] | None = None,
         max_combination_length: int | None = None,
         null_value: float = 0.0,
-        batch_size: int = 1024,
-        chunk_size: int = 1,
+        sampler_config: "SamplerConfig | Mapping[str, SamplerConfig] | None" = None,
         seed: int = 0,
         split_by: Sequence[str] | None = None,
         split_ratios: Mapping[str, float] | None = None,
@@ -257,11 +259,11 @@ class CellFlow:
         source
             An out-of-core :class:`annbatch.DatasetCollection` to stream cells from. Its ``obs`` supplies
             the grouping / condition columns; ``sample_rep`` selects the streamed representation.
-        batch_size
-            Rows per streamed batch (the target/root batch size).
-        chunk_size
-            annbatch read-slice size: ``1`` (default) ⇒ per-row reads (any on-disk layout); ``>1`` ⇒
-            contiguous chunked reads for higher on-disk throughput.
+        sampler_config
+            The read parameters for the streamed loader(s), **one per split**. Either a single
+            :class:`dagloader.SamplerConfig` applied to every split, or a per-split mapping
+            ``{split_name: SamplerConfig}`` that must cover **all** splits (see
+            :func:`dagloader.resolve_split_configs`). When no split is made the only split is ``"train"``.
         seed
             Reproducibility seed for the ``dagloader`` per-node RNG streams.
         split_by
@@ -311,6 +313,18 @@ class CellFlow:
                 force_training_values=split_force_training_values,
                 random_state=split_random_state,
             )
+
+        # One `SamplerConfig` per split (a flat spec ⇒ all splits; a per-split dict ⇒ all specified).
+        # The splits are the split schemes when a split was made, else the single ``"train"`` scheme.
+        if sampler_config is not None:
+            from dagloader import resolve_split_configs
+
+            split_names = list(self._split_schemes) if self._split_schemes is not None else ["train"]
+            self._annbatch_sampler_configs = resolve_split_configs(sampler_config, split_names)
+
+        # TODO(annbatch): build a `DAGLoader` per split from `self._split_schemes` (or the full
+        # `self._scheme`) using the matching `self._annbatch_sampler_configs[name]`, wrap it in the
+        # trainer's sampler interface, and set `self._dataloader` / `self._validation_data`.
 
     def split_annbatch_data(
         self,
