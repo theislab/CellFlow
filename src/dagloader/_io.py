@@ -48,7 +48,7 @@ def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list
 
 
 def obs_columns(source: Container, cols: Sequence[str]) -> pd.DataFrame:
-    """obs columns from either container (AnnData attr vs DatasetCollection reader) — no cell matrices."""
+    """Obs columns from either container (AnnData attr vs DatasetCollection reader) — no cell matrices."""
     if isinstance(source, ad.AnnData):
         return source.obs[list(cols)]
     return source.obs(columns=list(cols))  # DatasetCollection

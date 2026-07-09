@@ -1,4 +1,4 @@
-"""Declarative schema for :class:`~dagloader.DAGLoader`.
+r"""Declarative schema for :class:`~dagloader.DAGLoader`.
 
 A :class:`Scheme` is a rooted tree of :class:`Node`\\s over named cell *sources* — pure structure
 (sources, grouping columns, weights, binds). How each node is *read* (chunk / preload / batch sizes)
@@ -139,7 +139,7 @@ class Bind:
 
 @dataclass(frozen=True, kw_only=True)
 class SamplerConfig:
-    """annbatch read parameters for a node's sampler — kept separate from the structural :class:`Node`.
+    r"""annbatch read parameters for a node's sampler — kept separate from the structural :class:`Node`.
 
     Passed to :class:`~dagloader.DAGLoader` as either one config (applied to every node)
     or a ``{node_name: SamplerConfig}`` mapping (per-node). Nodes may use **different** ``batch_size``\\s:

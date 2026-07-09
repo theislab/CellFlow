@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 from annbatch import Loader
 
-from dagloader._io import densify, key_backings, leaf_codes, obs_columns
-from dagloader._schema import Bind, SamplerConfig, Scheme, _weight_vector
+from dagloader._io import key_backings, leaf_codes, obs_columns
 from dagloader._scheduled_sampler import ScheduledClassSampler
+from dagloader._schema import Bind, SamplerConfig, Scheme, _weight_vector
 
 __all__ = ["DAGLoader"]
 
@@ -45,7 +45,9 @@ class DAGLoader:
         # that node's per-key samplers — identical samplers → the SAME rows, so a node's reps are aligned.
         self._rngs: dict[str, np.random.Generator] = {}
         self._row_seqs: dict[str, np.random.SeedSequence] = {}
-        for name, seq in zip(sorted(scheme.nodes), np.random.SeedSequence(scheme.seed).spawn(len(scheme.nodes))):
+        for name, seq in zip(
+            sorted(scheme.nodes), np.random.SeedSequence(scheme.seed).spawn(len(scheme.nodes)), strict=True
+        ):
             decision_seq, row_seq = seq.spawn(2)
             self._rngs[name] = np.random.default_rng(decision_seq)
             self._row_seqs[name] = row_seq
@@ -71,10 +73,13 @@ class DAGLoader:
         self._pos = 0
 
     def _resolve_configs(self, cfg: SamplerConfig | Mapping[str, SamplerConfig]) -> dict[str, SamplerConfig]:
-        """Normalize to one config per node. Nodes may use different batch sizes (each draws
-        ``_n_batches`` batches of its own size; source and target row counts need not match)."""
+        """Normalize to one config per node.
+
+        Nodes may use different batch sizes (each draws ``_n_batches`` batches of its own size; source
+        and target row counts need not match).
+        """
         if isinstance(cfg, SamplerConfig):
-            resolved = {name: cfg for name in self.s.nodes}
+            resolved = dict.fromkeys(self.s.nodes, cfg)
         else:
             missing = set(self.s.nodes) - set(cfg)
             if missing:
@@ -84,10 +89,12 @@ class DAGLoader:
 
     # ── build ────────────────────────────────────────────────────────────
     def _build_loaders(self) -> None:
-        """Per ``(node, key)``: a ScheduledClassSampler + Loader. All of a node's keys are seeded with
-        the SAME row-draw seed, so their (otherwise identical) samplers select the same rows every batch
-        — every rep of a node is the same cells. Reps need separate Loaders regardless (annbatch can't
-        mix feature dims in one loader), and each rep gets native chunked reads.
+        """Per ``(node, key)``: a ScheduledClassSampler + Loader.
+
+        All of a node's keys are seeded with the SAME row-draw seed, so their (otherwise identical)
+        samplers select the same rows every batch — every rep of a node is the same cells. Reps need
+        separate Loaders regardless (annbatch can't mix feature dims in one loader), and each rep gets
+        native chunked reads.
         """
         self._samplers: dict[str, dict[str, ScheduledClassSampler]] = {}
         self._loaders: dict[str, dict[str, Loader]] = {}
@@ -104,15 +111,21 @@ class DAGLoader:
             for ki, key in enumerate(node.keys):
                 try:  # annbatch enforces its own run-length rule for chunk>1; forward with node context
                     sampler = ScheduledClassSampler(
-                        chunk_size=cfg.chunk_size, preload_nchunks=cfg.preload_nchunks, batch_size=cfg.batch_size,
-                        classes=classes, num_samples=num_samples, class_weights=st["w"],
-                        drop_last=True, rng=np.random.default_rng(self._row_seqs[name]),  # identical across keys
+                        chunk_size=cfg.chunk_size,
+                        preload_nchunks=cfg.preload_nchunks,
+                        batch_size=cfg.batch_size,
+                        classes=classes,
+                        num_samples=num_samples,
+                        class_weights=st["w"],
+                        drop_last=True,
+                        rng=np.random.default_rng(self._row_seqs[name]),  # identical across keys
                     )
                 except ValueError as e:
                     raise ValueError(f"node {name!r}: {e}") from e
                 return_index = name == self.s.root and ki == 0  # only for the schedule↔row alignment check
-                loader = Loader(batch_sampler=sampler, return_index=return_index, to_torch=False,
-                                preload_to_gpu=False).add_datasets(key_backings(src, key))
+                loader = Loader(
+                    batch_sampler=sampler, return_index=return_index, to_torch=False, preload_to_gpu=False
+                ).add_datasets(key_backings(src, key))
                 self._samplers[name][key] = sampler
                 self._loaders[name][key] = loader
 
@@ -134,14 +147,20 @@ class DAGLoader:
                 for pk, ck in b.matched.items():
                     pk, ck = tuple(pk), tuple(ck)
                     if pk not in root_idx:
-                        raise ValueError(f"bind {b.parent!r}→{b.child!r}: matched key {pk!r} is not a {b.parent!r} leaf.")
+                        raise ValueError(
+                            f"bind {b.parent!r}→{b.child!r}: matched key {pk!r} is not a {b.parent!r} leaf."
+                        )
                     if ck not in child_idx or cst["w"][child_idx[ck]] <= 0:
                         raise ValueError(
                             f"bind {b.parent!r}→{b.child!r}: matched value {ck!r} is not a positive-weight {b.child!r} leaf."
                         )
                     code_to_child[root_idx[pk]] = child_idx[ck]
-                self._bindmap[b.child] = {"bind": b, "mode": "matched", "root_leaves": rleaves,
-                                          "code_to_child": code_to_child}
+                self._bindmap[b.child] = {
+                    "bind": b,
+                    "mode": "matched",
+                    "root_leaves": rleaves,
+                    "code_to_child": code_to_child,
+                }
                 continue
             rcols, ccols = rst["node"].cols, cst["node"].cols
             # parent leaf code → shared-column value (empty tuple when common=() ⇒ unconditional bind)
@@ -152,7 +171,10 @@ class DAGLoader:
                 if cst["w"][code] > 0:
                     grouped.setdefault(tuple(lf[ccols.index(c)] for c in b.common), []).append(code)
             self._bindmap[b.child] = {
-                "bind": b, "mode": "common", "root_leaves": rleaves, "child_w": cst["w"],
+                "bind": b,
+                "mode": "common",
+                "root_leaves": rleaves,
+                "child_w": cst["w"],
                 "root_code_to_cv": root_code_to_cv,
                 "common_to_child": {cv: np.asarray(codes, dtype=np.int64) for cv, codes in grouped.items()},
             }
@@ -216,8 +238,7 @@ class DAGLoader:
             self._schedules[b.child] = child_sched
             for smp in self._samplers[b.child].values():
                 smp.set_schedule(child_sched)
-        self._iters = {name: {key: iter(ld) for key, ld in loaders.items()}
-                       for name, loaders in self._loaders.items()}
+        self._iters = {name: {key: iter(ld) for key, ld in loaders.items()} for name, loaders in self._loaders.items()}
         self._pos = 0
 
     # ── iteration ──────────────────────────────────────────────────────────

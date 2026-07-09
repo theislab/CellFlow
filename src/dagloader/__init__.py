@@ -1,4 +1,4 @@
-"""Declarative, index-free class-mapping sampler over annbatch.
+r"""Declarative, index-free class-mapping sampler over annbatch.
 
 A :class:`Scheme` is a rooted tree of :class:`Node`\\s over named cell sources; each node partitions
 its source's cells into leaves (unique column-combinations) with a per-combination weight mapping.
