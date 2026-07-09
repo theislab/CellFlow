@@ -311,7 +311,7 @@ class TestCellFlow:
         adata_pred.obs["control"] = True
         covariate_data = adata_pred.obs.iloc[:3]
 
-        adata_pred.obs["control"].iloc[0:20] = False
+        adata_pred.obs.iloc[0:20, adata_pred.obs.columns.get_loc("control")] = False
         with pytest.raises(
             ValueError,
             match=r".*If both `adata` and `covariate_data` are given, all samples in `adata` must be control samples*",
@@ -327,7 +327,7 @@ class TestCellFlow:
             match=r".*No cells found in `adata` for split covariates*",
         ):
             covariate_data_a = covariate_data.copy()
-            covariate_data_a["cell_type"][0] = "cell_line_a"
+            covariate_data_a.iloc[0, covariate_data_a.columns.get_loc("cell_type")] = "cell_line_a"
             cov_data_cell_type_1 = covariate_data_a[covariate_data_a["cell_type"] == "cell_line_a"]
             adata_pred_cell_type_2 = adata_pred[adata_pred.obs["cell_type"] == "cell_line_b"]
             adata_pred_cell_type_2.obs["control"] = True
