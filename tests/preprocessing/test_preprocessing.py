@@ -60,7 +60,9 @@ class TestPreprocessing:
 
         assert uns_key_added in adata_with_compounds.uns
         assert next(iter(adata_with_compounds.uns[uns_key_added].values())).shape[0] == n_bits
-        expected_compounds = adata_with_compounds.obs[compound_and_smiles_keys[0]].values.flatten().tolist()
+        # `np.asarray` handles both a single string column (an ExtensionArray such as the
+        # pandas>=3 Arrow-backed string array, which has no `.flatten()`) and a list of columns.
+        expected_compounds = np.asarray(adata_with_compounds.obs[compound_and_smiles_keys[0]]).ravel().tolist()
 
         assert np.all([c in adata_with_compounds.uns[uns_key_added] for c in expected_compounds])
 

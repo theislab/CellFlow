@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 import cellflow
+from cellflow import _constants
 from cellflow.networks import _velocity_field
 
 perturbation_covariate_comb_args = [
@@ -310,7 +311,7 @@ class TestCellFlow:
         adata_pred.obs["control"] = True
         covariate_data = adata_pred.obs.iloc[:3]
 
-        adata_pred.obs["control"].iloc[0:20] = False
+        adata_pred.obs.iloc[0:20, adata_pred.obs.columns.get_loc("control")] = False
         with pytest.raises(
             ValueError,
             match=r".*If both `adata` and `covariate_data` are given, all samples in `adata` must be control samples*",
@@ -326,7 +327,7 @@ class TestCellFlow:
             match=r".*No cells found in `adata` for split covariates*",
         ):
             covariate_data_a = covariate_data.copy()
-            covariate_data_a["cell_type"][0] = "cell_line_a"
+            covariate_data_a.iloc[0, covariate_data_a.columns.get_loc("cell_type")] = "cell_line_a"
             cov_data_cell_type_1 = covariate_data_a[covariate_data_a["cell_type"] == "cell_line_a"]
             adata_pred_cell_type_2 = adata_pred[adata_pred.obs["cell_type"] == "cell_line_b"]
             adata_pred_cell_type_2.obs["control"] = True
@@ -425,6 +426,17 @@ class TestCellFlow:
         assert isinstance(out[1], pd.DataFrame)
         assert out[0].shape[0] == conds.shape[0]
         assert out[0].shape[1] == condition_embedding_dim
+
+        # The mean and variance embeddings must be stored under distinct keys in
+        # `adata.uns` (regression: they previously shared `key_added`, so the variance
+        # silently overwrote the mean).
+        key_added = "my_condition_embedding"
+        mean_df, var_df = cf.get_condition_embedding(conds, rep_dict=adata_perturbation.uns, key_added=key_added)
+        stored = cf.adata.uns[_constants.CELLFLOW_KEY]
+        assert key_added in stored
+        assert f"{key_added}_var" in stored
+        pd.testing.assert_frame_equal(stored[key_added], mean_df)
+        pd.testing.assert_frame_equal(stored[f"{key_added}_var"], var_df)
 
         # Test if condition_id_key works
         condition_id_key = "condition_id"

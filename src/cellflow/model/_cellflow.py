@@ -696,7 +696,9 @@ class CellFlow:
             Key defining the name of the condition. Only available
             if ``'covariate_data'`` is a :class:`~pandas.DataFrame`.
         key_added
-            Key to store the condition embedding in :attr:`~anndata.AnnData.uns`.
+            Key to store the condition embedding in :attr:`~anndata.AnnData.uns`. The mean is
+            stored under ``key_added`` and the variance under ``f"{key_added}_var"``. If
+            :obj:`None`, the embeddings are not stored.
 
         Returns
         -------
@@ -742,7 +744,7 @@ class CellFlow:
 
         if key_added is not None:
             _utils.set_plotting_vars(self.adata, key=key_added, value=df_mean)
-            _utils.set_plotting_vars(self.adata, key=key_added, value=df_var)
+            _utils.set_plotting_vars(self.adata, key=f"{key_added}_var", value=df_var)
 
         return df_mean, df_var
 

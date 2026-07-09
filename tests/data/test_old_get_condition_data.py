@@ -290,6 +290,20 @@ def compare_masks(a: np.ndarray, b: np.ndarray, name: str):
     return a2b
 
 
+def _as_list(x):
+    """Normalize array-likes to a plain list for order-sensitive equality checks.
+
+    Handles :class:`numpy.ndarray`, pandas extension arrays (e.g. the Arrow-backed
+    ``ArrowStringArray`` used for string columns under pandas>=3) and tuples, so that
+    e.g. ``ArrowStringArray(["a"]) == ["a"]`` does not return an element-wise array.
+    """
+    if isinstance(x, list | tuple):
+        return list(x)
+    if hasattr(x, "tolist"):  # np.ndarray or pandas ExtensionArray
+        return x.tolist()
+    return x
+
+
 def compare_train_data(a, b):
     a2b_perturbation = compare_masks(
         a.perturbation_covariates_mask, b.perturbation_covariates_mask, "perturbation_covariates_mask"
@@ -312,10 +326,8 @@ def compare_train_data(a, b):
             b_k = a2b_perturbation[k]
         else:
             b_k = k
-        elem_a = a.perturbation_idx_to_covariates[k]
-        elem_a = elem_a.tolist() if isinstance(elem_a, np.ndarray) else elem_a
-        elem_b = b.perturbation_idx_to_covariates[b_k]
-        elem_b = elem_b.tolist() if isinstance(elem_b, np.ndarray) else elem_b
+        elem_a = _as_list(a.perturbation_idx_to_covariates[k])
+        elem_b = _as_list(b.perturbation_idx_to_covariates[b_k])
         assert elem_a == elem_b, f"perturbation_idx_to_covariates[{k}] {elem_a}, {elem_b}"
     assert a.control_to_perturbation.keys() == b.control_to_perturbation.keys(), "control_to_perturbation"
     for k in a.control_to_perturbation.keys():

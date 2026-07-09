@@ -76,3 +76,30 @@ class TestGeneEmb:
             legacy_emb = torch.load(os.path.join(ARTIFACTS_DIR, fname))
             legacy_emb = legacy_emb["mean_representations"][36]
             assert torch.allclose(emb, legacy_emb, atol=1e-2, rtol=1e-2)
+
+    def test_null_gene_ids_are_filtered(self, adata_with_ko, monkeypatch):
+        """Null gene ids must not reach the Ensembl/ESM lookup.
+
+        Under pandas>=3 a ``None`` in an (Arrow-backed) string column surfaces as ``NaN``
+        after ``.unique().tolist()``; it must still be filtered out (regression: ``NaN`` was
+        sent to Ensembl as ``lookup/id/nan``). Network/model calls are monkeypatched away.
+        """
+        import cellflow.preprocessing._gene_emb as gene_emb
+
+        captured: dict[str, list] = {}
+
+        def _fake_protein_features_from_genes(genes, **kwargs):
+            captured["genes"] = list(genes)
+            return {}, pd.DataFrame({"gene_id": list(genes)})
+
+        monkeypatch.setattr(gene_emb, "protein_features_from_genes", _fake_protein_features_from_genes)
+        gene_emb.get_esm_embedding(adata_with_ko, gene_key="gene_target_", copy=True)
+
+        genes = captured["genes"]
+        assert all(g is not None and not pd.isna(g) for g in genes), genes
+        assert set(genes) == {
+            "ENSG00000139618",
+            "ENSG00000260123",
+            "ENSG00000049192",
+            "ENSG00000206450",
+        }
