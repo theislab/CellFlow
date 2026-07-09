@@ -453,11 +453,16 @@ class DataManager:
     ) -> pd.DataFrame:
         # Extract unique combinations of perturbation covariates
         select_keys = perturb_covar_keys.copy()
-        if condition_id_key is not None:
+        if condition_id_key is not None and condition_id_key not in select_keys:
+            # `condition_id_key` may coincide with a perturbation covariate key (#284);
+            # only append it when it is a distinct column to avoid selecting it twice.
             select_keys += [condition_id_key]
         perturb_covar_df = covariate_data[select_keys].drop_duplicates()
         if condition_id_key is not None:
-            perturb_covar_df = perturb_covar_df.set_index(condition_id_key)
+            # `drop=False` keeps the covariate column when `condition_id_key` is itself
+            # a perturbation covariate key, so re-indexing by `perturb_covar_keys`
+            # downstream still finds the column (#284).
+            perturb_covar_df = perturb_covar_df.set_index(condition_id_key, drop=False)
         else:
             perturb_covar_df = perturb_covar_df.reset_index()
         return perturb_covar_df
@@ -710,7 +715,11 @@ class DataManager:
             tgt_idx = perturbation_covariates_to_idx[tuple(tgt_cond[perturbation_covariates_keys + uniq_sample_keys])]
             tgt_cond = tgt_cond[self.perturb_covar_keys]
             if condition_id_key is not None:
-                perturbation_idx_to_id[tgt_idx] = perturb_covar_df.loc[tuple(tgt_cond)]["_condition_id"]
+                # A single perturb-covar key yields a flat index (scalar lookup key);
+                # multiple keys yield a MultiIndex (tuple lookup key). Passing a bare
+                # tuple to `.loc` on a flat index is (row, col) indexing under pandas>=3.
+                key = tuple(tgt_cond) if len(self.perturb_covar_keys) > 1 else tgt_cond.iloc[0]
+                perturbation_idx_to_id[tgt_idx] = perturb_covar_df.loc[key, "_condition_id"]
             tgt_cond = dict(tgt_cond)
             delayed_results.append(dask.delayed(_process_cond_wrapper)(tgt_idx=tgt_idx, tgt_cond=tgt_cond))
         with ProgressBar():
