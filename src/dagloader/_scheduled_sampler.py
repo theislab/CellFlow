@@ -51,7 +51,14 @@ class _ScheduleRng:
         return self._rng.choice(a, size=size, replace=replace, p=p)
 
     def __getattr__(self, name):  # integers / shuffle / permutation / ... → real generator
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)  # don't delegate dunders — avoids recursion during (un)pickling / copy
         return getattr(self._rng, name)
+
+    def __reduce__(self):
+        # A transient per-pass wrapper: pickle it AS the underlying real Generator so a checkpointed
+        # DAGLoader restores a clean, unwrapped RNG (the wrapper is rebuilt each pass in `_sample`).
+        return self._rng.__reduce__()
 
 
 class ScheduledClassSampler(ClassSampler):

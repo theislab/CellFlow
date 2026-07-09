@@ -241,6 +241,23 @@ class DAGLoader:
         self._iters = {name: {key: iter(ld) for key, ld in loaders.items()} for name, loaders in self._loaders.items()}
         self._pos = 0
 
+    # ── pickling ─────────────────────────────────────────────────────────────
+    def __getstate__(self) -> dict:
+        """Pickle without the live annbatch iterators (generators aren't picklable).
+
+        Everything that defines the stream is kept — the per-node RNG streams (``_rngs`` / ``_row_seqs``),
+        the samplers (with their advanced RNG), the drawn ``_schedules`` and the configs — so a reloaded
+        loader continues the *same* reproducible RNG sequence. Only the transient ``_iters`` are dropped;
+        the next ``__next__`` rebuilds them (a fresh pass) from the restored RNG state.
+        """
+        state = self.__dict__.copy()
+        state["_iters"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._iters = None  # force `_start_pass` on the next `__next__`, using the restored RNG state
+
     # ── iteration ──────────────────────────────────────────────────────────
     def __iter__(self) -> DAGLoader:
         return self

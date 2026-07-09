@@ -1005,8 +1005,15 @@ class CellFlow:
             df_var.index.set_names(list(self._dm.perturb_covar_keys), inplace=True)
 
         if key_added is not None:
-            _utils.set_plotting_vars(self.adata, key=key_added, value=df_mean)
-            _utils.set_plotting_vars(self.adata, key=f"{key_added}_var", value=df_var)
+            if self.adata is None:  # streaming/annbatch path: no `adata` to store into
+                warnings.warn(
+                    "No `adata` is attached (streaming path); returning the condition embeddings without "
+                    "storing them under `adata.uns`. Pass `key_added=None` to silence this.",
+                    stacklevel=2,
+                )
+            else:  # mean under `key_added`, variance under `f"{key_added}_var"` (distinct keys, #295)
+                _utils.set_plotting_vars(self.adata, key=key_added, value=df_mean)
+                _utils.set_plotting_vars(self.adata, key=f"{key_added}_var", value=df_var)
 
         return df_mean, df_var
 
