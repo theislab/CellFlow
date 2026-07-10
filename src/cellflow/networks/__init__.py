@@ -2,6 +2,7 @@ from cellflow.networks._set_encoders import (
     ConditionEncoder,
 )
 from cellflow.networks._utils import (
+    BaseModule,
     FilmBlock,
     MLPBlock,
     ResNetBlock,
@@ -16,6 +17,7 @@ __all__ = [
     "ConditionalVelocityField",
     "GENOTConditionalVelocityField",
     "ConditionEncoder",
+    "BaseModule",
     "MLPBlock",
     "SelfAttention",
     "SeedAttentionPooling",
