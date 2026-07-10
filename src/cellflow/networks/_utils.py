@@ -617,8 +617,7 @@ def _get_layers(
                 layer_cls = LAYER_REGISTRY[layer_type]
             except KeyError:
                 raise ValueError(
-                    f"Unknown layer type: {layer_type!r}. "
-                    f"Registered layer types: {sorted(LAYER_REGISTRY)}."
+                    f"Unknown layer type: {layer_type!r}. Registered layer types: {sorted(LAYER_REGISTRY)}."
                 ) from None
             modules.append(layer_cls(**layer))
     if output_dim is not None:
