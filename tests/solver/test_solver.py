@@ -289,9 +289,7 @@ class TestGuidance:
     def test_condition_dropout_training_runs(self, dataloader):
         """Training with ``condition_dropout_prob>0`` exercises the drop path and stays finite."""
         solver = _make_otfm(condition_dropout_prob=0.5)
-        trainer = cellflow.training.CellFlowTrainer(
-            solver=solver, predict_kwargs={"max_steps": 3, "throw": False}
-        )
+        trainer = cellflow.training.CellFlowTrainer(solver=solver, predict_kwargs={"max_steps": 3, "throw": False})
         trainer.train(dataloader=dataloader, num_iterations=2, valid_freq=10)
 
         pred = solver.predict(jnp.ones((4, 5)), {"drug": jnp.ones((1, 2, 3))})
@@ -390,9 +388,7 @@ class TestGuidance:
     def test_mask_value_training_runs(self, dataloader):
         """Training with ``condition_null='mask_value'`` and dropout>0 stays finite."""
         solver = _make_otfm(condition_dropout_prob=0.5, condition_null="mask_value")
-        trainer = cellflow.training.CellFlowTrainer(
-            solver=solver, predict_kwargs={"max_steps": 3, "throw": False}
-        )
+        trainer = cellflow.training.CellFlowTrainer(solver=solver, predict_kwargs={"max_steps": 3, "throw": False})
         trainer.train(dataloader=dataloader, num_iterations=2, valid_freq=10)
 
         pred = solver.predict(jnp.ones((4, 5)), {"drug": jnp.ones((1, 2, 3))})
