@@ -1,11 +1,12 @@
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 from flax.core import frozen_dict
 from flax.training import train_state
 from ott.solvers import utils as solver_utils
@@ -16,7 +17,7 @@ from cellflow._types import ArrayLike
 from cellflow.networks._velocity_field import ConditionalVelocityField
 from cellflow.solvers.utils import ema_update
 
-__all__ = ["OTFlowMatching", "ClassifierFreeGuidance", "Guidance"]
+__all__ = ["AuxiliaryTask", "ClassifierFreeGuidance", "Guidance", "OTFlowMatching"]
 
 # A velocity closure with the diffrax signature ``(t, x, args) -> velocity``,
 # where ``args`` is ``(params, condition, encoder_noise)``.
@@ -100,6 +101,143 @@ class ClassifierFreeGuidance:
         return guided_vf
 
 
+@runtime_checkable
+class AuxiliaryTask(Protocol):
+    """Protocol for an auxiliary task trained jointly with the flow.
+
+    An auxiliary task (e.g. a phenotype predictor) owns its own
+    :class:`~flax.training.train_state.TrainState` — typically the parameters of
+    an extra prediction head — and contributes a differentiable loss term that is
+    optimized *together* with the flow-matching objective in a single step. Tasks
+    are registered with :class:`OTFlowMatching` through the ``auxiliary_tasks``
+    constructor argument (which may be supplied via
+    :meth:`cellflow.model.CellFlow.prepare_model`'s ``solver_kwargs``), so extra
+    heads can be trained without forking the solver.
+
+    A task decides for itself whether it participates in a given batch through
+    :meth:`is_active`, which inspects the batch for the data it needs — the solver
+    never couples the data loader to a fixed task schedule. On each step the
+    weighted losses of all active tasks, together with the flow-matching term, are
+    summed into a single objective and differentiated jointly. As a result
+    :attr:`loss_weight` genuinely shifts the shared-trunk gradient direction; a
+    per-task step, by contrast, is scale-invariant under Adam and would leave
+    training essentially unchanged.
+    """
+
+    name: str
+    loss_weight: float
+
+    def init_state(
+        self,
+        vf: ConditionalVelocityField,
+        *,
+        rng: jax.Array,
+        optimizer: optax.GradientTransformation,
+    ) -> train_state.TrainState | None:
+        """Create the initial training state for the auxiliary task.
+
+        Parameters
+        ----------
+        vf
+            The conditional velocity field shared with the flow-matching task.
+        rng
+            Random number generator used to initialize the task parameters.
+        optimizer
+            Optimizer for the task parameters.
+
+        Returns
+        -------
+        The initial training state of the auxiliary task, or :obj:`None` for a
+        stateless task that owns no parameters of its own and only trains the
+        shared velocity field.
+        """
+        ...
+
+    def is_active(self, batch: dict[str, ArrayLike]) -> bool:
+        """Return whether ``batch`` carries the data this task needs.
+
+        Called on every batch; the task contributes its loss term only when this
+        returns :obj:`True`, so a batch that lacks the task's data simply skips it.
+        This keeps the data loader decoupled from the set of tasks.
+        """
+        ...
+
+    def loss(
+        self,
+        vf_params: Any,
+        aux_params: Any,
+        batch: dict[str, ArrayLike],
+        rng: jax.Array,
+    ) -> jnp.ndarray:
+        """Differentiable scalar loss contributed by this task.
+
+        Parameters
+        ----------
+        vf_params
+            Parameters of the shared velocity field. Use them (e.g. through
+            ``vf.apply``) to co-train the shared trunk, or ignore them to train
+            only the task's own head. Only the parameters your loss actually
+            reads receive a gradient and are updated; wrap a read in
+            :func:`jax.lax.stop_gradient` to use the shared representation
+            without training the trunk.
+        aux_params
+            Parameters of this task's own state (``init_state(...).params``).
+        batch
+            The current data batch.
+        rng
+            Random number generator for this task.
+
+        Returns
+        -------
+        The unweighted scalar loss. The solver multiplies it by
+        :attr:`loss_weight` before summing it into the joint objective and takes a
+        single optimization step over the velocity field and every active head.
+        """
+        ...
+
+
+class _FlowMatchingTask:
+    """Built-in :class:`AuxiliaryTask` wrapping the flow-matching objective.
+
+    Makes the default gene-expression objective a first-class task, so
+    :meth:`OTFlowMatching.step_fn` treats it uniformly with user-supplied tasks
+    and its weight lives on the task (set via ``loss_weight_gex``). It is
+    stateless — it trains the shared velocity field rather than a head of its own,
+    so :meth:`init_state` returns :obj:`None` — and it participates whenever the
+    batch carries ``src_cell_data``.
+    """
+
+    name = "gex"
+
+    def __init__(self, solver: "OTFlowMatching", loss_weight: float):
+        self._solver = solver
+        self.loss_weight = loss_weight
+
+    def init_state(self, vf: ConditionalVelocityField, *, rng: jax.Array, optimizer: Any) -> None:
+        """Return :obj:`None`; the flow-matching task trains the shared field only."""
+        return None
+
+    def is_active(self, batch: dict[str, ArrayLike]) -> bool:
+        """Active whenever the batch carries flow-matching (gene-expression) data."""
+        return "src_cell_data" in batch
+
+    def loss(self, vf_params: Any, aux_params: Any, batch: dict[str, ArrayLike], rng: jax.Array) -> jnp.ndarray:
+        """Flow-matching loss: sample time/noise, OT-match the batch, then score."""
+        solver = self._solver
+        src, tgt = batch["src_cell_data"], batch["tgt_cell_data"]
+        condition = batch.get("condition")
+        rng_resample, rng_time, rng_flow, rng_encoder_noise = jax.random.split(rng, 4)
+        n = src.shape[0]
+        time = solver.time_sampler(rng_time, n)
+        encoder_noise = jax.random.normal(rng_encoder_noise, (n, solver.vf.condition_embedding_dim))
+        # TODO: test whether it's better to sample the same noise for all samples or different ones
+        if solver.match_fn is not None:
+            tmat = solver.match_fn(src, tgt)
+            src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample, tmat)
+            src, tgt = src[src_ixs], tgt[tgt_ixs]
+        return solver._flow_matching_loss(vf_params, time, src, tgt, condition, encoder_noise, rng_flow)
+
+
 class OTFlowMatching:
     """(OT) flow matching :cite:`lipman:22` extended to the conditional setting.
 
@@ -121,6 +259,16 @@ class OTFlowMatching:
         time_sampler
             Time sampler with a ``(rng, n_samples) -> time`` signature, see e.g.
             :func:`ott.solvers.utils.uniform_sampler`.
+        loss_weight_gex
+            Weight of the flow-matching (gene-expression) loss term in the joint
+            objective. The default objective is itself a built-in, stateless task
+            (dispatched like any :class:`AuxiliaryTask`); this sets its weight.
+        auxiliary_tasks
+            Auxiliary tasks (see :class:`AuxiliaryTask`) trained jointly with the
+            flow. Each task owns its own training state, self-reports participation
+            per batch via :meth:`AuxiliaryTask.is_active`, and contributes a
+            weighted loss term that :meth:`step_fn` optimizes together with the
+            flow-matching loss in a single step.
         guidance
             Optional guidance strategy applied to the velocity field on the predict
             path, see e.g. :class:`ClassifierFreeGuidance`. If :obj:`None` (the
@@ -146,6 +294,8 @@ class OTFlowMatching:
         probability_path: BaseFlow,
         match_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None,
         time_sampler: Callable[[jax.Array, int], jnp.ndarray] = solver_utils.uniform_sampler,
+        loss_weight_gex: float = 1.0,
+        auxiliary_tasks: Sequence[AuxiliaryTask] = (),
         guidance: Guidance | None = None,
         **kwargs: Any,
     ):
@@ -161,106 +311,174 @@ class OTFlowMatching:
 
         self.vf_state = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_state_inference = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
-        self.vf_step_fn = self._get_vf_step_fn()
         self._predict_fn_cache: dict[frozen_dict.FrozenDict, Any] = {}
 
-    def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
-        @jax.jit
-        def vf_step_fn(
-            rng: jax.Array,
-            vf_state: train_state.TrainState,
-            time: jnp.ndarray,
-            source: jnp.ndarray,
-            target: jnp.ndarray,
-            conditions: dict[str, jnp.ndarray],
-            encoder_noise: jnp.ndarray,
-        ):
-            def loss_fn(
-                params: jnp.ndarray,
-                t: jnp.ndarray,
-                source: jnp.ndarray,
-                target: jnp.ndarray,
-                conditions: dict[str, jnp.ndarray],
-                encoder_noise: jnp.ndarray,
-                rng: jax.Array,
-            ) -> jnp.ndarray:
-                rng_flow, rng_encoder, rng_dropout = jax.random.split(rng, 3)
-                x_t = self.probability_path.compute_xt(rng_flow, t, source, target)
-                v_t, mean_cond, logvar_cond = vf_state.apply_fn(
-                    {"params": params},
-                    t,
-                    x_t,
-                    conditions,
-                    encoder_noise=encoder_noise,
-                    rngs={"dropout": rng_dropout, "condition_encoder": rng_encoder},
-                )
-                u_t = self.probability_path.compute_ut(t, x_t, source, target)
-                flow_matching_loss = jnp.mean((v_t - u_t) ** 2)
-                condition_mean_regularization = 0.5 * jnp.mean(mean_cond**2)
-                condition_var_regularization = -0.5 * jnp.mean(1 + logvar_cond - jnp.exp(logvar_cond))
-                if self.condition_encoder_mode == "stochastic":
-                    encoder_loss = condition_mean_regularization + condition_var_regularization
-                elif (self.condition_encoder_mode == "deterministic") and (self.condition_encoder_regularization > 0):
-                    encoder_loss = condition_mean_regularization
-                else:
-                    encoder_loss = 0.0
-                return flow_matching_loss + encoder_loss
+        # Auxiliary tasks contribute weighted loss terms that step_fn optimizes
+        # jointly with the flow-matching objective. Each task owns its own training
+        # state (stateless tasks return None) and self-reports participation per
+        # batch via ``is_active``.
+        self.auxiliary_tasks: tuple[AuxiliaryTask, ...] = tuple(auxiliary_tasks)
+        self._aux_states: dict[str, train_state.TrainState] = {}
+        for task in self.auxiliary_tasks:
+            state = task.init_state(self.vf, rng=kwargs.get("rng"), optimizer=kwargs.get("optimizer"))
+            if state is not None:
+                self._aux_states[task.name] = state
+        # The default flow-matching objective is itself an (internal, stateless)
+        # task, so step_fn iterates all tasks uniformly. Its weight lives on the
+        # task and is configured by ``loss_weight_gex``.
+        self._gex_task = _FlowMatchingTask(self, loss_weight_gex)
+        self._tasks: tuple[AuxiliaryTask, ...] = (self._gex_task, *self.auxiliary_tasks)
+        # Jitted joint-update fns, cached per active-task signature.
+        self._joint_step_cache: dict[tuple[str, ...], Callable] = {}  # type: ignore[type-arg]
 
-            grad_fn = jax.value_and_grad(loss_fn)
-            loss, grads = grad_fn(vf_state.params, time, source, target, conditions, encoder_noise, rng)
-            return vf_state.apply_gradients(grads=grads), loss
+    @property
+    def loss_weight_gex(self) -> float:
+        """Weight of the built-in flow-matching task (its single source of truth)."""
+        return self._gex_task.loss_weight
 
-        return vf_step_fn
+    @loss_weight_gex.setter
+    def loss_weight_gex(self, value: float) -> None:
+        self._gex_task.loss_weight = value
+
+    def _flow_matching_loss(
+        self,
+        params: Any,
+        t: jnp.ndarray,
+        source: jnp.ndarray,
+        target: jnp.ndarray,
+        conditions: dict[str, jnp.ndarray] | None,
+        encoder_noise: jnp.ndarray,
+        rng: jax.Array,
+    ) -> jnp.ndarray:
+        """Flow-matching (gene-expression) loss of the built-in gex task.
+
+        Kept as a solver method so the core objective lives in one place; it is
+        differentiated inside the joint step via :meth:`_FlowMatchingTask.loss`.
+        """
+        rng_flow, rng_encoder, rng_dropout = jax.random.split(rng, 3)
+        x_t = self.probability_path.compute_xt(rng_flow, t, source, target)
+        v_t, mean_cond, logvar_cond = self.vf.apply(
+            {"params": params},
+            t,
+            x_t,
+            conditions,
+            encoder_noise=encoder_noise,
+            rngs={"dropout": rng_dropout, "condition_encoder": rng_encoder},
+        )
+        u_t = self.probability_path.compute_ut(t, x_t, source, target)
+        flow_matching_loss = jnp.mean((v_t - u_t) ** 2)
+        condition_mean_regularization = 0.5 * jnp.mean(mean_cond**2)
+        condition_var_regularization = -0.5 * jnp.mean(1 + logvar_cond - jnp.exp(logvar_cond))
+        if self.condition_encoder_mode == "stochastic":
+            encoder_loss = condition_mean_regularization + condition_var_regularization
+        elif (self.condition_encoder_mode == "deterministic") and (self.condition_encoder_regularization > 0):
+            encoder_loss = condition_mean_regularization
+        else:
+            encoder_loss = 0.0
+        return flow_matching_loss + encoder_loss
 
     def step_fn(
         self,
         rng: jnp.ndarray,
         batch: dict[str, ArrayLike],
     ) -> float:
-        """Single step function of the solver.
+        """Single training step of the solver.
+
+        The flow-matching (gene-expression) objective is itself a task, so every
+        task — the built-in one and each :class:`AuxiliaryTask` — is treated
+        uniformly: each inspects the batch via :meth:`AuxiliaryTask.is_active`,
+        and the active tasks' weighted losses are summed into a single objective
+        and optimized jointly in one step over the velocity field and every
+        active head, so the loss weights genuinely shift the shared gradient.
 
         Parameters
         ----------
         rng
             Random number generator.
         batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
-            optionally ``condition``.
+            Data batch. The flow-matching term uses ``src_cell_data``,
+            ``tgt_cell_data`` and optionally ``condition``; auxiliary tasks read
+            whatever additional keys they declare through ``is_active``.
 
         Returns
         -------
-        Loss value.
+        The (weighted) loss value of the step.
+
+        Notes
+        -----
+        A single step updates:
+
+        - ``vf_state`` — the shared velocity field — from the *combined* gradient
+          of every active task. A task feeds the trunk only through the
+          ``vf_params`` its :meth:`AuxiliaryTask.loss` reads: the flow-matching
+          term touches the whole field, whereas a task that only consumes the
+          condition embedding updates just the condition encoder and leaves the
+          flow/decoder weights untouched.
+        - ``_aux_states[name]`` — each active task's own state (e.g. a prediction
+          head) — from that task's own weighted loss only; one task's parameters
+          never enter another task's loss term.
+        - ``vf_state_inference`` — resynced from ``vf_state`` after the step (an
+          exact copy when ``ema == 1.0``, otherwise an EMA update).
         """
-        src, tgt = batch["src_cell_data"], batch["tgt_cell_data"]
-        condition = batch.get("condition")
-        rng_resample, rng_time, rng_step_fn, rng_encoder_noise = jax.random.split(rng, 4)
-        n = src.shape[0]
-        time = self.time_sampler(rng_time, n)
-        encoder_noise = jax.random.normal(rng_encoder_noise, (n, self.vf.condition_embedding_dim))
-        # TODO: test whether it's better to sample the same noise for all samples or different ones
+        active = tuple(task for task in self._tasks if task.is_active(batch))
+        return self._step_joint(rng, batch, active)
 
-        if self.match_fn is not None:
-            tmat = self.match_fn(src, tgt)
-            src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample, tmat)
-            src, tgt = src[src_ixs], tgt[tgt_ixs]
-
-        self.vf_state, loss = self.vf_step_fn(
-            rng_step_fn,
-            self.vf_state,
-            time,
-            src,
-            tgt,
-            condition,
-            encoder_noise,
-        )
-
+    def _update_inference_state(self) -> None:
+        """Synchronize the inference velocity-field state with the training state."""
         if self.ema == 1.0:
             self.vf_state_inference = self.vf_state
         else:
             self.vf_state_inference = self.vf_state_inference.replace(
                 params=ema_update(self.vf_state_inference.params, self.vf_state.params, self.ema)
             )
+
+    def _step_joint(self, rng: jnp.ndarray, batch: dict[str, ArrayLike], active: tuple[AuxiliaryTask, ...]) -> float:
+        """Joint step over every active task (the flow-matching task included).
+
+        Sums each active task's weighted loss term into one objective,
+        differentiates it once with respect to the velocity field and all active
+        stateful heads, and applies the resulting gradients in a single
+        optimization step. Stateless tasks (e.g. the flow-matching task) still
+        feed the shared-field gradient but advance no state of their own.
+        """
+        active_names = tuple(task.name for task in active)
+        rngs = jax.random.split(rng, len(active_names))
+        task_rngs = {name: rngs[i] for i, name in enumerate(active_names)}
+
+        joint_step = self._get_joint_step_fn(active_names)
+        aux_states = {name: self._aux_states[name] for name in active_names if name in self._aux_states}
+        self.vf_state, new_aux_states, loss = joint_step(self.vf_state, aux_states, batch, task_rngs)
+        self._aux_states.update(new_aux_states)
+        self._update_inference_state()
         return loss
+
+    def _get_joint_step_fn(self, active_names: tuple[str, ...]) -> Callable:  # type: ignore[type-arg]
+        """Build (and cache) the jitted joint update for a given active-task signature."""
+        if active_names in self._joint_step_cache:
+            return self._joint_step_cache[active_names]
+
+        tasks_by_name = {task.name: task for task in self._tasks}
+        active_tasks = tuple(tasks_by_name[name] for name in active_names)
+        stateful_names = tuple(name for name in active_names if name in self._aux_states)
+
+        @jax.jit
+        def joint_step(vf_state, aux_states, batch, task_rngs):
+            def total_loss(vf_params, aux_params):
+                total = jnp.zeros(())
+                for task in active_tasks:
+                    total = total + task.loss_weight * task.loss(
+                        vf_params, aux_params.get(task.name), batch, task_rngs[task.name]
+                    )
+                return total
+
+            aux_params = {name: aux_states[name].params for name in stateful_names}
+            loss, (grad_vf, grad_aux) = jax.value_and_grad(total_loss, argnums=(0, 1))(vf_state.params, aux_params)
+            new_vf_state = vf_state.apply_gradients(grads=grad_vf)
+            new_aux_states = {name: aux_states[name].apply_gradients(grads=grad_aux[name]) for name in stateful_names}
+            return new_vf_state, new_aux_states, loss
+
+        self._joint_step_cache[active_names] = joint_step
+        return joint_step
 
     def get_condition_embedding(self, condition: dict[str, ArrayLike], return_as_numpy=True) -> ArrayLike:
         """Get learnt embeddings of the conditions.
