@@ -727,7 +727,7 @@ class CellFlow:
             vf=self.vf,
             probability_path=probability_path,
             optimizer=optimizer,
-            conditions=self.train_data.condition_data,
+            conditions=condition_data,
             rng=jax.random.PRNGKey(seed),
             **self._solver_class._match_kwargs(match_fn=match_fn, data_dim=self._data_dim),
             **solver_kwargs,
