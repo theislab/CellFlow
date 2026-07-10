@@ -130,6 +130,16 @@ class OTFlowMatching:
             Keyword arguments for :meth:`cellflow.networks.ConditionalVelocityField.create_train_state`.
     """
 
+    @staticmethod
+    def _match_kwargs(*, match_fn: Callable, data_dim: int) -> dict[str, Any]:
+        """Solver-specific constructor kwargs derived from the model's match function and data dim.
+
+        Called by :meth:`cellflow.model.CellFlow.prepare_model` so each solver owns how it names its
+        matching function and whether it needs source/target dimensions, keeping the model code free of
+        per-solver branches. ``OTFlowMatching`` matches on ``match_fn`` and takes no explicit dimensions.
+        """
+        return {"match_fn": match_fn}
+
     def __init__(
         self,
         vf: ConditionalVelocityField,
