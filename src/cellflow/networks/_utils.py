@@ -1,6 +1,7 @@
 import abc
 import math
 from collections.abc import Callable, Sequence
+from typing import ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -18,6 +19,8 @@ __all__ = [
     "ResNetBlock",
     "SelfAttentionBlock",
     "sinusoidal_time_encoder",
+    "LAYER_REGISTRY",
+    "register_layer",
 ]
 
 
@@ -58,12 +61,52 @@ def sinusoidal_time_encoder(t: jnp.ndarray, time_freqs: int = 1024, time_max_per
 class BaseModule(abc.ABC, nn.Module):
     """Base module for condition encoder and its components."""
 
+    #: Whether this block's ``__call__`` accepts an attention mask as its second
+    #: positional argument. Declared as a :class:`~typing.ClassVar` so it stays a
+    #: pure class-level capability flag and is *not* turned into a ``flax`` module
+    #: field (which would alter the constructor signature). :func:`_apply_modules`
+    #: dispatches on this flag instead of hard-coding ``isinstance`` checks.
+    takes_attention_mask: ClassVar[bool] = False
+
     @abc.abstractmethod
     def __call__(self, x: jnp.ndarray, training: bool = True) -> jnp.ndarray:
         """Forward pass."""
         pass
 
 
+#: Registry mapping a ``layer_type`` string to the block class that implements it.
+#: Populated via the :func:`register_layer` decorator and consulted by
+#: :func:`_get_layers` to instantiate blocks from config dicts. New block types can
+#: be added by decorating them with ``@register_layer(...)`` without touching the
+#: dispatch code.
+LAYER_REGISTRY: dict[str, type[BaseModule]] = {}
+
+
+def register_layer(name: str) -> Callable[[type[BaseModule]], type[BaseModule]]:
+    """Register a network block class under ``name`` in :data:`LAYER_REGISTRY`.
+
+    The decorated class can then be referenced by ``name`` through the
+    ``"layer_type"`` key of a layer config and is instantiated by
+    :func:`_get_layers`.
+
+    Parameters
+    ----------
+    name
+        Key under which the decorated class is registered.
+
+    Returns
+    -------
+    A class decorator that registers the class and returns it unchanged.
+    """
+
+    def decorator(cls: type[BaseModule]) -> type[BaseModule]:
+        LAYER_REGISTRY[name] = cls
+        return cls
+
+    return decorator
+
+
+@register_layer("mlp")
 class MLPBlock(BaseModule):
     """
     MLP block.
@@ -290,6 +333,7 @@ class SelfAttention(BaseModule):
         return z.squeeze(1) if squeeze else z
 
 
+@register_layer("self_attention")
 class SelfAttentionBlock(BaseModule):
     """
     Several self-attention (+ optional FC layer) layers stacked together.
@@ -311,6 +355,10 @@ class SelfAttentionBlock(BaseModule):
     -------
     Output tensor of shape (batch_size, set_size, input_dim).
     """
+
+    #: This block consumes an attention mask (see :meth:`__call__`), so
+    #: :func:`_apply_modules` forwards ``attention_mask`` to it.
+    takes_attention_mask: ClassVar[bool] = True
 
     num_heads: Sequence[int] | int
     qkv_dim: Sequence[int] | int
@@ -565,13 +613,14 @@ def _get_layers(
         for layer in layers:
             layer = dict(layer)
             layer_type = layer.pop("layer_type", "mlp")
-            if layer_type == "mlp":
-                lay = MLPBlock(**layer)
-            elif layer_type == "self_attention":
-                lay = SelfAttentionBlock(**layer)
-            else:
-                raise ValueError(f"Unknown layer type: {layer_type}")
-            modules.append(lay)
+            try:
+                layer_cls = LAYER_REGISTRY[layer_type]
+            except KeyError:
+                raise ValueError(
+                    f"Unknown layer type: {layer_type!r}. "
+                    f"Registered layer types: {sorted(LAYER_REGISTRY)}."
+                ) from None
+            modules.append(layer_cls(**layer))
     if output_dim is not None:
         modules.append(nn.Dense(output_dim))
         if dropout_rate is not None:
@@ -587,7 +636,7 @@ def _apply_modules(
 ) -> jnp.ndarray:
     """Apply modules to conditions."""
     for module in modules:
-        if isinstance(module, SelfAttentionBlock):
+        if getattr(module, "takes_attention_mask", False):
             conditions = module(conditions, attention_mask, training)
         elif isinstance(module, nn.Dense):
             conditions = module(conditions)
