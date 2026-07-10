@@ -2,8 +2,8 @@ from cellflow.networks._set_encoders import (
     ConditionEncoder,
 )
 from cellflow.networks._utils import (
-    BaseModule,
     LAYER_REGISTRY,
+    BaseModule,
     FilmBlock,
     MLPBlock,
     ResNetBlock,
