@@ -23,7 +23,7 @@ from cellflow.data._datamanager import DataManager
 from cellflow.model._utils import _write_predictions
 from cellflow.networks import _velocity_field
 from cellflow.plotting import _utils
-from cellflow.solvers import _genot, _otfm
+from cellflow.solvers import SOLVER_REGISTRY, _genot, _otfm
 from cellflow.training._callbacks import BaseCallback
 from cellflow.training._trainer import CellFlowTrainer
 from cellflow.utils import match_linear
@@ -43,17 +43,16 @@ class CellFlow:
         adata
             An :class:`~anndata.AnnData` object to extract the training data from.
         solver
-            Solver to use for training. Either ``'otfm'`` or ``'genot'``.
+            Solver to use for training. Any name registered in
+            :data:`cellflow.solvers.SOLVER_REGISTRY` (``'otfm'`` or ``'genot'`` by default, extendable
+            via :func:`cellflow.solvers.register_solver`).
     """
 
-    def __init__(self, adata: ad.AnnData, solver: Literal["otfm", "genot"] = "otfm"):
+    def __init__(self, adata: ad.AnnData, solver: str = "otfm"):
         self._adata = adata
-        self._solver_class = _otfm.OTFlowMatching if solver == "otfm" else _genot.GENOT
-        self._vf_class = (
-            _velocity_field.ConditionalVelocityField
-            if solver == "otfm"
-            else _velocity_field.GENOTConditionalVelocityField
-        )
+        if solver not in SOLVER_REGISTRY:
+            raise ValueError(f"Unknown solver {solver!r}. Registered solvers: {sorted(SOLVER_REGISTRY)}.")
+        self._solver_class, self._vf_class = SOLVER_REGISTRY[solver]
         self._dataloader: TrainSampler | OOCTrainSampler | None = None
         self._trainer: CellFlowTrainer | None = None
         self._validation_data: dict[str, ValidationData] = {"predict_kwargs": {}}
@@ -429,17 +428,8 @@ class CellFlow:
                 raise ValueError("Stochastic condition embeddings require `regularization`>0.")
 
         condition_encoder_kwargs = condition_encoder_kwargs or {}
-        if self._solver_class == _otfm.OTFlowMatching and vf_kwargs is not None:
-            raise ValueError("For `solver='otfm'`, `vf_kwargs` must be `None`.")
-        if self._solver_class == _genot.GENOT:
-            if vf_kwargs is None:
-                vf_kwargs = {"genot_source_dims": [1024, 1024, 1024], "genot_source_dropout": 0.0}
-            else:
-                assert isinstance(vf_kwargs, dict)
-                assert "genot_source_dims" in vf_kwargs
-                assert "genot_source_dropout" in vf_kwargs
-        else:
-            vf_kwargs = {}
+        # Each velocity field owns which solver-specific `vf_kwargs` it accepts (validated/defaulted here).
+        vf_kwargs = self._vf_class._normalize_vf_kwargs(vf_kwargs)
         covariates_not_pooled = [] if pool_sample_covariates else self._dm.sample_covariates
         solver_kwargs = solver_kwargs or {}
         probability_path = probability_path or {"constant_noise": 0.0}
@@ -483,30 +473,16 @@ class CellFlow:
                 f"The key of `probability_path` must be `'constant_noise'` or `'bridge'` but found {probability_path}."
             )
 
-        if self._solver_class == _otfm.OTFlowMatching:
-            self._solver = self._solver_class(
-                vf=self.vf,
-                match_fn=match_fn,
-                probability_path=probability_path,
-                optimizer=optimizer,
-                conditions=self.train_data.condition_data,
-                rng=jax.random.PRNGKey(seed),
-                **solver_kwargs,
-            )
-        elif self._solver_class == _genot.GENOT:
-            self._solver = self._solver_class(
-                vf=self.vf,
-                data_match_fn=match_fn,
-                probability_path=probability_path,
-                source_dim=self._data_dim,
-                target_dim=self._data_dim,
-                optimizer=optimizer,
-                conditions=self.train_data.condition_data,
-                rng=jax.random.PRNGKey(seed),
-                **solver_kwargs,
-            )
-        else:
-            raise NotImplementedError(f"Solver must be an instance of OTFlowMatching or GENOT, got {type(self.solver)}")
+        # Each solver owns how it names its match function / whether it needs source-target dims.
+        self._solver = self._solver_class(
+            vf=self.vf,
+            probability_path=probability_path,
+            optimizer=optimizer,
+            conditions=self.train_data.condition_data,
+            rng=jax.random.PRNGKey(seed),
+            **self._solver_class._match_kwargs(match_fn=match_fn, data_dim=self._data_dim),
+            **solver_kwargs,
+        )
 
         self._trainer = CellFlowTrainer(solver=self.solver, predict_kwargs=self.validation_data["predict_kwargs"])  # type: ignore[arg-type]
 

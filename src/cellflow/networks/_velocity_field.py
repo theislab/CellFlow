@@ -138,6 +138,18 @@ class ConditionalVelocityField(nn.Module):
     layer_norm_before_concatenation: bool = False
     linear_projection_before_concatenation: bool = False
 
+    @staticmethod
+    def _normalize_vf_kwargs(vf_kwargs: dict[str, Any] | None) -> dict[str, Any]:
+        """Validate/normalize the solver-specific ``vf_kwargs`` this velocity field is built with.
+
+        Called by :meth:`cellflow.model.CellFlow.prepare_model` so each velocity field owns which extra
+        constructor kwargs it accepts, keeping the model code free of per-solver branches. The plain
+        conditional field takes none.
+        """
+        if vf_kwargs is not None:
+            raise ValueError("For `solver='otfm'`, `vf_kwargs` must be `None`.")
+        return {}
+
     def setup(self):
         """Initialize the network."""
         if isinstance(self.conditioning_kwargs, dataclasses.Field):
@@ -507,6 +519,20 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
     genot_source_dropout: float = 0.0
     layer_norm_before_concatenation: bool = False
     linear_projection_before_concatenation: bool = False
+
+    @staticmethod
+    def _normalize_vf_kwargs(vf_kwargs: dict[str, Any] | None) -> dict[str, Any]:
+        """GENOT's velocity field needs source-processing kwargs; default them when not given.
+
+        See :meth:`ConditionalVelocityField._normalize_vf_kwargs`. ``GENOT`` requires
+        ``genot_source_dims`` and ``genot_source_dropout``.
+        """
+        if vf_kwargs is None:
+            return {"genot_source_dims": [1024, 1024, 1024], "genot_source_dropout": 0.0}
+        assert isinstance(vf_kwargs, dict)
+        assert "genot_source_dims" in vf_kwargs
+        assert "genot_source_dropout" in vf_kwargs
+        return vf_kwargs
 
     def setup(self):
         """Initialize the network."""
