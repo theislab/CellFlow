@@ -57,6 +57,17 @@ class GENOT:
         Keyword arguments.
     """
 
+    @staticmethod
+    def _match_kwargs(*, match_fn: Callable, data_dim: int) -> dict[str, Any]:
+        """Solver-specific constructor kwargs derived from the model's match function and data dim.
+
+        Called by :meth:`cellflow.model.CellFlow.prepare_model` so each solver owns how it names its
+        matching function and whether it needs source/target dimensions, keeping the model code free of
+        per-solver branches. ``GENOT`` matches on ``data_match_fn`` and needs explicit
+        ``source_dim``/``target_dim``.
+        """
+        return {"data_match_fn": match_fn, "source_dim": data_dim, "target_dim": data_dim}
+
     def __init__(
         self,
         vf: nn.Module,
