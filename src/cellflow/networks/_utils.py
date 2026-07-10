@@ -231,6 +231,7 @@ class SelfAttention(BaseModule):
 
     num_heads: int = 8
     qkv_dim: int = 64
+    ff_dim: int | None = None
     dropout_rate: float = 0.0
     transformer_block: bool = False
     layer_norm: bool = False
@@ -276,12 +277,15 @@ class SelfAttention(BaseModule):
             z = z + x
             if self.layer_norm:
                 z = nn.LayerNorm()(z)
-            # FC layer with residual connection
-            # project back to the residual-stream dimension so the residual add is valid
-            # for any ``qkv_dim`` (the attention output keeps the input dimension)
-            z_ = self.act_fn(nn.Dense(z.shape[-1])(z))
+            # position-wise feed-forward: expand to ff_dim (default 4x input_dim, the canonical
+            # transformer expansion — NOT qkv_dim), then project back to input_dim.
+            d_ff = self.ff_dim if self.ff_dim is not None else 4 * z.shape[-1]
+            z_ = self.act_fn(nn.Dense(d_ff)(z))
+            z_ = nn.Dense(z.shape[-1])(z_)
             z_ = nn.Dropout(self.dropout_rate)(z_, deterministic=not training)
             z = z + z_
+            if self.layer_norm:
+                z = nn.LayerNorm()(z)
 
         return z.squeeze(1) if squeeze else z
 
@@ -313,6 +317,7 @@ class SelfAttentionBlock(BaseModule):
     dropout_rate: float = 0.0
     transformer_block: bool = False
     layer_norm: bool = False
+    ff_dim: int | None = None
     act_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.silu
 
     def __post_init__(self) -> None:
@@ -353,6 +358,7 @@ class SelfAttentionBlock(BaseModule):
             z = SelfAttention(
                 num_heads=num_heads,
                 qkv_dim=qkv_dim,
+                ff_dim=self.ff_dim,
                 dropout_rate=self.dropout_rate,
                 transformer_block=self.transformer_block,
                 layer_norm=self.layer_norm,
@@ -458,14 +464,26 @@ class TokenAttentionPooling(BaseModule):
     """
     Multi-head attention which aggregates sets by learning a token.
 
+    A learnable ``[CLS]`` token is prepended to the set and ``num_layers`` self-attention layers are
+    applied over ``{CLS, *tokens}`` (BERT/ViT-style); the CLS token's final state is returned as the
+    aggregate. ``num_layers=1`` with ``transformer_block=False`` reproduces the original single-attention
+    pooling. Set ``num_layers>=2`` (+ ``transformer_block=True``) to make the condition encoder a
+    transformer where every token attends to every other before the CLS read-out.
+
     Parameters
     ----------
     num_heads
-        Number of attention heads.
+        Number of attention heads (per layer).
     qkv_dim
-        Dimensionality of the query, key, and value.
+        Dimensionality of the query, key, and value (per layer).
     dropout_rate
         Dropout rate.
+    num_layers
+        Number of stacked self-attention layers over ``{CLS, *tokens}``.
+    transformer_block
+        Whether each layer is a full transformer block (adds a feed-forward sublayer with residual).
+    layer_norm
+        Whether to use layer normalization inside each transformer block.
     act_fn
         Activation function.
     """
@@ -473,6 +491,10 @@ class TokenAttentionPooling(BaseModule):
     num_heads: int = 8
     qkv_dim: int = 64
     dropout_rate: float = 0.0
+    num_layers: int = 1
+    transformer_block: bool = False
+    layer_norm: bool = False
+    ff_dim: int | None = None
     act_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.silu
 
     @nn.compact
@@ -507,18 +529,29 @@ class TokenAttentionPooling(BaseModule):
         token_mask = token_mask.at[:, :, 0, 1:].set(cls_token_to_data)
         token_mask = token_mask.at[:, :, 1:, 0].set(cls_token_to_data)
 
-        # attention
-        attention = nn.MultiHeadDotProductAttention(
-            num_heads=self.num_heads,
-            qkv_features=self.qkv_dim,
-            dropout_rate=self.dropout_rate,
-        )
-        emb = attention(z, mask=token_mask, deterministic=not training)
+        # transformer over {CLS, *tokens}: num_layers self-attention layers, then read out the CLS.
+        if self.num_layers == 1 and not self.transformer_block:
+            # backward-compatible single-attention path: identical module structure (hence Flax param
+            # tree) to the original TokenAttentionPooling, so historical (pre-refactor) checkpoints
+            # restore unchanged. num_layers>=2 or transformer_block=True use the SelfAttentionBlock.
+            z = nn.MultiHeadDotProductAttention(
+                num_heads=self.num_heads,
+                qkv_features=self.qkv_dim,
+                dropout_rate=self.dropout_rate,
+            )(z, mask=token_mask, deterministic=not training)
+        else:
+            z = SelfAttentionBlock(
+                num_heads=[self.num_heads] * self.num_layers,
+                qkv_dim=[self.qkv_dim] * self.num_layers,
+                ff_dim=self.ff_dim,
+                dropout_rate=self.dropout_rate,
+                transformer_block=self.transformer_block,
+                layer_norm=self.layer_norm,
+                act_fn=self.act_fn,
+            )(z, token_mask, training)
 
-        # only continue with token 0
-        z = emb[:, 0, :]
-
-        return z
+        # only continue with the CLS token (position 0)
+        return z[:, 0, :]
 
 
 def _get_layers(
