@@ -59,7 +59,7 @@ def test_genot_flow_matching_target_uses_latent_not_source():
     flow.compute_ut = lambda t, x, x0, x1: (rec.__setitem__("ut_x0", x0), orig_ut(t, x, x0, x1))[1]
 
     batch = {
-        "src_cell_data": jnp.ones((10, 5)) * 100.0,   # source cells ~ +100
+        "src_cell_data": jnp.ones((10, 5)) * 100.0,  # source cells ~ +100
         "tgt_cell_data": jnp.ones((10, 5)) * -100.0,  # target ~ -100
         "condition": {"pert1": jnp.ones((1, 2, 3))},
     }
