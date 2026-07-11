@@ -132,7 +132,8 @@ class GENOT:
                     encoder_noise=encoder_noise,
                     rngs={"dropout": rng_dropout, "condition_encoder": rng_encoder},
                 )
-                u_t = self.probability_path.compute_ut(t, x_t, source, target)
+                # GENOT target is the latent->target path velocity (target - latent); source only conditions v.
+                u_t = self.probability_path.compute_ut(t, x_t, latent, target)
                 flow_matching_loss = jnp.mean((v_t - u_t) ** 2)
                 condition_mean_regularization = 0.5 * jnp.mean(mean_cond**2)
                 condition_var_regularization = -0.5 * jnp.mean(1 + logvar_cond - jnp.exp(logvar_cond))
