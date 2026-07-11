@@ -14,6 +14,7 @@ from cellflow import utils
 from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.networks._velocity_field import ConditionalVelocityField
+from cellflow.solvers._base import BaseSolver
 from cellflow.solvers.utils import ema_update
 
 __all__ = ["OTFlowMatching", "ClassifierFreeGuidance", "Guidance"]
@@ -100,7 +101,7 @@ class ClassifierFreeGuidance:
         return guided_vf
 
 
-class OTFlowMatching:
+class OTFlowMatching(BaseSolver):
     """(OT) flow matching :cite:`lipman:22` extended to the conditional setting.
 
     With an extension to OT-CFM :cite:`tong:23,pooladian:23`, and its
@@ -149,12 +150,7 @@ class OTFlowMatching:
         guidance: Guidance | None = None,
         **kwargs: Any,
     ):
-        self._is_trained: bool = False
-        self.vf = vf
-        self.condition_encoder_mode = self.vf.condition_mode
-        self.condition_encoder_regularization = self.vf.regularization
-        self.probability_path = probability_path
-        self.time_sampler = time_sampler
+        super().__init__(vf, probability_path, time_sampler)
         self.match_fn = jax.jit(match_fn)
         self.guidance = guidance
         self.ema = kwargs.pop("ema", 1.0)
@@ -162,7 +158,6 @@ class OTFlowMatching:
         self.vf_state = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_state_inference = self.vf.create_train_state(input_dim=self.vf.output_dims[-1], **kwargs)
         self.vf_step_fn = self._get_vf_step_fn()
-        self._predict_fn_cache: dict[frozen_dict.FrozenDict, Any] = {}
 
     def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
         @jax.jit
@@ -262,28 +257,10 @@ class OTFlowMatching:
             )
         return loss
 
-    def get_condition_embedding(self, condition: dict[str, ArrayLike], return_as_numpy=True) -> ArrayLike:
-        """Get learnt embeddings of the conditions.
-
-        Parameters
-        ----------
-        condition
-            Conditions to encode
-        return_as_numpy
-            Whether to return the embeddings as numpy arrays.
-
-        Returns
-        -------
-        Mean and log-variance of encoded conditions.
-        """
-        cond_mean, cond_logvar = self.vf.apply(
-            {"params": self.vf_state_inference.params},
-            condition,
-            method="get_condition_embedding",
-        )
-        if return_as_numpy:
-            return np.asarray(cond_mean), np.asarray(cond_logvar)
-        return cond_mean, cond_logvar
+    @property
+    def _inference_state(self) -> train_state.TrainState:
+        """OTFM predicts and reads condition embeddings from the EMA inference state."""
+        return self.vf_state_inference
 
     def _base_velocity(self) -> VelocityFn:
         """Return the base (conditional) velocity closure used on the predict path.
@@ -407,12 +384,3 @@ class OTFlowMatching:
         else:
             x_pred = self._predict_jit(x, condition, rng, **kwargs)
             return np.array(x_pred)
-
-    @property
-    def is_trained(self) -> bool:
-        """Whether the model is trained."""
-        return self._is_trained
-
-    @is_trained.setter
-    def is_trained(self, value: bool) -> None:
-        self._is_trained = value

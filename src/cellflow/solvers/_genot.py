@@ -16,6 +16,7 @@ from cellflow import utils
 from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.model._utils import _multivariate_normal
+from cellflow.solvers._base import BaseSolver
 
 __all__ = ["GENOT"]
 
@@ -24,7 +25,7 @@ QuadTerm = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None, jnp.ndarray | Non
 DataMatchFn = Callable[[LinTerm], jnp.ndarray] | Callable[[QuadTerm], jnp.ndarray]
 
 
-class GENOT:
+class GENOT(BaseSolver):
     """GENOT :cite:`klein:23` extended to the conditional setting.
 
     Parameters
@@ -80,13 +81,8 @@ class GENOT:
         latent_noise_fn: (Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None) = None,
         **kwargs: Any,
     ):
-        self._is_trained: bool = False
-        self.vf = vf
-        self.condition_encoder_mode = self.vf.condition_mode
-        self.condition_encoder_regularization = self.vf.regularization
-        self.probability_path = probability_path
+        super().__init__(vf, probability_path, time_sampler)
         self.data_match_fn = jax.jit(data_match_fn)
-        self.time_sampler = time_sampler
         self.source_dim = source_dim
         if latent_noise_fn is None:
             latent_noise_fn = functools.partial(_multivariate_normal, dim=target_dim)
@@ -97,7 +93,6 @@ class GENOT:
             **kwargs,
         )
         self.vf_step_fn = self._get_vf_step_fn()
-        self._predict_fn_cache: dict[frozen_dict.FrozenDict, Any] = {}
 
     def _get_vf_step_fn(self) -> Callable:  #  type: ignore[type-arg]
         @jax.jit
@@ -218,30 +213,6 @@ class GENOT:
         )
         return loss
 
-    def get_condition_embedding(self, condition: dict[str, ArrayLike], return_as_numpy=True) -> ArrayLike:
-        """Get learnt embeddings of the conditions.
-
-        Parameters
-        ----------
-        condition
-            Conditions to encode
-        return_as_numpy
-            Whether to return the embeddings as numpy arrays.
-
-
-        Returns
-        -------
-        Mean and log-variance of encoded conditions.
-        """
-        cond_mean, cond_logvar = self.vf.apply(
-            {"params": self.vf_state.params},
-            condition,
-            method="get_condition_embedding",
-        )
-        if return_as_numpy:
-            return np.asarray(cond_mean), np.asarray(cond_logvar)
-        return cond_mean, cond_logvar
-
     def predict(
         self,
         x: ArrayLike,
@@ -354,12 +325,3 @@ class GENOT:
 
         predict_fn = self._get_predict_fn(kwargs_frozen)
         return predict_fn(self.vf_state.params, latent, x, condition, encoder_noise)
-
-    @property
-    def is_trained(self) -> bool:
-        """If the model is trained."""
-        return self._is_trained
-
-    @is_trained.setter
-    def is_trained(self, value) -> None:
-        self._is_trained = value
