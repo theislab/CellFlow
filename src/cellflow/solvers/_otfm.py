@@ -285,6 +285,18 @@ class OTFlowMatching:
             return np.asarray(cond_mean), np.asarray(cond_logvar)
         return cond_mean, cond_logvar
 
+    @property
+    def cfg_enabled(self) -> bool:
+        """Whether classifier-free guidance is available at predict time.
+
+        Guidance needs a meaningful unconditional velocity ``v_null``, which only
+        exists when the velocity field was trained with condition dropout
+        (``condition_dropout_prob > 0``). When ``False``, a per-call
+        ``guidance_scale`` is ignored (with a warning) and the plain conditional
+        velocity is used.
+        """
+        return float(getattr(self.vf, "condition_dropout_prob", 0.0)) > 0.0
+
     def _base_velocity(self) -> VelocityFn:
         """Return the base (conditional) velocity closure used on the predict path.
 
@@ -302,22 +314,45 @@ class OTFlowMatching:
     def _get_predict_fn(self, kwargs_frozen: frozen_dict.FrozenDict) -> Callable:
         """Build and cache a jit+vmap predict function for the given diffrax kwargs.
 
-        The base velocity closure is produced by :meth:`_base_velocity` and, when a
-        guidance strategy is set via ``guidance``, wrapped by it. With
-        ``guidance=None`` the closure is exactly the base conditional velocity, so
-        prediction is unchanged (no unconditional velocity is computed).
+        The base velocity closure is produced by :meth:`_base_velocity` and, when
+        guidance applies, wrapped by it. Guidance comes from one of two places:
 
-        The returned function is created once per unique set of diffrax kwargs,
-        then reused on subsequent calls.
+        - a per-call ``guidance_scale`` passed to :meth:`predict` (not a diffrax
+          arg; popped here). When it is not ``1.0`` it builds a
+          :class:`ClassifierFreeGuidance` for this call, overriding the
+          construction-time ``guidance`` — this is the convenient scalar entry point
+          (e.g. sweeping ``w`` at validation). It requires :attr:`cfg_enabled`;
+          otherwise it is ignored (with a warning) and the conditional velocity is used.
+        - the construction-time ``guidance`` strategy, used when ``guidance_scale``
+          is ``1.0`` (the default). With ``guidance=None`` the closure is exactly the
+          base conditional velocity, so prediction is unchanged.
+
+        ``guidance_scale`` is part of ``kwargs_frozen`` (the cache key), so distinct
+        scales get distinct compiled fns. The returned function is created once per
+        unique set of kwargs, then reused on subsequent calls.
         """
         if kwargs_frozen in self._predict_fn_cache:
             return self._predict_fn_cache[kwargs_frozen]
 
         kwargs = dict(kwargs_frozen)
+        guidance_scale = float(kwargs.pop("guidance_scale", 1.0))
+        guidance = self.guidance
+        if guidance_scale != 1.0:
+            if self.cfg_enabled:
+                # v = v_null + scale·(v_cond − v_null); overrides construction-time guidance.
+                guidance = ClassifierFreeGuidance(scale=guidance_scale)
+            else:
+                warnings.warn(
+                    f"guidance_scale={guidance_scale} ignored: the velocity field was not trained "
+                    "with classifier-free guidance (condition_dropout_prob == 0), so the "
+                    "unconditional velocity is undefined. Using the plain conditional velocity.",
+                    stacklevel=2,
+                )
+                guidance = None
 
         vf = self._base_velocity()
-        if self.guidance is not None:
-            vf = self.guidance.wrap(vf, self.vf_state_inference)
+        if guidance is not None:
+            vf = guidance.wrap(vf, self.vf_state_inference)
 
         def solve_ode(
             params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
@@ -383,7 +418,11 @@ class OTFlowMatching:
             only used if ``condition_mode='stochastic'``. If :obj:`None`, the
             mean embedding is used.
         kwargs
-            Keyword arguments for :func:`diffrax.diffeqsolve`.
+            Keyword arguments for :func:`diffrax.diffeqsolve`. May also include
+            ``guidance_scale`` (a float): a per-call classifier-free guidance scale
+            that, when not ``1.0``, applies :class:`ClassifierFreeGuidance` for this
+            call (requires :attr:`cfg_enabled`), overriding the construction-time
+            ``guidance``. Handy for sweeping ``w`` without rebuilding the solver.
 
         Returns
         -------

@@ -452,3 +452,37 @@ class TestGuidance:
         assert np.allclose(pred_none, pred_one, atol=1e-4)
         # Stronger guidance actually changes the prediction.
         assert not np.allclose(pred_none, pred_strong, atol=1e-3)
+
+    def test_cfg_enabled_reflects_condition_dropout(self):
+        """``cfg_enabled`` is True iff the velocity field was trained with condition dropout."""
+        assert _make_otfm(condition_dropout_prob=0.5).cfg_enabled is True
+        assert _make_otfm(condition_dropout_prob=0.0).cfg_enabled is False
+
+    def test_per_call_guidance_scale_matches_construction_time(self):
+        """A per-call ``guidance_scale=w`` matches constructing with ``guidance=ClassifierFreeGuidance(w)``."""
+        w = 3.0
+        x = jnp.ones((6, 5))
+        condition = {"drug": jnp.ones((1, 2, 3))}
+
+        # Same vf_rng in _make_otfm -> identical init params -> the two paths are comparable.
+        per_call = _make_otfm(condition_dropout_prob=0.5).predict(x, condition, guidance_scale=w)
+        construction = _make_otfm(
+            condition_dropout_prob=0.5, guidance=ClassifierFreeGuidance(w)
+        ).predict(x, condition)
+        assert np.allclose(per_call, construction, atol=1e-5)
+
+        # And it is actually guiding: differs from the plain conditional (scale 1.0).
+        plain = _make_otfm(condition_dropout_prob=0.5).predict(x, condition, guidance_scale=1.0)
+        assert not np.allclose(per_call, plain, atol=1e-3)
+
+    def test_per_call_guidance_scale_ignored_without_cfg(self):
+        """Without condition dropout, a per-call ``guidance_scale`` is ignored (with a warning)."""
+        x = jnp.ones((6, 5))
+        condition = {"drug": jnp.ones((1, 2, 3))}
+        solver = _make_otfm(condition_dropout_prob=0.0)
+        assert solver.cfg_enabled is False
+
+        plain = solver.predict(x, condition)  # scale 1.0 (default)
+        with pytest.warns(UserWarning, match="guidance_scale"):
+            ignored = solver.predict(x, condition, guidance_scale=2.0)
+        assert np.allclose(plain, ignored, atol=1e-6)
