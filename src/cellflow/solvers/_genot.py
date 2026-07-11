@@ -132,12 +132,7 @@ class GENOT:
                     encoder_noise=encoder_noise,
                     rngs={"dropout": rng_dropout, "condition_encoder": rng_encoder},
                 )
-                # The flow-matching target is the velocity of the path the ODE integrates: the path
-                # goes from the latent (t=0, where `predict` starts) to the target (t=1), so the target
-                # is `target - latent`. The `source` enters only as the velocity field's condition
-                # (above). Using `source` here regresses onto the wrong vector field and biases every
-                # generated sample by `latent - source`. Matches GENOT (Klein et al., 2023): the loss
-                # is `||v_t(phi_t(noise, target) | source) - (target - noise)||^2`.
+                # GENOT target is the latent->target path velocity (target - latent); source only conditions v.
                 u_t = self.probability_path.compute_ut(t, x_t, latent, target)
                 flow_matching_loss = jnp.mean((v_t - u_t) ** 2)
                 condition_mean_regularization = 0.5 * jnp.mean(mean_cond**2)
