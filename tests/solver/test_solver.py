@@ -466,9 +466,7 @@ class TestGuidance:
 
         # Same vf_rng in _make_otfm -> identical init params -> the two paths are comparable.
         per_call = _make_otfm(condition_dropout_prob=0.5).predict(x, condition, guidance_scale=w)
-        construction = _make_otfm(
-            condition_dropout_prob=0.5, guidance=ClassifierFreeGuidance(w)
-        ).predict(x, condition)
+        construction = _make_otfm(condition_dropout_prob=0.5, guidance=ClassifierFreeGuidance(w)).predict(x, condition)
         assert np.allclose(per_call, construction, atol=1e-5)
 
         # And it is actually guiding: differs from the plain conditional (scale 1.0).
