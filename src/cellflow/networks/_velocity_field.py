@@ -329,6 +329,28 @@ class ConditionalVelocityField(nn.Module):
         """Encode ``x_t`` before conditioning. Override to insert pre-conditioning processing."""
         return self.x_encoder(x_t, training=train)
 
+    def _conditioning_signals(
+        self,
+        t_encoded: jnp.ndarray,
+        x_encoded: jnp.ndarray,
+        cond_embedding: jnp.ndarray,
+        x_0_encoded: jnp.ndarray | None = None,
+    ) -> tuple[tuple[jnp.ndarray, ...], jnp.ndarray]:
+        """Return ``(concat_inputs, conditioning_vec)`` for the conditioning step.
+
+        ``concat_inputs`` is what ``'concatenation'`` concatenates (order matters for
+        checkpoint compatibility); ``conditioning_vec`` is what modulates ``x`` for
+        ``'film'``/``'resnet'`` (and ``'adaln_zero'`` in subclasses). ``GENOT`` folds the
+        encoded source ``x_0`` into both.
+        """
+        if x_0_encoded is None:
+            concat_inputs = (t_encoded, x_encoded, cond_embedding)
+            conditioning_vec = jnp.concatenate((t_encoded, cond_embedding), axis=-1)
+        else:
+            concat_inputs = (t_encoded, x_encoded, x_0_encoded, cond_embedding)
+            conditioning_vec = jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1)
+        return concat_inputs, conditioning_vec
+
     def _combine_and_decode(
         self,
         t_encoded: jnp.ndarray,
@@ -336,18 +358,21 @@ class ConditionalVelocityField(nn.Module):
         cond_embedding: jnp.ndarray,
         squeeze: bool,
         train: bool,
+        x_0_encoded: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        """Combine ``(t, x, condition)`` per the conditioning mode, decode, and project to output.
+        """Combine ``(t, x, [x_0,] condition)`` per the conditioning mode, decode, and project.
 
         Override in a subclass to add new ``conditioning`` modes, delegating to
-        ``super()._combine_and_decode`` for the built-in ones.
+        ``super()._combine_and_decode`` for the built-in ones. ``x_0_encoded`` is the encoded
+        GENOT source (folded into the conditioning by :meth:`_conditioning_signals`).
         """
+        concat_inputs, conditioning_vec = self._conditioning_signals(t_encoded, x_encoded, cond_embedding, x_0_encoded)
         if self.conditioning == "concatenation":
-            out = jnp.concatenate((t_encoded, x_encoded, cond_embedding), axis=-1)
+            out = jnp.concatenate(concat_inputs, axis=-1)
         elif self.conditioning == "film":
-            out = self.film_block(x_encoded, jnp.concatenate((t_encoded, cond_embedding), axis=-1))
+            out = self.film_block(x_encoded, conditioning_vec)
         elif self.conditioning == "resnet":
-            out = self.resnet_block(x_encoded, jnp.concatenate((t_encoded, cond_embedding), axis=-1))
+            out = self.resnet_block(x_encoded, conditioning_vec)
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
 
@@ -683,22 +708,7 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
 
         self.output_layer = nn.Dense(self.output_dim)
 
-        if self.conditioning == "film":
-            self.film_block = FilmBlock(
-                input_dim=self.hidden_dims[-1],
-                cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
-                **conditioning_kwargs,
-            )
-        elif self.conditioning == "resnet":
-            self.resnet_block = ResNetBlock(
-                input_dim=self.hidden_dims[-1],
-                **self.conditioning_kwargs,
-            )
-        elif self.conditioning == "concatenation":
-            if len(conditioning_kwargs) > 0:
-                raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
-        else:
-            raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
+        self._setup_conditioning(conditioning_kwargs)
 
     def __call__(
         self,
@@ -731,17 +741,8 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         elif cond_embedding.shape[0] != x_t.shape[0]:  # type: ignore[attr-defined]
             cond_embedding = jnp.tile(cond_embedding, (x_t.shape[0], 1))
 
-        if self.conditioning == "concatenation":
-            out = jnp.concatenate((t_encoded, x_encoded, x_0_encoded, cond_embedding), axis=-1)
-        elif self.conditioning == "film":
-            out = self.film_block(x_encoded, jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1))
-        elif self.conditioning == "resnet":
-            out = self.resnet_block(x_encoded, jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1))
-        else:
-            raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
-
-        out = self.decoder(out, training=train)
-        return self.output_layer(out), cond_mean, cond_logvar
+        out = self._combine_and_decode(t_encoded, x_encoded, cond_embedding, squeeze, train, x_0_encoded=x_0_encoded)
+        return out, cond_mean, cond_logvar
 
     def create_train_state(
         self,
