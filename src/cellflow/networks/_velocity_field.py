@@ -261,6 +261,15 @@ class ConditionalVelocityField(nn.Module):
 
         self.output_layer = nn.Dense(self.output_dim)
 
+        self._setup_conditioning(conditioning_kwargs)
+
+    def _setup_conditioning(self, conditioning_kwargs: dict[str, Any]) -> None:
+        """Build the ``conditioning``-mode-specific submodules.
+
+        Called at the end of :meth:`setup` (so all shared submodules already exist on
+        ``self``). Override in a subclass to add new ``conditioning`` modes, delegating to
+        ``super()._setup_conditioning`` for the built-in ones.
+        """
         if self.conditioning == "film":
             self.film_block = FilmBlock(
                 input_dim=self.hidden_dims[-1],
@@ -302,7 +311,7 @@ class ConditionalVelocityField(nn.Module):
 
         t_encoded = sinusoidal_time_encoder(t, time_freqs=self.time_freqs, time_max_period=self.time_max_period)
         t_encoded = self.time_encoder(t_encoded, training=train)
-        x_encoded = self.x_encoder(x_t, training=train)
+        x_encoded = self._encode_x(x_t, squeeze, train)
 
         t_encoded = self.layer_norm_time(t_encoded)
         x_encoded = self.layer_norm_x(x_encoded)
@@ -313,6 +322,26 @@ class ConditionalVelocityField(nn.Module):
         elif cond_embedding.shape[0] != x_t.shape[0]:  # type: ignore[attr-defined]
             cond_embedding = jnp.tile(cond_embedding, (x_t.shape[0], 1))
 
+        out = self._combine_and_decode(t_encoded, x_encoded, cond_embedding, squeeze, train)
+        return out, cond_mean, cond_logvar
+
+    def _encode_x(self, x_t: jnp.ndarray, squeeze: bool, train: bool) -> jnp.ndarray:
+        """Encode ``x_t`` before conditioning. Override to insert pre-conditioning processing."""
+        return self.x_encoder(x_t, training=train)
+
+    def _combine_and_decode(
+        self,
+        t_encoded: jnp.ndarray,
+        x_encoded: jnp.ndarray,
+        cond_embedding: jnp.ndarray,
+        squeeze: bool,
+        train: bool,
+    ) -> jnp.ndarray:
+        """Combine ``(t, x, condition)`` per the conditioning mode, decode, and project to output.
+
+        Override in a subclass to add new ``conditioning`` modes, delegating to
+        ``super()._combine_and_decode`` for the built-in ones.
+        """
         if self.conditioning == "concatenation":
             out = jnp.concatenate((t_encoded, x_encoded, cond_embedding), axis=-1)
         elif self.conditioning == "film":
@@ -323,7 +352,7 @@ class ConditionalVelocityField(nn.Module):
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
 
         out = self.decoder(out, training=train)
-        return self.output_layer(out), cond_mean, cond_logvar
+        return self.output_layer(out)
 
     def _maybe_null_embedding(
         self,
@@ -589,9 +618,15 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         """
         if vf_kwargs is None:
             return {"genot_source_dims": [1024, 1024, 1024], "genot_source_dropout": 0.0}
-        assert isinstance(vf_kwargs, dict)
-        assert "genot_source_dims" in vf_kwargs
-        assert "genot_source_dropout" in vf_kwargs
+        if not isinstance(vf_kwargs, dict):
+            raise TypeError(f"`vf_kwargs` must be a dict or None, got {type(vf_kwargs).__name__}.")
+        allowed = {"genot_source_dims", "genot_source_dropout"}
+        unknown = set(vf_kwargs) - allowed
+        if unknown:
+            raise ValueError(f"Unexpected `vf_kwargs` keys {sorted(unknown)}; allowed: {sorted(allowed)}.")
+        missing = allowed - set(vf_kwargs)
+        if missing:
+            raise ValueError(f"Missing `vf_kwargs` keys {sorted(missing)}; required: {sorted(allowed)}.")
         return vf_kwargs
 
     def setup(self):
