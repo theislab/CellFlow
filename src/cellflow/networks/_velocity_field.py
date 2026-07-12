@@ -236,13 +236,7 @@ class ConditionalVelocityField(nn.Module):
         self.layer_cond_output_dropout = nn.Dropout(rate=self.cond_output_dropout)
         self.layer_norm_condition = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
 
-        self.time_encoder = MLPBlock(
-            dims=self.time_encoder_dims,
-            act_fn=self.act_fn,
-            dropout_rate=self.time_encoder_dropout,
-            act_last_layer=False,
-        )
-        self.layer_norm_time = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
+        self._setup_time()
 
         self.x_encoder = MLPBlock(
             dims=self.hidden_dims,
@@ -262,6 +256,19 @@ class ConditionalVelocityField(nn.Module):
         self.output_layer = nn.Dense(self.output_dim)
 
         self._setup_conditioning(conditioning_kwargs)
+
+    def _setup_time(self) -> None:
+        """Build the time encoder and its optional pre-concatenation LayerNorm.
+
+        Override to a no-op in a time-less velocity field (e.g. Equilibrium Matching).
+        """
+        self.time_encoder = MLPBlock(
+            dims=self.time_encoder_dims,
+            act_fn=self.act_fn,
+            dropout_rate=self.time_encoder_dropout,
+            act_last_layer=False,
+        )
+        self.layer_norm_time = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
 
     def _setup_conditioning(self, conditioning_kwargs: dict[str, Any]) -> None:
         """Build the ``conditioning``-mode-specific submodules.
@@ -676,13 +683,7 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         self.layer_cond_output_dropout = nn.Dropout(rate=self.cond_output_dropout)
         self.layer_norm_condition = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
 
-        self.time_encoder = MLPBlock(
-            dims=self.time_encoder_dims,
-            act_fn=self.act_fn,
-            dropout_rate=self.time_encoder_dropout,
-            act_last_layer=False,
-        )
-        self.layer_norm_time = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
+        self._setup_time()
 
         self.x_encoder = MLPBlock(
             dims=self.hidden_dims,
