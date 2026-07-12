@@ -13,7 +13,71 @@ from cellflow._types import Layers_separate_input_t, Layers_t
 from cellflow.networks._set_encoders import ConditionEncoder
 from cellflow.networks._utils import FilmBlock, MLPBlock, ResNetBlock, sinusoidal_time_encoder
 
-__all__ = ["ConditionalVelocityField", "GENOTConditionalVelocityField"]
+__all__ = [
+    "ConditionalVelocityField",
+    "GENOTConditionalVelocityField",
+    "null_condition_embedding",
+    "null_condition_input",
+]
+
+
+def null_condition_embedding(
+    cond_embedding: jnp.ndarray,
+    *,
+    condition_dropout_prob: float,
+    make_rng: Callable[[str], jax.Array],
+    train: bool,
+    force_uncond: bool,
+) -> jnp.ndarray:
+    """Null the condition *embedding* for classifier-free guidance (``condition_null='zero_embedding'``).
+
+    - If ``force_uncond`` is set, the condition is always dropped, yielding the
+      unconditional velocity field (used at inference time).
+    - Otherwise, during training the condition is dropped independently per set
+      element with probability ``condition_dropout_prob``.
+
+    With ``force_uncond=False`` and ``condition_dropout_prob == 0.0`` this is a no-op
+    that reproduces the standard conditional behavior byte-for-byte: no random number
+    is drawn and the embedding is returned as-is. ``make_rng`` is the owning module's
+    :meth:`flax.linen.Module.make_rng` (drawn only when a dropout mask is needed).
+    """
+    if force_uncond:
+        return jnp.zeros_like(cond_embedding)
+    if train and condition_dropout_prob > 0.0:
+        keep = jax.random.bernoulli(
+            make_rng("dropout"),
+            p=1.0 - condition_dropout_prob,
+            shape=(cond_embedding.shape[0], 1),
+        )
+        return jnp.where(keep, cond_embedding, jnp.zeros_like(cond_embedding))
+    return cond_embedding
+
+
+def null_condition_input(
+    cond: dict[str, jnp.ndarray],
+    *,
+    condition_dropout_prob: float,
+    mask_value: float,
+    make_rng: Callable[[str], jax.Array],
+    train: bool,
+    force_uncond: bool,
+) -> dict[str, jnp.ndarray]:
+    """Null the *raw* condition by filling it with ``mask_value`` (``condition_null='mask_value'``).
+
+    Routes an all-masked condition set through the condition encoder, so the
+    unconditional representation is whatever the encoder maps a fully-masked set to
+    (matching how padded conditions are handled). Same drop policy as
+    :func:`null_condition_embedding`: always when ``force_uncond`` is set, otherwise per
+    set element with probability ``condition_dropout_prob`` during training. With the
+    defaults it returns ``cond`` unchanged and draws no random number.
+    """
+    if force_uncond:
+        return jax.tree_util.tree_map(lambda c: jnp.full_like(c, mask_value), cond)
+    if train and condition_dropout_prob > 0.0:
+        n = next(iter(cond.values())).shape[0]
+        keep = jax.random.bernoulli(make_rng("dropout"), p=1.0 - condition_dropout_prob, shape=(n, 1, 1))
+        return jax.tree_util.tree_map(lambda c: jnp.where(keep, c, jnp.full_like(c, mask_value)), cond)
+    return cond
 
 
 class ConditionalVelocityField(nn.Module):
@@ -172,13 +236,7 @@ class ConditionalVelocityField(nn.Module):
         self.layer_cond_output_dropout = nn.Dropout(rate=self.cond_output_dropout)
         self.layer_norm_condition = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
 
-        self.time_encoder = MLPBlock(
-            dims=self.time_encoder_dims,
-            act_fn=self.act_fn,
-            dropout_rate=self.time_encoder_dropout,
-            act_last_layer=False,
-        )
-        self.layer_norm_time = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
+        self._setup_time()
 
         self.x_encoder = MLPBlock(
             dims=self.hidden_dims,
@@ -197,6 +255,28 @@ class ConditionalVelocityField(nn.Module):
 
         self.output_layer = nn.Dense(self.output_dim)
 
+        self._setup_conditioning(conditioning_kwargs)
+
+    def _setup_time(self) -> None:
+        """Build the time encoder and its optional pre-concatenation LayerNorm.
+
+        Override to a no-op in a time-less velocity field (e.g. Equilibrium Matching).
+        """
+        self.time_encoder = MLPBlock(
+            dims=self.time_encoder_dims,
+            act_fn=self.act_fn,
+            dropout_rate=self.time_encoder_dropout,
+            act_last_layer=False,
+        )
+        self.layer_norm_time = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
+
+    def _setup_conditioning(self, conditioning_kwargs: dict[str, Any]) -> None:
+        """Build the ``conditioning``-mode-specific submodules.
+
+        Called at the end of :meth:`setup` (so all shared submodules already exist on
+        ``self``). Override in a subclass to add new ``conditioning`` modes, delegating to
+        ``super()._setup_conditioning`` for the built-in ones.
+        """
         if self.conditioning == "film":
             self.film_block = FilmBlock(
                 input_dim=self.hidden_dims[-1],
@@ -238,7 +318,7 @@ class ConditionalVelocityField(nn.Module):
 
         t_encoded = sinusoidal_time_encoder(t, time_freqs=self.time_freqs, time_max_period=self.time_max_period)
         t_encoded = self.time_encoder(t_encoded, training=train)
-        x_encoded = self.x_encoder(x_t, training=train)
+        x_encoded = self._encode_x(x_t, squeeze, train)
 
         t_encoded = self.layer_norm_time(t_encoded)
         x_encoded = self.layer_norm_x(x_encoded)
@@ -249,17 +329,62 @@ class ConditionalVelocityField(nn.Module):
         elif cond_embedding.shape[0] != x_t.shape[0]:  # type: ignore[attr-defined]
             cond_embedding = jnp.tile(cond_embedding, (x_t.shape[0], 1))
 
+        out = self._combine_and_decode(t_encoded, x_encoded, cond_embedding, squeeze, train)
+        return out, cond_mean, cond_logvar
+
+    def _encode_x(self, x_t: jnp.ndarray, squeeze: bool, train: bool) -> jnp.ndarray:
+        """Encode ``x_t`` before conditioning. Override to insert pre-conditioning processing."""
+        return self.x_encoder(x_t, training=train)
+
+    def _conditioning_signals(
+        self,
+        t_encoded: jnp.ndarray,
+        x_encoded: jnp.ndarray,
+        cond_embedding: jnp.ndarray,
+        x_0_encoded: jnp.ndarray | None = None,
+    ) -> tuple[tuple[jnp.ndarray, ...], jnp.ndarray]:
+        """Return ``(concat_inputs, conditioning_vec)`` for the conditioning step.
+
+        ``concat_inputs`` is what ``'concatenation'`` concatenates (order matters for
+        checkpoint compatibility); ``conditioning_vec`` is what modulates ``x`` for
+        ``'film'``/``'resnet'`` (and ``'adaln_zero'`` in subclasses). ``GENOT`` folds the
+        encoded source ``x_0`` into both.
+        """
+        if x_0_encoded is None:
+            concat_inputs = (t_encoded, x_encoded, cond_embedding)
+            conditioning_vec = jnp.concatenate((t_encoded, cond_embedding), axis=-1)
+        else:
+            concat_inputs = (t_encoded, x_encoded, x_0_encoded, cond_embedding)
+            conditioning_vec = jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1)
+        return concat_inputs, conditioning_vec
+
+    def _combine_and_decode(
+        self,
+        t_encoded: jnp.ndarray,
+        x_encoded: jnp.ndarray,
+        cond_embedding: jnp.ndarray,
+        squeeze: bool,
+        train: bool,
+        x_0_encoded: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Combine ``(t, x, [x_0,] condition)`` per the conditioning mode, decode, and project.
+
+        Override in a subclass to add new ``conditioning`` modes, delegating to
+        ``super()._combine_and_decode`` for the built-in ones. ``x_0_encoded`` is the encoded
+        GENOT source (folded into the conditioning by :meth:`_conditioning_signals`).
+        """
+        concat_inputs, conditioning_vec = self._conditioning_signals(t_encoded, x_encoded, cond_embedding, x_0_encoded)
         if self.conditioning == "concatenation":
-            out = jnp.concatenate((t_encoded, x_encoded, cond_embedding), axis=-1)
+            out = jnp.concatenate(concat_inputs, axis=-1)
         elif self.conditioning == "film":
-            out = self.film_block(x_encoded, jnp.concatenate((t_encoded, cond_embedding), axis=-1))
+            out = self.film_block(x_encoded, conditioning_vec)
         elif self.conditioning == "resnet":
-            out = self.resnet_block(x_encoded, jnp.concatenate((t_encoded, cond_embedding), axis=-1))
+            out = self.resnet_block(x_encoded, conditioning_vec)
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
 
         out = self.decoder(out, training=train)
-        return self.output_layer(out), cond_mean, cond_logvar
+        return self.output_layer(out)
 
     def _maybe_null_embedding(
         self,
@@ -278,17 +403,13 @@ class ConditionalVelocityField(nn.Module):
         defaults) this is a no-op that reproduces the standard conditional behavior
         byte-for-byte: no random number is drawn and the embedding is returned as-is.
         """
-        if force_uncond:
-            return jnp.zeros_like(cond_embedding)
-        if train and self.condition_dropout_prob > 0.0:
-            drop_rng = self.make_rng("dropout")
-            keep = jax.random.bernoulli(
-                drop_rng,
-                p=1.0 - self.condition_dropout_prob,
-                shape=(cond_embedding.shape[0], 1),
-            )
-            return jnp.where(keep, cond_embedding, jnp.zeros_like(cond_embedding))
-        return cond_embedding
+        return null_condition_embedding(
+            cond_embedding,
+            condition_dropout_prob=self.condition_dropout_prob,
+            make_rng=self.make_rng,
+            train=train,
+            force_uncond=force_uncond,
+        )
 
     def _maybe_null_input(
         self,
@@ -306,14 +427,14 @@ class ConditionalVelocityField(nn.Module):
         :attr:`condition_dropout_prob` during training. With the defaults it returns
         ``cond`` unchanged and draws no random number.
         """
-        if force_uncond:
-            return jax.tree_util.tree_map(lambda c: jnp.full_like(c, self.mask_value), cond)
-        if train and self.condition_dropout_prob > 0.0:
-            drop_rng = self.make_rng("dropout")
-            n = next(iter(cond.values())).shape[0]
-            keep = jax.random.bernoulli(drop_rng, p=1.0 - self.condition_dropout_prob, shape=(n, 1, 1))
-            return jax.tree_util.tree_map(lambda c: jnp.where(keep, c, jnp.full_like(c, self.mask_value)), cond)
-        return cond
+        return null_condition_input(
+            cond,
+            condition_dropout_prob=self.condition_dropout_prob,
+            mask_value=self.mask_value,
+            make_rng=self.make_rng,
+            train=train,
+            force_uncond=force_uncond,
+        )
 
     def get_condition_embedding(self, condition: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Get the embedding of the condition.
@@ -529,9 +650,15 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         """
         if vf_kwargs is None:
             return {"genot_source_dims": [1024, 1024, 1024], "genot_source_dropout": 0.0}
-        assert isinstance(vf_kwargs, dict)
-        assert "genot_source_dims" in vf_kwargs
-        assert "genot_source_dropout" in vf_kwargs
+        if not isinstance(vf_kwargs, dict):
+            raise TypeError(f"`vf_kwargs` must be a dict or None, got {type(vf_kwargs).__name__}.")
+        allowed = {"genot_source_dims", "genot_source_dropout"}
+        unknown = set(vf_kwargs) - allowed
+        if unknown:
+            raise ValueError(f"Unexpected `vf_kwargs` keys {sorted(unknown)}; allowed: {sorted(allowed)}.")
+        missing = allowed - set(vf_kwargs)
+        if missing:
+            raise ValueError(f"Missing `vf_kwargs` keys {sorted(missing)}; required: {sorted(allowed)}.")
         return vf_kwargs
 
     def setup(self):
@@ -556,13 +683,7 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         self.layer_cond_output_dropout = nn.Dropout(rate=self.cond_output_dropout)
         self.layer_norm_condition = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
 
-        self.time_encoder = MLPBlock(
-            dims=self.time_encoder_dims,
-            act_fn=self.act_fn,
-            dropout_rate=self.time_encoder_dropout,
-            act_last_layer=False,
-        )
-        self.layer_norm_time = nn.LayerNorm() if self.layer_norm_before_concatenation else lambda x: x
+        self._setup_time()
 
         self.x_encoder = MLPBlock(
             dims=self.hidden_dims,
@@ -588,22 +709,7 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
 
         self.output_layer = nn.Dense(self.output_dim)
 
-        if self.conditioning == "film":
-            self.film_block = FilmBlock(
-                input_dim=self.hidden_dims[-1],
-                cond_dim=self.time_encoder_dims[-1] + self.condition_embedding_dim,
-                **conditioning_kwargs,
-            )
-        elif self.conditioning == "resnet":
-            self.resnet_block = ResNetBlock(
-                input_dim=self.hidden_dims[-1],
-                **self.conditioning_kwargs,
-            )
-        elif self.conditioning == "concatenation":
-            if len(conditioning_kwargs) > 0:
-                raise ValueError("If `conditioning=='concatenation' mode, no conditioning kwargs can be passed.")
-        else:
-            raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
+        self._setup_conditioning(conditioning_kwargs)
 
     def __call__(
         self,
@@ -613,14 +719,19 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         cond: dict[str, jnp.ndarray],
         encoder_noise: jnp.ndarray,
         train: bool = True,
+        force_uncond: bool = False,
     ):
         squeeze = x_t.ndim == 1
+        if self.condition_null == "mask_value":
+            cond = self._maybe_null_input(cond, train=train, force_uncond=force_uncond)
         cond_mean, cond_logvar = self.condition_encoder(cond, training=train)
         if self.condition_mode == "deterministic":
             cond_embedding = cond_mean
         else:
             cond_embedding = cond_mean + encoder_noise * jnp.exp(cond_logvar / 2.0)
         cond_embedding = self.layer_cond_output_dropout(cond_embedding, deterministic=not train)
+        if self.condition_null == "zero_embedding":
+            cond_embedding = self._maybe_null_embedding(cond_embedding, train=train, force_uncond=force_uncond)
         t_encoded = sinusoidal_time_encoder(t, time_freqs=self.time_freqs, time_max_period=self.time_max_period)
         t_encoded = self.time_encoder(t_encoded, training=train)
         x_encoded = self.x_encoder(x_t, training=train)
@@ -636,17 +747,8 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         elif cond_embedding.shape[0] != x_t.shape[0]:  # type: ignore[attr-defined]
             cond_embedding = jnp.tile(cond_embedding, (x_t.shape[0], 1))
 
-        if self.conditioning == "concatenation":
-            out = jnp.concatenate((t_encoded, x_encoded, x_0_encoded, cond_embedding), axis=-1)
-        elif self.conditioning == "film":
-            out = self.film_block(x_encoded, jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1))
-        elif self.conditioning == "resnet":
-            out = self.resnet_block(x_encoded, jnp.concatenate((t_encoded, x_0_encoded, cond_embedding), axis=-1))
-        else:
-            raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
-
-        out = self.decoder(out, training=train)
-        return self.output_layer(out), cond_mean, cond_logvar
+        out = self._combine_and_decode(t_encoded, x_encoded, cond_embedding, squeeze, train, x_0_encoded=x_0_encoded)
+        return out, cond_mean, cond_logvar
 
     def create_train_state(
         self,

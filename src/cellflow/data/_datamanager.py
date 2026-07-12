@@ -13,8 +13,8 @@ import sklearn.preprocessing as preprocessing
 from dask.diagnostics import ProgressBar
 from pandas.api.types import is_numeric_dtype
 
-from cellflow._logging import logger
 from cellflow._types import ArrayLike
+from cellflow.data._condition import get_max_combination_length
 from cellflow.data._data import ConditionData, PredictionData, ReturnData, TrainingData, ValidationData
 
 from ._utils import _flatten_list, _to_list
@@ -998,17 +998,8 @@ class DataManager:
         perturbation_covariates: dict[str, list[str]],
         max_combination_length: int | None,
     ) -> int:
-        obs_max_combination_length = max(len(comb) for comb in perturbation_covariates.values())
-        if max_combination_length is None:
-            return obs_max_combination_length
-        elif max_combination_length < obs_max_combination_length:
-            logger.warning(
-                f"Provided `max_combination_length` is smaller than the observed maximum combination length of the perturbation covariates. Setting maximum combination length to {obs_max_combination_length}.",
-                stacklevel=2,
-            )
-            return obs_max_combination_length
-        else:
-            return max_combination_length
+        # Delegates to the shared implementation so the in-memory and streaming paths stay identical.
+        return get_max_combination_length(perturbation_covariates, max_combination_length)
 
     def _get_primary_covar_encoder(
         self,

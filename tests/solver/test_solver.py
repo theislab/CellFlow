@@ -204,6 +204,31 @@ def _make_otfm(condition_dropout_prob=0.0, guidance=None, condition_null="zero_e
     )
 
 
+def _make_genot(condition_dropout_prob=0.0, guidance=None, condition_null="zero_embedding"):
+    """Build a small GENOT solver for guidance tests."""
+    vf = cellflow.networks.GENOTConditionalVelocityField(
+        output_dim=5,
+        max_combination_length=2,
+        condition_embedding_dim=12,
+        hidden_dims=(32, 32),
+        decoder_dims=(32, 32),
+        genot_source_dims=(32, 32),
+        condition_dropout_prob=condition_dropout_prob,
+        condition_null=condition_null,
+    )
+    return _genot.GENOT(
+        vf=vf,
+        data_match_fn=match_linear,
+        probability_path=ConstantNoiseFlow(0.0),
+        optimizer=optax.adam(1e-3),
+        source_dim=5,
+        target_dim=5,
+        conditions={"drug": np.random.rand(2, 1, 3)},
+        rng=vf_rng,
+        guidance=guidance,
+    )
+
+
 class TestGuidance:
     def test_predict_guidance_none_matches_conditional_solve(self):
         """With ``guidance=None`` predict reproduces the pre-change conditional-only solve.
@@ -261,7 +286,7 @@ class TestGuidance:
             {"params": params}, t, x, condition, encoder_noise, train=False, force_uncond=True
         )[0]
 
-        guided_vf = solver.guidance.wrap(base_vf, solver.vf_state_inference)
+        guided_vf = solver.guidance.wrap(base_vf)
         v_guided = guided_vf(t, x, args)
 
         expected = v_null + w * (v_cond - v_null)
@@ -282,7 +307,7 @@ class TestGuidance:
 
         base_vf = solver._base_velocity()
         v_cond = base_vf(t, x, args)
-        v_guided = solver.guidance.wrap(base_vf, solver.vf_state_inference)(t, x, args)
+        v_guided = solver.guidance.wrap(base_vf)(t, x, args)
 
         assert np.allclose(np.asarray(v_guided), np.asarray(v_cond), atol=1e-6)
 
@@ -302,6 +327,28 @@ class TestGuidance:
         assert ClassifierFreeGuidance.from_ode_weight(2.0).scale == 3.0
         with pytest.raises(ValueError, match="cfg_ode_weight must be non-negative"):
             ClassifierFreeGuidance.from_ode_weight(-1.0)
+
+    def test_genot_classifier_free_guidance(self):
+        """GENOT supports CFG (shared, x_0-aware): guidance changes the prediction, ``scale=1.0``
+        is the plain conditional solve, and it is gated on ``cfg_enabled``."""
+        x = np.ones((4, 5), dtype=np.float32)
+        cond = {"drug": np.ones((1, 2, 3), dtype=np.float32)}
+
+        g = _make_genot(condition_dropout_prob=0.5)
+        assert g.cfg_enabled
+        p_cond = g.predict(x, cond, guidance_scale=1.0, max_steps=10, throw=False)
+        p_guided = g.predict(x, cond, guidance_scale=2.0, max_steps=10, throw=False)
+        p_default = g.predict(x, cond, max_steps=10, throw=False)
+        assert np.all(np.isfinite(p_guided))
+        assert not np.allclose(p_cond, p_guided)  # guidance actually changes the field
+        assert np.allclose(p_cond, p_default)  # scale=1.0 == no guidance
+
+        # Without condition dropout, v_null is undefined -> guidance ignored (with warning).
+        g0 = _make_genot(condition_dropout_prob=0.0)
+        assert not g0.cfg_enabled
+        with pytest.warns(UserWarning, match="guidance_scale"):
+            p_ignored = g0.predict(x, cond, guidance_scale=3.0, max_steps=10, throw=False)
+        assert np.allclose(p_ignored, g0.predict(x, cond, max_steps=10, throw=False))
 
     @pytest.mark.parametrize("pooling", ["mean", "attention_token", "attention_seed"])
     def test_mask_value_null_matches_mask_filled_condition(self, pooling):
@@ -381,7 +428,7 @@ class TestGuidance:
             {"params": params}, t, x, condition, encoder_noise, train=False, force_uncond=True
         )[0]
 
-        v_guided = solver.guidance.wrap(base_vf, solver.vf_state_inference)(t, x, args)
+        v_guided = solver.guidance.wrap(base_vf)(t, x, args)
         expected = (1.0 + w) * v_cond - w * v_null
         assert np.allclose(np.asarray(v_guided), np.asarray(expected), atol=1e-6)
 
@@ -466,9 +513,7 @@ class TestGuidance:
 
         # Same vf_rng in _make_otfm -> identical init params -> the two paths are comparable.
         per_call = _make_otfm(condition_dropout_prob=0.5).predict(x, condition, guidance_scale=w)
-        construction = _make_otfm(
-            condition_dropout_prob=0.5, guidance=ClassifierFreeGuidance(w)
-        ).predict(x, condition)
+        construction = _make_otfm(condition_dropout_prob=0.5, guidance=ClassifierFreeGuidance(w)).predict(x, condition)
         assert np.allclose(per_call, construction, atol=1e-5)
 
         # And it is actually guiding: differs from the plain conditional (scale 1.0).

@@ -1,9 +1,10 @@
 import functools
 import os
 import types
-from collections.abc import Callable, Sequence
+import warnings
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field as dc_field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anndata as ad
 import cloudpickle
@@ -18,7 +19,13 @@ from cellflow import _constants
 from cellflow._compat import BrownianBridge, ConstantNoiseFlow
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
 from cellflow.data._data import ConditionData, TrainingData, ValidationData
-from cellflow.data._dataloader import OOCTrainSampler, PredictionSampler, TrainSampler, ValidationSampler
+from cellflow.data._dataloader import (
+    DAGLoaderTrainSampler,
+    OOCTrainSampler,
+    PredictionSampler,
+    TrainSampler,
+    ValidationSampler,
+)
 from cellflow.data._datamanager import DataManager
 from cellflow.model._utils import _write_predictions
 from cellflow.networks import _velocity_field
@@ -27,6 +34,11 @@ from cellflow.solvers import SOLVER_REGISTRY, _genot, _otfm
 from cellflow.training._callbacks import BaseCallback
 from cellflow.training._trainer import CellFlowTrainer
 from cellflow.utils import match_linear
+
+if TYPE_CHECKING:
+    from annbatch import DatasetCollection  # optional dep — only imported for typing
+
+    from dagloader import DAGLoader, SamplerConfig, Scheme  # optional dep — only imported for typing
 
 __all__ = ["CellFlow"]
 
@@ -41,15 +53,27 @@ class CellFlow:
     Parameters
     ----------
         adata
-            An :class:`~anndata.AnnData` object to extract the training data from.
+            An :class:`~anndata.AnnData` object to extract the training data from. If :obj:`None`,
+            the model uses the annbatch/dagloader streaming path (see
+            :meth:`~cellflow.model.CellFlow.prepare_annbatch_data`) instead of the in-memory one.
         solver
             Solver to use for training. Any name registered in
             :data:`cellflow.solvers.SOLVER_REGISTRY` (``'otfm'`` or ``'genot'`` by default, extendable
             via :func:`cellflow.solvers.register_solver`).
     """
 
-    def __init__(self, adata: ad.AnnData, solver: str = "otfm"):
+    def __init__(self, adata: ad.AnnData | None = None, solver: Literal["otfm", "genot"] = "otfm"):
+        # `adata is None` selects the annbatch/dagloader streaming path (see `prepare_annbatch_data`);
+        # a provided `adata` is the traditional in-memory path (`prepare_data`).
+        if adata is not None:
+            warnings.warn(
+                "Passing `adata` to `CellFlow(...)` is deprecated and will be removed in a future "
+                "release; pass it to `prepare_data(adata=...)` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
         self._adata = adata
+        self._train_data: TrainingData | None = None  # set by `prepare_data` (in-memory path only)
         if solver not in SOLVER_REGISTRY:
             raise ValueError(f"Unknown solver {solver!r}. Registered solvers: {sorted(SOLVER_REGISTRY)}.")
         self._solver_class, self._vf_class = SOLVER_REGISTRY[solver]
@@ -59,6 +83,16 @@ class CellFlow:
         self._solver: _otfm.OTFlowMatching | _genot.GENOT | None = None
         self._condition_dim: int | None = None
         self._vf: _velocity_field.ConditionalVelocityField | _velocity_field.GENOTConditionalVelocityField | None = None
+        # annbatch/dagloader streaming path (set by `prepare_annbatch_data`, partitioned by
+        # `split_annbatch_data`). Kept untyped here to avoid importing the optional `dagloader`/`annbatch`
+        # dependency at module import time.
+        self._scheme: Scheme | None = None
+        self._split_schemes: dict[str, Scheme] | None = None
+        self._split_assignment: pd.DataFrame | None = None
+        self._annbatch_sampler_configs: dict[str, SamplerConfig] | None = None
+        self._annbatch_loaders: dict[str, DAGLoader] | None = None
+        self._condition_data: dict[str, np.ndarray] | None = None  # annbatch-path condition embeddings
+        self._max_combination_length: int | None = None  # annbatch-path (in-memory keeps it on train_data)
 
     def prepare_data(
         self,
@@ -71,6 +105,7 @@ class CellFlow:
         split_covariates: Sequence[str] | None = None,
         max_combination_length: int | None = None,
         null_value: float = 0.0,
+        adata: ad.AnnData | None = None,
     ) -> None:
         """Prepare the dataloader for training from :attr:`~cellflow.model.CellFlow.adata`.
 
@@ -120,6 +155,9 @@ class CellFlow:
             as the maximal number of perturbations a cell has been treated with.
         null_value
             Value to use for padding to ``'max_combination_length'``.
+        adata
+            The :class:`~anndata.AnnData` object to extract the training data from. If :obj:`None`,
+            the object passed to the (deprecated) constructor argument is used instead.
 
         Returns
         -------
@@ -170,6 +208,14 @@ class CellFlow:
                     split_covariates=split_covariates,
                 )
         """
+        adata = adata if adata is not None else self._adata
+        if adata is None:
+            raise ValueError(
+                "No `adata` provided. Pass it as `prepare_data(adata=...)` (recommended) or "
+                "construct `CellFlow(adata=...)`."
+            )
+        self._adata = adata  # kept for downstream predict / validation / plotting
+
         self._dm = DataManager(
             self.adata,
             sample_rep=sample_rep,
@@ -186,6 +232,193 @@ class CellFlow:
         self.train_data = self._dm.get_train_data(self.adata)
         self._data_dim = self.train_data.cell_data.shape[-1]  # type: ignore[union-attr]
 
+    def prepare_annbatch_data(
+        self,
+        source: "DatasetCollection",
+        sample_rep: str,
+        control_key: str,
+        perturbation_covariates: dict[str, Sequence[str]],
+        perturbation_covariate_reps: dict[str, str] | None = None,
+        sample_covariates: Sequence[str] | None = None,
+        sample_covariate_reps: dict[str, str] | None = None,
+        split_covariates: Sequence[str] | None = None,
+        max_combination_length: int | None = None,
+        null_value: float = 0.0,
+        rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
+        sampler_config: "SamplerConfig | Mapping[str, SamplerConfig] | None" = None,
+        seed: int = 0,
+        split_by: Sequence[str] | None = None,
+        split_ratios: Mapping[str, float] | None = None,
+        split_force_training_values: Mapping[str, object] | None = None,
+        split_random_state: int = 42,
+    ) -> None:
+        """Prepare an out-of-core, annbatch-streamed training path (no in-memory ``adata``).
+
+        The covariate arguments (``sample_rep``, ``control_key``, ``perturbation_covariates``,
+        ``perturbation_covariate_reps``, ``sample_covariates``, ``sample_covariate_reps``,
+        ``split_covariates``, ``max_combination_length``, ``null_value``) mean exactly what they do in
+        :meth:`prepare_data`; only the cells differ — streamed from an out-of-core
+        :class:`annbatch.DatasetCollection` instead of materialized. Requires the ``annbatch`` extra and
+        a model built **without** ``adata`` (``CellFlow()``).
+
+        Parameters
+        ----------
+        source
+            An out-of-core :class:`annbatch.DatasetCollection` to stream cells from (an in-memory
+            ``AnnData`` also works — the ``dagloader`` is container-agnostic). Its ``obs`` supplies the
+            grouping / condition columns; ``sample_rep`` selects the streamed representation.
+        rep_dict
+            The covariate embedding tables that ``adata.uns`` would hold in the in-memory path (keys
+            match the values of ``perturbation_covariate_reps`` / ``sample_covariate_reps``). Required
+            when a covariate group is embedded; may be :obj:`None` when the primary covariate is
+            categorical (one-hot encoded).
+        sampler_config
+            Read parameters for the streamed loader(s), **one per split**: a single
+            :class:`dagloader.SamplerConfig` for all splits, or a ``{split_name: SamplerConfig}`` mapping
+            covering every split (see :func:`dagloader.resolve_split_configs`). With no split the only
+            split is ``"train"``. ``chunk_size > 1`` reads contiguous slices, so every run of each
+            category must be at least ``chunk_size`` cells — in-memory sources are grouped automatically,
+            an out-of-core :class:`~annbatch.DatasetCollection` must be built grouped
+            (``add_adatas(..., groupby=[...])``) or a clear error is raised.
+        seed
+            Reproducibility seed for the ``dagloader`` per-node RNG streams.
+        split_by
+            If given, split the prepared ``Scheme``'s target combinations into train/val/test in the
+            same call (delegates to :meth:`split_annbatch_data`). Columns whose unique combinations are
+            held out (⊆ the target columns). If :obj:`None`, no split is made (the model would train on
+            all combinations).
+        split_ratios
+            ``{split_name: fraction}`` summing to 1.0 for the split. Defaults to
+            ``{"train": 0.6, "val": 0.2, "test": 0.2}``. Only used when ``split_by`` is given.
+        split_force_training_values
+            ``{column: value}`` (keys ⊆ ``split_by``) forced into the training split. Only used when
+            ``split_by`` is given.
+        split_random_state
+            Seed for the split's combination shuffle. Only used when ``split_by`` is given.
+
+        Returns
+        -------
+        :obj:`None`, and sets up the streaming training data used by :meth:`train`.
+
+        Notes
+        -----
+        The ``"train"`` split's loader is wired to :meth:`train`; when a split is made, the ``val`` /
+        ``test`` split loaders are kept on :attr:`_annbatch_loaders` for later use.
+        """
+        if self._adata is not None:
+            raise ValueError(
+                "`prepare_annbatch_data` is the out-of-core streaming path; construct the model "
+                "without `adata` (`CellFlow()`). Use `prepare_data(adata=...)` for the in-memory path."
+            )
+
+        from cellflow.data._annbatch import build_annbatch_training
+        from dagloader import DAGLoader, resolve_split_configs
+
+        # Build the Scheme + condition_fn + condition embeddings from the covariate spec (obs only).
+        built = build_annbatch_training(
+            source,
+            sample_rep=sample_rep,
+            control_key=control_key,
+            perturbation_covariates=perturbation_covariates,
+            perturbation_covariate_reps=perturbation_covariate_reps,
+            sample_covariates=sample_covariates,
+            sample_covariate_reps=sample_covariate_reps,
+            split_covariates=split_covariates,
+            max_combination_length=max_combination_length,
+            null_value=null_value,
+            rep_dict=rep_dict,
+            seed=seed,
+        )
+        self._scheme = built.scheme
+        self._dm = built.data_manager
+        self._condition_data = built.condition_data
+        self._data_dim = built.data_dim
+        self._max_combination_length = built.max_combination_length
+        condition_fn = built.condition_fn
+
+        # Splitting step — kept in `prepare_annbatch_data` so preparing and splitting are one call.
+        if split_by is not None:
+            self._split_assignment = self.split_annbatch_data(
+                split_by=split_by,
+                ratios=split_ratios,
+                force_training_values=split_force_training_values,
+                random_state=split_random_state,
+            )
+
+        # One `SamplerConfig` per split (a single spec ⇒ all splits; a per-split dict ⇒ all specified).
+        # The splits are the split schemes when a split was made, else the single ``"train"`` scheme.
+        schemes = self._split_schemes if self._split_schemes is not None else {"train": self._scheme}
+        if sampler_config is None:
+            raise ValueError("`sampler_config` is required: give a SamplerConfig or a {split: SamplerConfig} mapping.")
+        self._annbatch_sampler_configs = resolve_split_configs(sampler_config, list(schemes))
+
+        # `chunk_size > 1` reads contiguous slices → every category's runs must be >= chunk_size
+        # (in-memory sources are auto-grouped above; out-of-core collections must be built grouped).
+        max_chunk = max(cfg.chunk_size for cfg in self._annbatch_sampler_configs.values())
+        if max_chunk > 1:
+            from cellflow.data._annbatch import assert_source_chunkable
+
+            root = self._scheme.nodes[self._scheme.root]
+            assert_source_chunkable(self._scheme.sources["data"], root.cols, max_chunk)
+
+        # One streaming DAGLoader per split; the "train" split feeds `train()`, others are kept for reuse.
+        self._annbatch_loaders = {
+            name: DAGLoader(schemes[name], self._annbatch_sampler_configs[name], condition_fn=condition_fn)
+            for name in schemes
+        }
+        self._dataloader = DAGLoaderTrainSampler(self._annbatch_loaders["train"])
+
+    def split_annbatch_data(
+        self,
+        *,
+        split_by: Sequence[str],
+        ratios: Mapping[str, float] | None = None,
+        force_training_values: Mapping[str, object] | None = None,
+        random_state: int = 42,
+    ) -> pd.DataFrame:
+        """Partition the prepared annbatch ``Scheme``'s target combinations into named splits.
+
+        Call after :meth:`prepare_annbatch_data`. Splits hold out whole *combinations* of ``split_by``
+        (a subset of the perturbation / split-covariate columns), not cells; controls are carried through
+        every split. See :func:`dagloader.split_scheme` for the mechanics.
+
+        Parameters
+        ----------
+        split_by
+            Columns whose unique combinations are partitioned across splits (⊆ the scheme's target
+            columns).
+        ratios
+            ``{split_name: fraction}`` summing to 1.0. Defaults to
+            ``{"train": 0.6, "val": 0.2, "test": 0.2}``. The first split is the training split.
+        force_training_values
+            ``{column: value}`` (keys ⊆ ``split_by``): any combination matching a value is forced into
+            the training (first) split.
+        random_state
+            Seed for the combination shuffle.
+
+        Returns
+        -------
+        A :class:`~pandas.DataFrame` of the target combinations and their assigned split. Also stores
+        the per-split schemes on the model.
+        """
+        from dagloader import split_assignment, split_scheme
+
+        if self._scheme is None:
+            raise ValueError(
+                "No annbatch `Scheme` to split. Call `prepare_annbatch_data(...)` first "
+                "(the out-of-core streaming path)."
+            )
+        self._split_schemes = split_scheme(
+            self._scheme,
+            split_by=split_by,
+            ratios=ratios,
+            force_training_values=force_training_values,
+            random_state=random_state,
+        )
+        # `prepare_annbatch_data` turns these split Schemes into per-split DAGLoaders (train feeds
+        # `train()`; val/test are kept on `_annbatch_loaders`); here we only produce the schemes + table.
+        return split_assignment(self._split_schemes)
+
     def prepare_validation_data(
         self,
         adata: ad.AnnData,
@@ -195,6 +428,13 @@ class CellFlow:
         predict_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Prepare the validation data.
+
+        Validation is always in-memory (metrics need materialized cells): pass a held-out
+        :class:`~anndata.AnnData` and its cells (at ``sample_rep``) + condition embeddings become a
+        ``ValidationData``. Works for both the in-memory and streaming training paths; in the streaming
+        path the ``adata`` must carry the same ``sample_rep`` and the covariate embeddings in ``.uns``.
+        (Unrelated to the ``val`` split from :meth:`split_annbatch_data`, a streaming loader — not a
+        validation set.)
 
         Parameters
         ----------
@@ -221,9 +461,10 @@ class CellFlow:
         - :attr:`cellflow.model.CellFlow.validation_data` - a dictionary with the validation data.
 
         """
-        if self.train_data is None:
+        if self.train_data is None and self._scheme is None:
             raise ValueError(
-                "Dataloader not initialized. Training data needs to be set up before preparing validation data. Please call prepare_data first."
+                "Model data not initialized. Set up training first via `prepare_data` (in-memory) or "
+                "`prepare_annbatch_data` (streaming) before preparing validation data."
             )
         val_data = self._dm.get_validation_data(
             adata,
@@ -420,8 +661,16 @@ class CellFlow:
         - :attr:`cellflow.model.CellFlow.trainer` - an instance of the
           :class:`cellflow.training.CellFlowTrainer`.
         """
-        if self.train_data is None:
-            raise ValueError("Dataloader not initialized. Please call `prepare_data` first.")
+        # Condition embeddings + max combination length come from `train_data` (in-memory) or, on the
+        # annbatch path, from what `prepare_annbatch_data` assembled.
+        if self.train_data is not None:
+            condition_data = self.train_data.condition_data
+            max_combination_length = self.train_data.max_combination_length
+        elif self._condition_data is not None and self._max_combination_length is not None:
+            condition_data = self._condition_data
+            max_combination_length = self._max_combination_length
+        else:
+            raise ValueError("Data not initialized. Please call `prepare_data` or `prepare_annbatch_data` first.")
 
         if condition_mode == "stochastic":
             if regularization == 0.0:
@@ -436,7 +685,7 @@ class CellFlow:
 
         self.vf = self._vf_class(
             output_dim=self._data_dim,
-            max_combination_length=self.train_data.max_combination_length,
+            max_combination_length=max_combination_length,
             condition_mode=condition_mode,
             regularization=regularization,
             condition_embedding_dim=condition_embedding_dim,
@@ -478,7 +727,7 @@ class CellFlow:
             vf=self.vf,
             probability_path=probability_path,
             optimizer=optimizer,
-            conditions=self.train_data.condition_data,
+            conditions=condition_data,
             rng=jax.random.PRNGKey(seed),
             **self._solver_class._match_kwargs(match_fn=match_fn, data_dim=self._data_dim),
             **solver_kwargs,
@@ -529,16 +778,19 @@ class CellFlow:
         - :attr:`cellflow.model.CellFlow.dataloader` - the training dataloader.
         - :attr:`cellflow.model.CellFlow.solver` - the trained solver.
         """
-        if self.train_data is None:
-            raise ValueError("Data not initialized. Please call `prepare_data` first.")
+        if self.train_data is None and self._dataloader is None:
+            raise ValueError("Data not initialized. Please call `prepare_data` or `prepare_annbatch_data` first.")
 
         if self.trainer is None:
             raise ValueError("Model not initialized. Please call `prepare_model` first.")
 
-        if out_of_core_dataloading:
-            self._dataloader = OOCTrainSampler(data=self.train_data, batch_size=batch_size)
-        else:
-            self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
+        if (
+            self.train_data is not None
+        ):  # in-memory path (the annbatch path set `_dataloader` in `prepare_annbatch_data`)
+            if out_of_core_dataloading:
+                self._dataloader = OOCTrainSampler(data=self.train_data, batch_size=batch_size)
+            else:
+                self._dataloader = TrainSampler(data=self.train_data, batch_size=batch_size)
         validation_loaders = {k: ValidationSampler(v) for k, v in self.validation_data.items() if k != "predict_kwargs"}
         self._trainer.predict_kwargs = self.validation_data.get("predict_kwargs", {})
 
@@ -719,8 +971,15 @@ class CellFlow:
             df_var.index.set_names(list(self._dm.perturb_covar_keys), inplace=True)
 
         if key_added is not None:
-            _utils.set_plotting_vars(self.adata, key=key_added, value=df_mean)
-            _utils.set_plotting_vars(self.adata, key=f"{key_added}_var", value=df_var)
+            if self.adata is None:  # streaming/annbatch path: no `adata` to store into
+                warnings.warn(
+                    "No `adata` is attached (streaming path); returning the condition embeddings without "
+                    "storing them under `adata.uns`. Pass `key_added=None` to silence this.",
+                    stacklevel=2,
+                )
+            else:  # mean under `key_added`, variance under `f"{key_added}_var"` (distinct keys, #295)
+                _utils.set_plotting_vars(self.adata, key=key_added, value=df_mean)
+                _utils.set_plotting_vars(self.adata, key=f"{key_added}_var", value=df_var)
 
         return df_mean, df_var
 
@@ -788,8 +1047,8 @@ class CellFlow:
         return model
 
     @property
-    def adata(self) -> ad.AnnData:
-        """The :class:`~anndata.AnnData` object used for training."""
+    def adata(self) -> ad.AnnData | None:
+        """The :class:`~anndata.AnnData` object used for training, or :obj:`None` in the annbatch path."""
         return self._adata
 
     @property
