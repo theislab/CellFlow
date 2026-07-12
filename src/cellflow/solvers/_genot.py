@@ -17,6 +17,7 @@ from cellflow._compat import BaseFlow
 from cellflow._types import ArrayLike
 from cellflow.model._utils import _multivariate_normal
 from cellflow.solvers._base import BaseSolver
+from cellflow.solvers._otfm import ClassifierFreeGuidance, Guidance, VelocityFn
 
 __all__ = ["GENOT"]
 
@@ -79,11 +80,13 @@ class GENOT(BaseSolver):
         target_dim: int,
         time_sampler: Callable[[jax.Array, int], jnp.ndarray] = solver_utils.uniform_sampler,
         latent_noise_fn: (Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None) = None,
+        guidance: Guidance | None = None,
         **kwargs: Any,
     ):
         super().__init__(vf, probability_path, time_sampler)
         self.data_match_fn = jax.jit(data_match_fn)
         self.source_dim = source_dim
+        self.guidance = guidance
         if latent_noise_fn is None:
             latent_noise_fn = functools.partial(_multivariate_normal, dim=target_dim)
         self.latent_noise_fn = latent_noise_fn
@@ -265,22 +268,70 @@ class GENOT(BaseSolver):
             x_pred = self._predict_jit(x, condition, rng, rng_genot, **kwargs)
             return np.array(x_pred)
 
+    @property
+    def cfg_enabled(self) -> bool:
+        """Whether classifier-free guidance is available at predict time.
+
+        Guidance needs a meaningful unconditional velocity ``v_null``, which only exists
+        when the velocity field was trained with condition dropout
+        (``condition_dropout_prob > 0``). When ``False``, a per-call ``guidance_scale`` is
+        ignored (with a warning) and the plain conditional velocity is used.
+        """
+        return float(getattr(self.vf, "condition_dropout_prob", 0.0)) > 0.0
+
+    def _base_velocity(self) -> VelocityFn:
+        """Base (conditional) velocity closure for the predict path.
+
+        Signature ``(t, x, args, force_uncond=False) -> velocity`` with ``args`` being
+        ``(params, x_0, condition, encoder_noise)``. Nulling only the condition (``x_0`` is
+        kept) gives the unconditional source→target velocity used by guidance.
+        """
+
+        def vf(
+            t: float,
+            x: jnp.ndarray,
+            args: tuple[Any, jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray],
+            force_uncond: bool = False,
+        ) -> jnp.ndarray:
+            params, x_0, condition, encoder_noise = args
+            return self.vf_state.apply_fn(
+                {"params": params}, t, x, x_0, condition, encoder_noise, train=False, force_uncond=force_uncond
+            )[0]
+
+        return vf
+
     def _get_predict_fn(self, kwargs_frozen: frozen_dict.FrozenDict) -> Callable:
         """Build and cache a jit+vmap predict function for the given diffrax kwargs.
 
-        The returned function is created once per unique set of diffrax kwargs,
-        then reused on subsequent calls.
+        The base velocity from :meth:`_base_velocity` is wrapped by guidance when it
+        applies: a per-call ``guidance_scale != 1.0`` (popped here, requires
+        :attr:`cfg_enabled`) builds a :class:`~cellflow.solvers.ClassifierFreeGuidance`
+        for this call, overriding the construction-time ``guidance``; otherwise the
+        construction-time ``guidance`` is used (``None`` = plain conditional velocity).
+        The returned function is created once per unique set of kwargs, then reused.
         """
         if kwargs_frozen in self._predict_fn_cache:
             return self._predict_fn_cache[kwargs_frozen]
 
         kwargs = dict(kwargs_frozen)
+        guidance_scale = float(kwargs.pop("guidance_scale", 1.0))
+        guidance = self.guidance
+        if guidance_scale != 1.0:
+            if self.cfg_enabled:
+                # v = v_null + scale·(v_cond − v_null); overrides construction-time guidance.
+                guidance = ClassifierFreeGuidance(scale=guidance_scale)
+            else:
+                warnings.warn(
+                    f"guidance_scale={guidance_scale} ignored: the velocity field was not trained "
+                    "with classifier-free guidance (condition_dropout_prob == 0), so the "
+                    "unconditional velocity is undefined. Using the plain conditional velocity.",
+                    stacklevel=2,
+                )
+                guidance = None
 
-        def vf(
-            t: float, x: jnp.ndarray, args: tuple[Any, jnp.ndarray, dict[str, jnp.ndarray], jnp.ndarray]
-        ) -> jnp.ndarray:
-            params, x_0, condition, encoder_noise = args
-            return self.vf_state.apply_fn({"params": params}, t, x, x_0, condition, encoder_noise, train=False)[0]
+        vf = self._base_velocity()
+        if guidance is not None:
+            vf = guidance.wrap(vf)
 
         def solve_ode(
             params: Any,
