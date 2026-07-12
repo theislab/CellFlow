@@ -719,14 +719,19 @@ class GENOTConditionalVelocityField(ConditionalVelocityField):
         cond: dict[str, jnp.ndarray],
         encoder_noise: jnp.ndarray,
         train: bool = True,
+        force_uncond: bool = False,
     ):
         squeeze = x_t.ndim == 1
+        if self.condition_null == "mask_value":
+            cond = self._maybe_null_input(cond, train=train, force_uncond=force_uncond)
         cond_mean, cond_logvar = self.condition_encoder(cond, training=train)
         if self.condition_mode == "deterministic":
             cond_embedding = cond_mean
         else:
             cond_embedding = cond_mean + encoder_noise * jnp.exp(cond_logvar / 2.0)
         cond_embedding = self.layer_cond_output_dropout(cond_embedding, deterministic=not train)
+        if self.condition_null == "zero_embedding":
+            cond_embedding = self._maybe_null_embedding(cond_embedding, train=train, force_uncond=force_uncond)
         t_encoded = sinusoidal_time_encoder(t, time_freqs=self.time_freqs, time_max_period=self.time_max_period)
         t_encoded = self.time_encoder(t_encoded, training=train)
         x_encoded = self.x_encoder(x_t, training=train)

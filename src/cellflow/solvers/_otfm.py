@@ -28,12 +28,15 @@ VelocityFn = Callable[[jnp.ndarray, jnp.ndarray, tuple[Any, ...]], jnp.ndarray]
 class Guidance(Protocol):
     """Pluggable transform applied to the base velocity field on the predict path.
 
-    A guidance strategy receives the base (conditional) velocity closure and the
-    inference train state, and returns a new velocity closure with the same
-    ``(t, x, args) -> velocity`` signature.
+    A guidance strategy receives the base velocity closure ``vf(t, x, args,
+    force_uncond=False)`` — which owns the field's call signature and returns the
+    conditional (``force_uncond=False``) or unconditional (``True``) velocity — and
+    returns a plain ``(t, x, args) -> velocity`` closure. Taking the closure (rather
+    than the train state) keeps guidance agnostic to solver-specific ``args`` such as
+    GENOT's source ``x_0``.
     """
 
-    def wrap(self, vf: VelocityFn, inference_state: train_state.TrainState) -> VelocityFn:
+    def wrap(self, vf: Callable) -> VelocityFn:
         """Wrap the base velocity ``vf`` and return the guided velocity."""
         ...
 
@@ -80,22 +83,18 @@ class ClassifierFreeGuidance:
             raise ValueError("cfg_ode_weight must be non-negative.")
         return cls(scale=1.0 + cfg_ode_weight)
 
-    def wrap(self, vf: VelocityFn, inference_state: train_state.TrainState) -> VelocityFn:
-        """Return a velocity closure computing ``v_null + scale * (v_cond - v_null)``."""
+    def wrap(self, vf: Callable) -> VelocityFn:
+        """Return a velocity closure computing ``v_null + scale * (v_cond - v_null)``.
+
+        ``vf`` is the base velocity ``vf(t, x, args, force_uncond=False)``; it owns the
+        field's call signature, so this blend is agnostic to solver-specific ``args``
+        (e.g. GENOT threads its source ``x_0`` through ``args``).
+        """
         scale = self.scale
 
         def guided_vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[Any, ...]) -> jnp.ndarray:
-            params, condition, encoder_noise = args
-            v_cond = vf(t, x, args)
-            v_null = inference_state.apply_fn(
-                {"params": params},
-                t,
-                x,
-                condition,
-                encoder_noise,
-                train=False,
-                force_uncond=True,
-            )[0]
+            v_cond = vf(t, x, args, force_uncond=False)
+            v_null = vf(t, x, args, force_uncond=True)
             return v_null + scale * (v_cond - v_null)
 
         return guided_vf
@@ -282,9 +281,16 @@ class OTFlowMatching(BaseSolver):
         inference velocity field conditionally (``force_uncond=False``).
         """
 
-        def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[Any, dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
+        def vf(
+            t: jnp.ndarray,
+            x: jnp.ndarray,
+            args: tuple[Any, dict[str, jnp.ndarray], jnp.ndarray],
+            force_uncond: bool = False,
+        ) -> jnp.ndarray:
             params, condition, encoder_noise = args
-            return self.vf_state_inference.apply_fn({"params": params}, t, x, condition, encoder_noise, train=False)[0]
+            return self.vf_state_inference.apply_fn(
+                {"params": params}, t, x, condition, encoder_noise, train=False, force_uncond=force_uncond
+            )[0]
 
         return vf
 
@@ -329,7 +335,7 @@ class OTFlowMatching(BaseSolver):
 
         vf = self._base_velocity()
         if guidance is not None:
-            vf = guidance.wrap(vf, self.vf_state_inference)
+            vf = guidance.wrap(vf)
 
         def solve_ode(
             params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
