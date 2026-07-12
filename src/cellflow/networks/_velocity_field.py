@@ -13,7 +13,71 @@ from cellflow._types import Layers_separate_input_t, Layers_t
 from cellflow.networks._set_encoders import ConditionEncoder
 from cellflow.networks._utils import FilmBlock, MLPBlock, ResNetBlock, sinusoidal_time_encoder
 
-__all__ = ["ConditionalVelocityField", "GENOTConditionalVelocityField"]
+__all__ = [
+    "ConditionalVelocityField",
+    "GENOTConditionalVelocityField",
+    "null_condition_embedding",
+    "null_condition_input",
+]
+
+
+def null_condition_embedding(
+    cond_embedding: jnp.ndarray,
+    *,
+    condition_dropout_prob: float,
+    make_rng: Callable[[str], jax.Array],
+    train: bool,
+    force_uncond: bool,
+) -> jnp.ndarray:
+    """Null the condition *embedding* for classifier-free guidance (``condition_null='zero_embedding'``).
+
+    - If ``force_uncond`` is set, the condition is always dropped, yielding the
+      unconditional velocity field (used at inference time).
+    - Otherwise, during training the condition is dropped independently per set
+      element with probability ``condition_dropout_prob``.
+
+    With ``force_uncond=False`` and ``condition_dropout_prob == 0.0`` this is a no-op
+    that reproduces the standard conditional behavior byte-for-byte: no random number
+    is drawn and the embedding is returned as-is. ``make_rng`` is the owning module's
+    :meth:`flax.linen.Module.make_rng` (drawn only when a dropout mask is needed).
+    """
+    if force_uncond:
+        return jnp.zeros_like(cond_embedding)
+    if train and condition_dropout_prob > 0.0:
+        keep = jax.random.bernoulli(
+            make_rng("dropout"),
+            p=1.0 - condition_dropout_prob,
+            shape=(cond_embedding.shape[0], 1),
+        )
+        return jnp.where(keep, cond_embedding, jnp.zeros_like(cond_embedding))
+    return cond_embedding
+
+
+def null_condition_input(
+    cond: dict[str, jnp.ndarray],
+    *,
+    condition_dropout_prob: float,
+    mask_value: float,
+    make_rng: Callable[[str], jax.Array],
+    train: bool,
+    force_uncond: bool,
+) -> dict[str, jnp.ndarray]:
+    """Null the *raw* condition by filling it with ``mask_value`` (``condition_null='mask_value'``).
+
+    Routes an all-masked condition set through the condition encoder, so the
+    unconditional representation is whatever the encoder maps a fully-masked set to
+    (matching how padded conditions are handled). Same drop policy as
+    :func:`null_condition_embedding`: always when ``force_uncond`` is set, otherwise per
+    set element with probability ``condition_dropout_prob`` during training. With the
+    defaults it returns ``cond`` unchanged and draws no random number.
+    """
+    if force_uncond:
+        return jax.tree_util.tree_map(lambda c: jnp.full_like(c, mask_value), cond)
+    if train and condition_dropout_prob > 0.0:
+        n = next(iter(cond.values())).shape[0]
+        keep = jax.random.bernoulli(make_rng("dropout"), p=1.0 - condition_dropout_prob, shape=(n, 1, 1))
+        return jax.tree_util.tree_map(lambda c: jnp.where(keep, c, jnp.full_like(c, mask_value)), cond)
+    return cond
 
 
 class ConditionalVelocityField(nn.Module):
@@ -278,17 +342,13 @@ class ConditionalVelocityField(nn.Module):
         defaults) this is a no-op that reproduces the standard conditional behavior
         byte-for-byte: no random number is drawn and the embedding is returned as-is.
         """
-        if force_uncond:
-            return jnp.zeros_like(cond_embedding)
-        if train and self.condition_dropout_prob > 0.0:
-            drop_rng = self.make_rng("dropout")
-            keep = jax.random.bernoulli(
-                drop_rng,
-                p=1.0 - self.condition_dropout_prob,
-                shape=(cond_embedding.shape[0], 1),
-            )
-            return jnp.where(keep, cond_embedding, jnp.zeros_like(cond_embedding))
-        return cond_embedding
+        return null_condition_embedding(
+            cond_embedding,
+            condition_dropout_prob=self.condition_dropout_prob,
+            make_rng=self.make_rng,
+            train=train,
+            force_uncond=force_uncond,
+        )
 
     def _maybe_null_input(
         self,
@@ -306,14 +366,14 @@ class ConditionalVelocityField(nn.Module):
         :attr:`condition_dropout_prob` during training. With the defaults it returns
         ``cond`` unchanged and draws no random number.
         """
-        if force_uncond:
-            return jax.tree_util.tree_map(lambda c: jnp.full_like(c, self.mask_value), cond)
-        if train and self.condition_dropout_prob > 0.0:
-            drop_rng = self.make_rng("dropout")
-            n = next(iter(cond.values())).shape[0]
-            keep = jax.random.bernoulli(drop_rng, p=1.0 - self.condition_dropout_prob, shape=(n, 1, 1))
-            return jax.tree_util.tree_map(lambda c: jnp.where(keep, c, jnp.full_like(c, self.mask_value)), cond)
-        return cond
+        return null_condition_input(
+            cond,
+            condition_dropout_prob=self.condition_dropout_prob,
+            mask_value=self.mask_value,
+            make_rng=self.make_rng,
+            train=train,
+            force_uncond=force_uncond,
+        )
 
     def get_condition_embedding(self, condition: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Get the embedding of the condition.
