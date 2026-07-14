@@ -1,7 +1,8 @@
-"""Tests for the annbatch-path scaffolding on :class:`~cellflow.model.CellFlow`.
+"""Tests for the in-memory :class:`~cellflow.model.CellFlow` constructor / data prep.
 
-Covers the ``adata``-optional constructor (deprecation of the constructor argument), passing
-``adata`` to :meth:`prepare_data`, and the mode guard on :meth:`prepare_annbatch_data`.
+Covers the ``adata``-optional constructor (deprecation of the constructor argument) and passing
+``adata`` to :meth:`prepare_data`. The streaming path now lives on
+:class:`~cellflow.model.CellFlowAnnbatch`.
 """
 
 import anndata as ad
@@ -42,11 +43,3 @@ class TestAnnbatchPathScaffolding:
         cf = cellflow.model.CellFlow()
         with pytest.raises(ValueError, match="No `adata` provided"):
             cf.prepare_data(sample_rep="X", control_key="control", perturbation_covariates=PERT_COVARS)
-
-    def test_prepare_annbatch_rejects_adata_model(self, adata_perturbation: ad.AnnData):
-        with pytest.warns(FutureWarning):
-            cf = cellflow.model.CellFlow(adata_perturbation)
-        with pytest.raises(ValueError, match="without `adata`"):
-            cf.prepare_annbatch_data(
-                source=None, sample_rep="X", control_key="control", perturbation_covariates=PERT_COVARS
-            )

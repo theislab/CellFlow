@@ -37,8 +37,8 @@ def _adata():
 
 
 def _prepared(seed=7):
-    cf = cellflow.model.CellFlow()
-    cf.prepare_annbatch_data(source=_adata(), sampler_config=_CFG, seed=seed, **_PREP)
+    cf = cellflow.model.CellFlowAnnbatch()
+    cf.prepare_loaders(source=_adata(), sampler_config=_CFG, seed=seed, **_PREP)
     return cf
 
 
@@ -50,7 +50,7 @@ class TestAnnbatchSave:
     def test_save_load_after_prepare(self, tmp_path):
         cf = _prepared()
         cf.save(str(tmp_path), file_prefix="p", overwrite=True)
-        loaded = cellflow.model.CellFlow.load(str(tmp_path / "p_CellFlow.pkl"))
+        loaded = cellflow.model.CellFlowAnnbatch.load(str(tmp_path / "p_CellFlowAnnbatch.pkl"))
         assert loaded._scheme is not None
         assert loaded._dataloader.sample()["tgt_cell_data"].shape == (8, 5)
 
@@ -61,8 +61,8 @@ class TestAnnbatchSave:
         _stream(b, 2)
         a.save(str(tmp_path), file_prefix="a", overwrite=True)
         b.save(str(tmp_path), file_prefix="b", overwrite=True)
-        la = cellflow.model.CellFlow.load(str(tmp_path / "a_CellFlow.pkl"))
-        lb = cellflow.model.CellFlow.load(str(tmp_path / "b_CellFlow.pkl"))
+        la = cellflow.model.CellFlowAnnbatch.load(str(tmp_path / "a_CellFlowAnnbatch.pkl"))
+        lb = cellflow.model.CellFlowAnnbatch.load(str(tmp_path / "b_CellFlowAnnbatch.pkl"))
         ra, rb = _stream(la, 3), _stream(lb, 3)
         assert all(np.array_equal(x, y) for x, y in zip(ra, rb, strict=True))
         # and the resumed state is preserved (not reset to the seed → differs from a fresh model)
@@ -76,7 +76,7 @@ class TestAnnbatchSave:
         )
         cf.train(num_iterations=2, valid_freq=100)
         cf.save(str(tmp_path), file_prefix="t", overwrite=True)
-        loaded = cellflow.model.CellFlow.load(str(tmp_path / "t_CellFlow.pkl"))
+        loaded = cellflow.model.CellFlowAnnbatch.load(str(tmp_path / "t_CellFlowAnnbatch.pkl"))
         assert loaded.solver is not None and loaded._dataloader is not None
         assert loaded._dataloader.sample()["tgt_cell_data"].shape == (8, 5)  # loader still usable
 

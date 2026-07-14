@@ -48,7 +48,9 @@ dependencies = [
 ]
 
 optional-dependencies.annbatch = [
-  "annbatch>=0.2.1",
+  # Pinned to the branch adding `SequentialClassSampler` (streaming eval path); revert to a released
+  # `annbatch>=0.2.x` once it lands upstream. Direct URL so pip/uv/tox all resolve the branch.
+  "annbatch @ git+https://github.com/selmanozleyen/annbatch.git@feat/bound-class-wip",
 ]
 optional-dependencies.dev = [
   "furo",

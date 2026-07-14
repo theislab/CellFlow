@@ -35,6 +35,9 @@ class BaseSolver:
         self.probability_path = probability_path
         self.time_sampler = time_sampler
         self._predict_fn_cache: dict[Any, Any] = {}
+        # Separate cache for the flat (condition-batched) predict fn — takes a per-cell embedding and
+        # vmaps over the concatenated cells of all conditions at once. See `OTFlowMatching.predict`.
+        self._flat_predict_fn_cache: dict[Any, Any] = {}
 
     @property
     def _inference_state(self) -> train_state.TrainState:

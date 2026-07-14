@@ -294,6 +294,23 @@ class OTFlowMatching(BaseSolver):
 
         return vf
 
+    def _base_velocity_from_embedding(self) -> Callable:
+        """Velocity closure taking a *precomputed* condition embedding in ``args``.
+
+        ``args`` is ``(params, cond_embedding)``. Used on the predict path when no guidance is active, so
+        the condition encoder runs once (outside the ODE, in :meth:`_get_predict_fn`) rather than on
+        every integration step; the embedding is constant along the trajectory, so the result is
+        identical to :meth:`_base_velocity`.
+        """
+
+        def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[Any, jnp.ndarray]) -> jnp.ndarray:
+            params, cond_embedding = args
+            return self.vf_state_inference.apply_fn(
+                {"params": params}, t, x, cond_embedding, train=False, method="velocity_from_embedding"
+            )
+
+        return vf
+
     def _get_predict_fn(self, kwargs_frozen: frozen_dict.FrozenDict) -> Callable:
         """Build and cache a jit+vmap predict function for the given diffrax kwargs.
 
@@ -333,27 +350,117 @@ class OTFlowMatching(BaseSolver):
                 )
                 guidance = None
 
-        vf = self._base_velocity()
-        if guidance is not None:
-            vf = guidance.wrap(vf)
+        if guidance is None:
+            # No guidance: encode the condition once, then integrate the embedding-only rhs — the
+            # condition encoder never runs inside the ODE. Identical output to the per-step path.
+            vf_emb = self._base_velocity_from_embedding()
 
-        def solve_ode(
-            params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
-        ) -> jnp.ndarray:
-            ode_term = diffrax.ODETerm(vf)
+            def solve_ode_emb(params: Any, x: jnp.ndarray, cond_embedding: jnp.ndarray) -> jnp.ndarray:
+                result = diffrax.diffeqsolve(
+                    diffrax.ODETerm(vf_emb), t0=0.0, t1=1.0, y0=x, args=(params, cond_embedding), **kwargs
+                )
+                return result.ys[0]
+
+            vmapped = jax.vmap(solve_ode_emb, in_axes=[None, 0, None])
+
+            def fn(
+                params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
+            ) -> jnp.ndarray:
+                cond_embedding = self.vf_state_inference.apply_fn(
+                    {"params": params}, condition, encoder_noise, train=False, method="encode_condition"
+                )[0]
+                return vmapped(params, x, cond_embedding)
+
+            fn = jax.jit(fn)
+        else:
+            # Guidance wraps the full velocity (needs both conditional and null embeddings per step), so
+            # keep encoding inside the ODE.
+            vf = guidance.wrap(self._base_velocity())
+
+            def solve_ode(
+                params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
+            ) -> jnp.ndarray:
+                result = diffrax.diffeqsolve(
+                    diffrax.ODETerm(vf), t0=0.0, t1=1.0, y0=x, args=(params, condition, encoder_noise), **kwargs
+                )
+                return result.ys[0]
+
+            fn = jax.jit(jax.vmap(solve_ode, in_axes=[None, 0, None, None]))
+
+        self._predict_fn_cache[kwargs_frozen] = fn
+        return fn
+
+    def _get_flat_predict_fn(self, kwargs_frozen: frozen_dict.FrozenDict) -> Callable:
+        """Build/cache the condition-batched predict fn.
+
+        One ``jit(vmap)`` solve over the *concatenated* cells of all conditions, each cell carrying its
+        own precomputed embedding (``in_axes=[None, 0, 0]``). Only valid with no guidance active (guidance
+        needs the encoder inside the ODE), so it integrates the embedding-only rhs.
+        """
+        if kwargs_frozen in self._flat_predict_fn_cache:
+            return self._flat_predict_fn_cache[kwargs_frozen]
+
+        kwargs = dict(kwargs_frozen)
+        vf_emb = self._base_velocity_from_embedding()
+
+        def solve_ode_emb(params: Any, x: jnp.ndarray, cond_embedding: jnp.ndarray) -> jnp.ndarray:
             result = diffrax.diffeqsolve(
-                ode_term,
-                t0=0.0,
-                t1=1.0,
-                y0=x,
-                args=(params, condition, encoder_noise),
-                **kwargs,
+                diffrax.ODETerm(vf_emb), t0=0.0, t1=1.0, y0=x, args=(params, cond_embedding), **kwargs
             )
             return result.ys[0]
 
-        fn = jax.jit(jax.vmap(solve_ode, in_axes=[None, 0, None, None]))
-        self._predict_fn_cache[kwargs_frozen] = fn
+        fn = jax.jit(jax.vmap(solve_ode_emb, in_axes=[None, 0, 0]))
+        self._flat_predict_fn_cache[kwargs_frozen] = fn
         return fn
+
+    def _predict_batched(
+        self,
+        x: dict[str, ArrayLike],
+        condition: dict[str, dict[str, ArrayLike]],
+        rng: jax.Array | None = None,
+        **kwargs: Any,
+    ) -> dict[str, ArrayLike]:
+        """Predict every condition in one condition-batched ODE solve (no-guidance path).
+
+        Encodes each condition once, concatenates all conditions' source cells into a single batch (each
+        cell tagged with its condition's embedding), integrates them in one vmapped solve, then splits the
+        result back per condition. Differing per-condition cell counts are handled by concatenation (no
+        padding). Numerically identical to the per-condition loop: each cell's ODE is independent.
+        """
+        kwargs.setdefault("dt0", None)
+        kwargs.setdefault("solver", diffrax.Tsit5())
+        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+        kwargs.pop("guidance_scale", None)  # == 1.0 on this path (guaranteed by the caller)
+        kwargs_frozen = frozen_dict.freeze(kwargs)
+
+        keys = list(x)
+        # One encoder-noise draw shared across conditions (matches the per-condition loop under one rng).
+        noise_dim = (1, self.vf.condition_embedding_dim)
+        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
+        rng = utils.default_prng_key(rng)
+        encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
+
+        params = self.vf_state_inference.params
+        groups = list(condition[keys[0]])
+        cond_stacked = {g: jnp.concatenate([jnp.asarray(condition[k][g]) for k in keys], axis=0) for g in groups}
+        cond_embedding = self.vf_state_inference.apply_fn(
+            {"params": params}, cond_stacked, encoder_noise, train=False, method="encode_condition"
+        )[0]  # (n_conditions, embedding_dim)
+
+        sizes = [int(jnp.asarray(x[k]).shape[0]) for k in keys]
+        x_flat = jnp.concatenate([jnp.asarray(x[k]) for k in keys], axis=0)
+        emb_flat = jnp.concatenate(
+            [jnp.broadcast_to(cond_embedding[i : i + 1], (sizes[i], cond_embedding.shape[-1])) for i in range(len(keys))],
+            axis=0,
+        )
+        out_flat = self._get_flat_predict_fn(kwargs_frozen)(params, x_flat, emb_flat)
+
+        out: dict[str, ArrayLike] = {}
+        offset = 0
+        for k, n in zip(keys, sizes, strict=True):
+            out[k] = out_flat[offset : offset + n]
+            offset += n
+        return out
 
     def _predict_jit(
         self,
@@ -424,7 +531,14 @@ class OTFlowMatching(BaseSolver):
             return {}
 
         if isinstance(x, dict):
-            jax_results = {k: self._predict_jit(x[k], condition[k], rng, **kwargs) for k in x}
+            # With no guidance, batch every condition into one condition-batched solve (encode once per
+            # condition, one vmapped kernel over all cells). Guidance stays on the per-condition loop
+            # since it needs the conditional + null embeddings inside the ODE. Same result either way.
+            guidance_scale = float(kwargs.get("guidance_scale", 1.0))
+            if self.guidance is None and guidance_scale == 1.0:
+                jax_results = self._predict_batched(x, condition, rng, **kwargs)
+            else:
+                jax_results = {k: self._predict_jit(x[k], condition[k], rng, **kwargs) for k in x}
             return {k: np.array(v) for k, v in jax_results.items()}
         else:
             x_pred = self._predict_jit(x, condition, rng, **kwargs)

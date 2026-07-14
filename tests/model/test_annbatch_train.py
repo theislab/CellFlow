@@ -36,8 +36,8 @@ def _prepare_model_small(cf):
 
 class TestAnnbatchTraining:
     def test_train_runs_without_split(self):
-        cf = cellflow.model.CellFlow()
-        cf.prepare_annbatch_data(
+        cf = cellflow.model.CellFlowAnnbatch()
+        cf.prepare_loaders(
             source=_toy_adata(),
             sample_rep="X",
             control_key="control",
@@ -51,8 +51,8 @@ class TestAnnbatchTraining:
         assert cf.dataloader is not None
 
     def test_train_runs_on_train_split(self):
-        cf = cellflow.model.CellFlow()
-        cf.prepare_annbatch_data(
+        cf = cellflow.model.CellFlowAnnbatch()
+        cf.prepare_loaders(
             source=_toy_adata(),
             sample_rep="X",
             control_key="control",
