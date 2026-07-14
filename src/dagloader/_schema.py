@@ -122,19 +122,15 @@ class Bind:
     ∝ the child's leaf weights, so ``P(child extra cols | common)`` is weight-controlled. Pass
     ``common=()`` to opt into unconditional child sampling explicitly.
 
-    For pairings that are NOT a shared-column match — sc-flow-tools' ``matched_keys`` (explicit
-    source↔target pairs) — pass ``matched={parent_leaf: child_leaf, ...}`` instead of ``common``. Each
-    parent leaf then maps to exactly one child leaf; a root leaf absent from the map raises.
+    Matching is thus *select* (the child's per-leaf weights) + *project* (``common``) — nothing more is
+    needed. An arbitrary parent-leaf → child-leaf pairing (sc-flow-tools' ``matched_keys``) is not a
+    separate mechanism: because it is a function, tag each side with a shared key column (parent cells
+    with the child leaf they map to, child cells with their own leaf) and bind on that column.
     """
 
     parent: str
     child: str
-    common: tuple[str, ...] = ()  # ⊆ parent.cols ∩ child.cols; () ⇒ unconditional (unless `matched`)
-    matched: Mapping[tuple, tuple] | None = None  # explicit parent-leaf → child-leaf pairing; overrides `common`
-
-    def __post_init__(self) -> None:
-        if self.matched is not None and self.common:
-            raise ValueError("Bind: give either `common` (column matching) or `matched` (explicit pairing), not both.")
+    common: tuple[str, ...] = ()  # ⊆ parent.cols ∩ child.cols; () ⇒ unconditional
 
 
 @dataclass(frozen=True, kw_only=True)

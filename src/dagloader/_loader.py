@@ -3,7 +3,7 @@
 Each pass is a fresh epoch. The root (target) node draws a per-batch class schedule ∝ its weights via an
 annbatch :class:`~annbatch.samplers.ClassSampler`; every bound child replays that schedule onto its own
 cells via an annbatch :class:`~annbatch.samplers.BoundClassSampler` — matched by *label* on the bind's
-``common`` columns (a ``matched=`` bind instead remaps the schedule to explicit child leaves). The loader
+``common`` columns (select via child weights + project via ``common``). The loader
 never wraps annbatch's RNG: every sampler that must agree within a pass (the schedule oracle, the target
 reps, and each child's inner) is **reseeded from one per-pass seed** ``(node seed, pass index)``, so
 target/condition/source stay aligned, a node's reps read the same rows, and a pickled loader resumes the
@@ -38,63 +38,6 @@ def _flat_categorical(codes: np.ndarray, leaves: list[tuple]) -> pd.Categorical:
     """
     categories = pd.MultiIndex.from_tuples(leaves).to_flat_index()
     return pd.Categorical.from_codes(codes, categories=categories)
-
-
-class _RemappedScheduleInner:
-    """Schedule-only :class:`~annbatch.abc.BaseClassSampler` that remaps a root schedule to child leaves.
-
-    For ``matched=`` binds (explicit parent-leaf → child-leaf pairing, not a shared-column match): it
-    wraps the root schedule oracle and exposes, as its own ``batch_codes``, the child leaf of each batch
-    (via the pairing). A :class:`~annbatch.samplers.BoundClassSampler` then reads matched child cells by
-    label (``on=None``). Only the schedule surface (``vocab`` / ``emittable_codes`` / ``batch_codes`` /
-    ``n_batches``) is used by the bound — never :meth:`_sample`.
-    """
-
-    def __init__(
-        self,
-        oracle: ClassSampler,
-        root_leaves: list[tuple],
-        child_leaves: list[tuple],
-        matched: Mapping[tuple, tuple],
-    ) -> None:
-        self._oracle = oracle
-        self._root_leaves = root_leaves
-        self._child_vocab = pd.MultiIndex.from_tuples(child_leaves).to_flat_index()
-        child_pos = {lf: i for i, lf in enumerate(child_leaves)}
-        self._root_to_child: dict[int, int] = {}
-        for ri, rlf in enumerate(root_leaves):
-            paired = matched.get(tuple(rlf))
-            if paired is not None:
-                if tuple(paired) not in child_pos:
-                    raise ValueError(f"matched child leaf {paired!r} is not a child leaf.")
-                self._root_to_child[ri] = child_pos[tuple(paired)]
-
-    @property
-    def rng(self) -> np.random.Generator:
-        return self._oracle.rng
-
-    @rng.setter
-    def rng(self, value: np.random.Generator) -> None:
-        self._oracle.rng = value
-
-    @property
-    def vocab(self) -> pd.Index:
-        return self._child_vocab
-
-    def emittable_codes(self) -> np.ndarray:
-        return np.array(sorted(set(self._root_to_child.values())), dtype=np.int64)
-
-    def n_batches(self, n_obs: int = 0) -> int:
-        return self._oracle.n_batches(n_obs)
-
-    def batch_codes(self) -> np.ndarray:
-        out = np.empty(self._oracle.n_batches(0), dtype=np.int64)
-        for j, rc in enumerate(self._oracle.batch_codes()):
-            rc = int(rc)
-            if rc not in self._root_to_child:
-                raise ValueError(f"matched bind has no child leaf for root leaf {self._root_leaves[rc]!r}.")
-            out[j] = self._root_to_child[rc]
-        return out
 
 
 class DAGLoader:
@@ -179,14 +122,6 @@ class DAGLoader:
         return {rcols.index(c): ccols.index(c) for c in b.common}
 
     def _new_bound_sampler(self, b: Bind) -> BoundClassSampler:
-        if b.matched is not None:
-            inner = _RemappedScheduleInner(
-                self._new_class_sampler(self.s.root),
-                self._st[self.s.root]["leaves"],
-                self._st[b.child]["leaves"],
-                b.matched,
-            )
-            return self._make_bound(b, inner, on=None)  # remapped inner emits exact child leaves
         inner = self._new_class_sampler(self.s.root)
         # Match on the bind's shared columns; the child's leaf weights (0 for excluded leaves, e.g.
         # perturbed cells in a control node) go in as the *secondary* class so only positive-weight
@@ -203,7 +138,7 @@ class DAGLoader:
     def _make_bound(
         self,
         b: Bind,
-        inner: ClassSampler | _RemappedScheduleInner,
+        inner: ClassSampler,
         *,
         on: dict[int, int] | None,
         classes: pd.Categorical | None = None,
@@ -212,7 +147,7 @@ class DAGLoader:
         cfg = self._cfg[b.child]
         try:
             return BoundClassSampler(
-                inner,  # type: ignore[arg-type]
+                inner,
                 cfg.chunk_size,
                 cfg.preload_nchunks,
                 cfg.batch_size,

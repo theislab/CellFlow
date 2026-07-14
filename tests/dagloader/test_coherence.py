@@ -2,9 +2,8 @@
 
 Each cell's ``(cell_line, drug, control)`` is encoded into ``X`` so every yielded row can be decoded and
 checked: the target batch is one perturbed condition, the ``condition`` vector matches that condition,
-and the source batch is control cells of the *matched* context (``common=`` → same cell line; ``matched=``
-→ the explicitly paired control leaf). This is what silently broke when dagloader's rng-wrapping
-scheduler met annbatch's refactored class draw.
+and the source batch is control cells of the *matched* context (``common=`` → same cell line). This is
+what silently broke when dagloader's rng-wrapping scheduler met annbatch's refactored class draw.
 """
 
 from __future__ import annotations
@@ -85,33 +84,6 @@ def test_common_bind_target_condition_and_context_coherent():
         # source batch is control cells of the SAME context (cell line)
         assert np.all(src[:, 2] == 1.0), "source must be control cells"
         assert len(np.unique(src[:, 0])) == 1 and src[0, 0] == tgt[0, 0], "source context ≠ target context"
-
-
-def test_matched_bind_reads_the_paired_control_leaf():
-    adata = _adata()
-    # deliberately swap: A-drugs pair with B's control, B-drugs with A's control — so a correct matched
-    # bind gives a source context OPPOSITE to the target's (proving it uses the pairing, not the context).
-    matched = {
-        ("A", "d1"): ("B", "control"),
-        ("A", "d2"): ("B", "control"),
-        ("A", "d3"): ("B", "control"),
-        ("B", "d1"): ("A", "control"),
-        ("B", "d2"): ("A", "control"),
-        ("B", "d3"): ("A", "control"),
-    }
-    loader = DAGLoader(
-        _scheme(adata, bind=Bind("pert", "ctrl", matched=matched)),
-        SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8),
-        condition_fn=_condition_fn,
-    )
-    it = iter(loader)
-    for _ in range(12):
-        batch = next(it)
-        tgt = np.asarray(batch["target"])
-        src = np.asarray(batch["source"])
-        assert np.all(src[:, 2] == 1.0), "source must be control cells"
-        # matched pairing sends the source to the OTHER cell line
-        assert src[0, 0] != tgt[0, 0], "matched bind did not read the paired (swapped) control leaf"
 
 
 def test_reps_are_aligned_same_cells():
