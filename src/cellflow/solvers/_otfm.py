@@ -294,66 +294,152 @@ class OTFlowMatching(BaseSolver):
 
         return vf
 
+    def _base_velocity_from_embedding(self) -> Callable:
+        """Velocity closure taking a *precomputed* condition embedding in ``args``.
+
+        ``args`` is ``(params, cond_embedding)``. Used on the predict path when no guidance is active, so
+        the condition encoder runs once (outside the ODE, in :meth:`_get_predict_fn`) rather than on
+        every integration step; the embedding is constant along the trajectory, so the result is
+        identical to :meth:`_base_velocity`.
+        """
+
+        def vf(t: jnp.ndarray, x: jnp.ndarray, args: tuple[Any, jnp.ndarray]) -> jnp.ndarray:
+            params, cond_embedding = args
+            return self.vf_state_inference.apply_fn(
+                {"params": params}, t, x, cond_embedding, train=False, method="velocity_from_embedding"
+            )
+
+        return vf
+
+    def _effective_guidance(self, guidance_scale: float, *, warn: bool) -> "Guidance | None":
+        """Resolve the guidance strategy for a predict call.
+
+        A per-call ``guidance_scale != 1.0`` builds a :class:`ClassifierFreeGuidance` (requires
+        :attr:`cfg_enabled`), overriding the construction-time :attr:`guidance`; ``1.0`` uses
+        :attr:`guidance` as-is. ``warn`` emits the "not trained for CFG" notice — set only where the fn is
+        actually built (on cache miss) so routing checks stay silent and it fires once, as before.
+        """
+        guidance_scale = float(guidance_scale)
+        if guidance_scale == 1.0:
+            return self.guidance
+        if self.cfg_enabled:
+            # v = v_null + scale·(v_cond − v_null); overrides construction-time guidance.
+            return ClassifierFreeGuidance(scale=guidance_scale)
+        if warn:
+            warnings.warn(
+                f"guidance_scale={guidance_scale} ignored: the velocity field was not trained "
+                "with classifier-free guidance (condition_dropout_prob == 0), so the "
+                "unconditional velocity is undefined. Using the plain conditional velocity.",
+                stacklevel=2,
+            )
+        return None
+
+    @staticmethod
+    def _frozen_predict_kwargs(kwargs: dict[str, Any]) -> frozen_dict.FrozenDict:
+        """Apply the diffrax defaults, then freeze — the frozen dict is the predict-fn cache key."""
+        kwargs.setdefault("dt0", None)
+        kwargs.setdefault("solver", diffrax.Tsit5())
+        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+        return frozen_dict.freeze(kwargs)
+
+    def _encoder_noise(self, rng: jax.Array | None, n: int = 1) -> jnp.ndarray:
+        """Latent noise for the condition encoder: zeros for the mean embedding, else one Gaussian draw."""
+        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
+        dim = (n, self.vf.condition_embedding_dim)
+        return jnp.zeros(dim) if use_mean else jax.random.normal(utils.default_prng_key(rng), dim)
+
+    def _encode_conditions(self, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray) -> jnp.ndarray:
+        """Run the condition encoder once → the (normed) per-condition embedding fed to the predict rhs."""
+        return self.vf_state_inference.apply_fn(
+            {"params": self.vf_state_inference.params},
+            condition,
+            encoder_noise,
+            train=False,
+            method="encode_condition",
+        )[0]
+
     def _get_predict_fn(self, kwargs_frozen: frozen_dict.FrozenDict) -> Callable:
-        """Build and cache a jit+vmap predict function for the given diffrax kwargs.
+        """Build and cache the ``jit(vmap)`` predict fn for the given diffrax kwargs.
 
-        The base velocity closure is produced by :meth:`_base_velocity` and, when
-        guidance applies, wrapped by it. Guidance comes from one of two places:
+        One cache (:attr:`_predict_fn_cache`) with two possible fn shapes. A solver's guidance state is
+        fixed and ``guidance_scale`` is part of the key, so each key maps to exactly one shape:
 
-        - a per-call ``guidance_scale`` passed to :meth:`predict` (not a diffrax
-          arg; popped here). When it is not ``1.0`` it builds a
-          :class:`ClassifierFreeGuidance` for this call, overriding the
-          construction-time ``guidance`` — this is the convenient scalar entry point
-          (e.g. sweeping ``w`` at validation). It requires :attr:`cfg_enabled`;
-          otherwise it is ignored (with a warning) and the conditional velocity is used.
-        - the construction-time ``guidance`` strategy, used when ``guidance_scale``
-          is ``1.0`` (the default). With ``guidance=None`` the closure is exactly the
-          base conditional velocity, so prediction is unchanged.
-
-        ``guidance_scale`` is part of ``kwargs_frozen`` (the cache key), so distinct
-        scales get distinct compiled fns. The returned function is created once per
-        unique set of kwargs, then reused on subsequent calls.
+        - **no guidance**: ``(params, x, cond_embedding)`` vmapped over cells with a precomputed *per-cell*
+          embedding (``in_axes=[None, 0, 0]``). The condition encoder runs once, outside the ODE; the same
+          fn serves both single-array and condition-batched prediction — the callers build the embedding
+          (broadcast for one condition, concatenated across conditions for a batch).
+        - **guidance**: ``(params, x, condition, encoder_noise)`` vmapped over cells; guidance wraps the
+          full velocity, which needs the encoder inside the ODE (conditional + null per step).
         """
         if kwargs_frozen in self._predict_fn_cache:
             return self._predict_fn_cache[kwargs_frozen]
 
         kwargs = dict(kwargs_frozen)
-        guidance_scale = float(kwargs.pop("guidance_scale", 1.0))
-        guidance = self.guidance
-        if guidance_scale != 1.0:
-            if self.cfg_enabled:
-                # v = v_null + scale·(v_cond − v_null); overrides construction-time guidance.
-                guidance = ClassifierFreeGuidance(scale=guidance_scale)
-            else:
-                warnings.warn(
-                    f"guidance_scale={guidance_scale} ignored: the velocity field was not trained "
-                    "with classifier-free guidance (condition_dropout_prob == 0), so the "
-                    "unconditional velocity is undefined. Using the plain conditional velocity.",
-                    stacklevel=2,
-                )
-                guidance = None
+        guidance = self._effective_guidance(kwargs.pop("guidance_scale", 1.0), warn=True)
 
-        vf = self._base_velocity()
-        if guidance is not None:
-            vf = guidance.wrap(vf)
+        if guidance is None:
+            vf = self._base_velocity_from_embedding()
 
-        def solve_ode(
-            params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
-        ) -> jnp.ndarray:
-            ode_term = diffrax.ODETerm(vf)
-            result = diffrax.diffeqsolve(
-                ode_term,
-                t0=0.0,
-                t1=1.0,
-                y0=x,
-                args=(params, condition, encoder_noise),
-                **kwargs,
-            )
-            return result.ys[0]
+            def solve_ode(params: Any, x: jnp.ndarray, cond_embedding: jnp.ndarray) -> jnp.ndarray:
+                return diffrax.diffeqsolve(
+                    diffrax.ODETerm(vf), t0=0.0, t1=1.0, y0=x, args=(params, cond_embedding), **kwargs
+                ).ys[0]
 
-        fn = jax.jit(jax.vmap(solve_ode, in_axes=[None, 0, None, None]))
+            fn = jax.jit(jax.vmap(solve_ode, in_axes=[None, 0, 0]))
+        else:
+            vf = guidance.wrap(self._base_velocity())
+
+            def solve_ode(
+                params: Any, x: jnp.ndarray, condition: dict[str, jnp.ndarray], encoder_noise: jnp.ndarray
+            ) -> jnp.ndarray:
+                return diffrax.diffeqsolve(
+                    diffrax.ODETerm(vf), t0=0.0, t1=1.0, y0=x, args=(params, condition, encoder_noise), **kwargs
+                ).ys[0]
+
+            fn = jax.jit(jax.vmap(solve_ode, in_axes=[None, 0, None, None]))
+
         self._predict_fn_cache[kwargs_frozen] = fn
         return fn
+
+    def _predict_batched(
+        self,
+        x: dict[str, ArrayLike],
+        condition: dict[str, dict[str, ArrayLike]],
+        rng: jax.Array | None = None,
+        **kwargs: Any,
+    ) -> dict[str, ArrayLike]:
+        """Predict every condition in one condition-batched ODE solve (no-guidance path).
+
+        Encodes each condition once, concatenates all conditions' source cells into a single batch (each
+        cell tagged with its condition's embedding), integrates them in one vmapped solve, then splits the
+        result back per condition. Differing per-condition cell counts are handled by concatenation (no
+        padding). Numerically identical to the per-condition loop: each cell's ODE is independent.
+        """
+        fn = self._get_predict_fn(self._frozen_predict_kwargs(dict(kwargs)))
+        keys = list(x)
+        # One encoder-noise draw shared across conditions (matches the per-condition loop under one rng).
+        encoder_noise = self._encoder_noise(rng)
+        groups = list(condition[keys[0]])
+        cond_stacked = {g: jnp.concatenate([jnp.asarray(condition[k][g]) for k in keys], axis=0) for g in groups}
+        cond_embedding = self._encode_conditions(cond_stacked, encoder_noise)  # (n_conditions, embedding_dim)
+
+        sizes = [int(jnp.asarray(x[k]).shape[0]) for k in keys]
+        x_flat = jnp.concatenate([jnp.asarray(x[k]) for k in keys], axis=0)
+        emb_flat = jnp.concatenate(
+            [
+                jnp.broadcast_to(cond_embedding[i : i + 1], (sizes[i], cond_embedding.shape[-1]))
+                for i in range(len(keys))
+            ],
+            axis=0,
+        )
+        out_flat = fn(self.vf_state_inference.params, x_flat, emb_flat)
+
+        out: dict[str, ArrayLike] = {}
+        offset = 0
+        for k, n in zip(keys, sizes, strict=True):
+            out[k] = out_flat[offset : offset + n]
+            offset += n
+        return out
 
     def _predict_jit(
         self,
@@ -362,19 +448,17 @@ class OTFlowMatching(BaseSolver):
         rng: jax.Array | None = None,
         **kwargs: Any,
     ) -> ArrayLike:
-        """See :meth:`OTFlowMatching.predict`."""
-        kwargs.setdefault("dt0", None)
-        kwargs.setdefault("solver", diffrax.Tsit5())
-        kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
-        kwargs_frozen = frozen_dict.freeze(kwargs)
-
-        noise_dim = (1, self.vf.condition_embedding_dim)
-        use_mean = rng is None or self.condition_encoder_mode == "deterministic"
-        rng = utils.default_prng_key(rng)
-        encoder_noise = jnp.zeros(noise_dim) if use_mean else jax.random.normal(rng, noise_dim)
-
-        predict_fn = self._get_predict_fn(kwargs_frozen)
-        return predict_fn(self.vf_state_inference.params, x, condition, encoder_noise)
+        """Predict a single array of source cells ``x`` under one ``condition``. See :meth:`predict`."""
+        fn = self._get_predict_fn(self._frozen_predict_kwargs(dict(kwargs)))
+        params = self.vf_state_inference.params
+        encoder_noise = self._encoder_noise(rng)
+        if self._effective_guidance(kwargs.get("guidance_scale", 1.0), warn=False) is None:
+            # No guidance: encode once and broadcast the single embedding across the source cells, then
+            # run the same per-cell fn the condition-batched path uses.
+            emb = self._encode_conditions(condition, encoder_noise)  # (1, embedding_dim)
+            emb = jnp.broadcast_to(emb, (jnp.asarray(x).shape[0], emb.shape[-1]))
+            return fn(params, x, emb)
+        return fn(params, x, condition, encoder_noise)
 
     def predict(
         self,
@@ -424,7 +508,13 @@ class OTFlowMatching(BaseSolver):
             return {}
 
         if isinstance(x, dict):
-            jax_results = {k: self._predict_jit(x[k], condition[k], rng, **kwargs) for k in x}
+            # No guidance: batch every condition into one condition-batched solve. Guidance stays on the
+            # per-condition loop since it needs the conditional + null embeddings inside the ODE. Same
+            # result either way. (Routing resolution is silent; the warning fires once when the fn builds.)
+            if self._effective_guidance(kwargs.get("guidance_scale", 1.0), warn=False) is None:
+                jax_results = self._predict_batched(x, condition, rng, **kwargs)
+            else:
+                jax_results = {k: self._predict_jit(x[k], condition[k], rng, **kwargs) for k in x}
             return {k: np.array(v) for k, v in jax_results.items()}
         else:
             x_pred = self._predict_jit(x, condition, rng, **kwargs)
