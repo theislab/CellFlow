@@ -37,7 +37,7 @@ def _adata(*, rep_dim=None, x_dim=5, n_per_combo=8, drugs=("control", "d1", "d2"
 
 
 def _prepare(cf, source, *, sample_rep="X", **kwargs):
-    cf.prepare_loaders(
+    cf.prepare_data(
         source=source,
         sample_rep=sample_rep,
         control_key="control",
@@ -51,7 +51,7 @@ def _prepare(cf, source, *, sample_rep="X", **kwargs):
 class TestAnnbatchValidation:
     def test_prepare_validation_without_setup_raises(self):
         cf = cellflow.model.CellFlowAnnbatch()
-        with pytest.raises(ValueError, match="prepare_loaders"):
+        with pytest.raises(ValueError, match="prepare_data"):
             cf.prepare_validation_data(source=_adata(), name="val")
 
     def test_validation_sampler_reads_matched_source_and_target(self):

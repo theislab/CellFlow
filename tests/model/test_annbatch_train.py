@@ -37,7 +37,7 @@ def _prepare_model_small(cf):
 class TestAnnbatchTraining:
     def test_train_runs_without_split(self):
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_loaders(
+        cf.prepare_data(
             source=_toy_adata(),
             sample_rep="X",
             control_key="control",
@@ -52,7 +52,7 @@ class TestAnnbatchTraining:
 
     def test_train_runs_on_train_split(self):
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_loaders(
+        cf.prepare_data(
             source=_toy_adata(),
             sample_rep="X",
             control_key="control",

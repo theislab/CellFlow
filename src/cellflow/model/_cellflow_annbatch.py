@@ -1,5 +1,8 @@
-"""Streaming (annbatch/dagloader) CellFlow: the default path — trains, validates and predicts over
-an out-of-core :class:`~annbatch.DatasetCollection` or an in-memory ``AnnData`` alike."""
+"""Streaming (annbatch/dagloader) CellFlow: the default path.
+
+Trains, validates and predicts over an out-of-core :class:`~annbatch.DatasetCollection` or an
+in-memory ``AnnData`` alike.
+"""
 
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal
@@ -25,7 +28,7 @@ class CellFlowAnnbatch(BaseCellFlow):
     """CellFlow over the annbatch/dagloader streaming path (cells sourced out-of-core or in-memory).
 
     Cells are streamed from an :class:`~annbatch.DatasetCollection` (out-of-core) or an in-memory
-    ``AnnData`` via :meth:`prepare_loaders`; validation and prediction read each condition's full cell
+    ``AnnData`` via :meth:`prepare_data`; validation and prediction read each condition's full cell
     set through :class:`~dagloader.DAGEvalLoader` (no boolean masking). Model setup, training, prediction
     and IO are inherited from :class:`~cellflow.model._base.BaseCellFlow`.
     """
@@ -40,12 +43,12 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._annbatch_loaders: dict[str, DAGLoader] | None = None
         self._condition_data: dict[str, np.ndarray] | None = None  # condition embeddings
         self._max_combination_length: int | None = None
-        self._condition_fn = None  # leaf -> embedding (set by `prepare_loaders`)
+        self._condition_fn = None  # leaf -> embedding (set by `prepare_data`)
         self._prep_kwargs: dict[str, Any] | None = None  # covariate spec, reused for validation sources
         self._seed: int = 0
         self._split_eval_loaders: dict[str, DAGEvalLoader] = {}
 
-    def prepare_loaders(
+    def prepare_data(
         self,
         source: "ad.AnnData | DatasetCollection",
         sample_rep: str,
@@ -145,21 +148,21 @@ class CellFlowAnnbatch(BaseCellFlow):
         # kept so `prepare_validation_data` / the auto-wired split loaders can build DAGEvalLoaders.
         self._condition_fn = condition_fn
         self._seed = seed
-        self._prep_kwargs = dict(
-            sample_rep=sample_rep,
-            control_key=control_key,
-            perturbation_covariates=perturbation_covariates,
-            perturbation_covariate_reps=perturbation_covariate_reps,
-            sample_covariates=sample_covariates,
-            sample_covariate_reps=sample_covariate_reps,
-            split_covariates=split_covariates,
-            max_combination_length=max_combination_length,
-            null_value=null_value,
-            rep_dict=rep_dict,
-            seed=seed,
-        )
+        self._prep_kwargs = {
+            "sample_rep": sample_rep,
+            "control_key": control_key,
+            "perturbation_covariates": perturbation_covariates,
+            "perturbation_covariate_reps": perturbation_covariate_reps,
+            "sample_covariates": sample_covariates,
+            "sample_covariate_reps": sample_covariate_reps,
+            "split_covariates": split_covariates,
+            "max_combination_length": max_combination_length,
+            "null_value": null_value,
+            "rep_dict": rep_dict,
+            "seed": seed,
+        }
 
-        # Splitting step — kept in `prepare_loaders` so preparing and splitting are one call.
+        # Splitting step — kept in `prepare_data` so preparing and splitting are one call.
         if split_by is not None:
             self._split_assignment = self.split_annbatch_data(
                 split_by=split_by,
@@ -217,7 +220,7 @@ class CellFlowAnnbatch(BaseCellFlow):
     ) -> pd.DataFrame:
         """Partition the prepared annbatch ``Scheme``'s target combinations into named splits.
 
-        Call after :meth:`prepare_loaders`. Splits hold out whole *combinations* of ``split_by``
+        Call after :meth:`prepare_data`. Splits hold out whole *combinations* of ``split_by``
         (a subset of the perturbation / split-covariate columns), not cells; controls are carried through
         every split. See :func:`dagloader.split_scheme` for the mechanics.
 
@@ -244,7 +247,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         if self._scheme is None:
             raise ValueError(
-                "No annbatch `Scheme` to split. Call `prepare_loaders(...)` first "
+                "No annbatch `Scheme` to split. Call `prepare_data(...)` first "
                 "(the out-of-core streaming path)."
             )
         self._split_schemes = split_scheme(
@@ -254,7 +257,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             force_training_values=force_training_values,
             random_state=random_state,
         )
-        # `prepare_loaders` turns these split Schemes into per-split DAGLoaders (train feeds
+        # `prepare_data` turns these split Schemes into per-split DAGLoaders (train feeds
         # `train()`; val/test are kept on `_annbatch_loaders`); here we only produce the schemes + table.
         return split_assignment(self._split_schemes)
 
@@ -269,7 +272,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         """Register a validation set read via :class:`~dagloader.DAGEvalLoader` (no boolean masking).
 
         The ``source`` (an :class:`~anndata.AnnData` or an :class:`~annbatch.DatasetCollection`) is
-        grouped by the same covariate spec passed to :meth:`prepare_loaders`; each of its conditions is
+        grouped by the same covariate spec passed to :meth:`prepare_data`; each of its conditions is
         read in full (all its cells + all matched controls) at validation time. Overrides any same-named
         auto-wired split loader. Preserves the legacy per-condition metric semantics.
 
@@ -285,7 +288,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             Keyword arguments for the solver's ``predict`` used during validation.
         """
         if self._scheme is None or self._prep_kwargs is None:
-            raise ValueError("Set up training first via `prepare_loaders(...)` before preparing validation data.")
+            raise ValueError("Set up training first via `prepare_data(...)` before preparing validation data.")
 
         from cellflow.data._annbatch import build_annbatch_training
         from dagloader import DAGEvalLoader
@@ -311,11 +314,11 @@ class CellFlowAnnbatch(BaseCellFlow):
     # ── path-specific hook implementations ───────────────────────────────────────────────────────
     def _encoder_conditions(self) -> tuple[dict[str, np.ndarray], int]:
         if self._condition_data is None or self._max_combination_length is None:
-            raise ValueError("Data not initialized. Please call `prepare_loaders(...)` first.")
+            raise ValueError("Data not initialized. Please call `prepare_data(...)` first.")
         return self._condition_data, self._max_combination_length
 
     def _bind_train_dataloader(self, batch_size: int, out_of_core_dataloading: bool) -> None:
-        # the streaming `_dataloader` (DAGLoaderAdapter) was already set in `prepare_loaders`.
+        # the streaming `_dataloader` (DAGLoaderAdapter) was already set in `prepare_data`.
         return None
 
     def _build_validation_loaders(self) -> dict[str, Any]:

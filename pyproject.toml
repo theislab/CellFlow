@@ -51,6 +51,10 @@ optional-dependencies.annbatch = [
   # Pinned to the branch adding `SequentialClassSampler` (streaming eval path); revert to a released
   # `annbatch>=0.2.x` once it lands upstream. Direct URL so pip/uv/tox all resolve the branch.
   "annbatch @ git+https://github.com/selmanozleyen/annbatch.git@feat/bound-class-wip",
+  # Rust-backed zarr v3 codec pipeline. Always installed with the streaming path: without it, zarr
+  # decode runs on a single GIL-bound Python thread (profiled bottleneck when building/reading large
+  # sparse Tahoe zarrs); `zarrs` decodes multithreaded in Rust and actually uses the allocated cores.
+  "zarrs",
 ]
 optional-dependencies.dev = [
   "furo",
@@ -118,6 +122,11 @@ packages = [ 'src/cellflow', 'src/dagloader' ]
 [tool.hatch.version]
 source = "vcs"
 fallback-version = "0.1.0"
+
+[tool.hatch.metadata]
+# the `annbatch` extra pins the fork by git URL (a direct reference); hatchling rejects
+# direct references in metadata unless this is set. Drop once annbatch lands upstream.
+allow-direct-references = true
 
 [tool.ruff]
 line-length = 120

@@ -5,7 +5,7 @@ import functools
 import os
 import types
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import field as dc_field
 from typing import Any, Literal
 
@@ -344,7 +344,7 @@ class BaseCellFlow(abc.ABC):
         - :attr:`cellflow.model.CellFlow.solver` - the trained solver.
         """
         if self._dm is None:
-            raise ValueError("Data not initialized. Please call `prepare_data` or `prepare_loaders` first.")
+            raise ValueError("Data not initialized. Please call `prepare_data` first.")
 
         if self.trainer is None:
             raise ValueError("Model not initialized. Please call `prepare_model` first.")
@@ -582,7 +582,7 @@ class BaseCellFlow(abc.ABC):
     def load(
         cls,
         filename: str,
-    ) -> "CellFlow":
+    ) -> "BaseCellFlow":
         """
         Load a :class:`~cellflow.model.CellFlow` model from a saved instance.
 

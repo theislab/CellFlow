@@ -61,7 +61,7 @@ def _prepare_model_small(cf):
 class TestOutOfCore:
     def test_grouped_collection_chunked_trains(self, tmp_path):
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_loaders(
+        cf.prepare_data(
             source=_collection(tmp_path, grouped=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
             **_PREP,
@@ -74,7 +74,7 @@ class TestOutOfCore:
     def test_ungrouped_collection_chunked_raises(self, tmp_path):
         cf = cellflow.model.CellFlowAnnbatch()
         with pytest.raises(ValueError, match="grouped|groupby"):
-            cf.prepare_loaders(
+            cf.prepare_data(
                 source=_collection(tmp_path, grouped=False),
                 sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
                 **_PREP,
@@ -83,7 +83,7 @@ class TestOutOfCore:
     def test_ungrouped_collection_chunk1_ok(self, tmp_path):
         # chunk_size=1 streams per-row → no grouping needed even for an interleaved collection
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_loaders(
+        cf.prepare_data(
             source=_collection(tmp_path, grouped=False),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=1, preload_nchunks=16),
             **_PREP,
@@ -92,7 +92,7 @@ class TestOutOfCore:
 
     def test_grouped_collection_split_chunked(self, tmp_path):
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_loaders(
+        cf.prepare_data(
             source=_collection(tmp_path, grouped=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
             split_by=["drug"],
@@ -104,7 +104,7 @@ class TestOutOfCore:
     def test_in_memory_unsorted_source_is_auto_grouped(self):
         # an in-memory (interleaved) AnnData source is grouped automatically → chunk_size>1 works
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_loaders(
+        cf.prepare_data(
             source=_adata(interleaved=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
             **_PREP,
@@ -133,7 +133,7 @@ class TestOutOfCore:
         assert n_runs > 6, f"expected a fragmented collection (>6 runs for 6 categories), got {n_runs}"
 
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_loaders(  # chunk_size=4 <= run length 10 → must be accepted
+        cf.prepare_data(  # chunk_size=4 <= run length 10 → must be accepted
             source=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP
         )
         assert cf._dataloader.sample()["tgt_cell_data"].shape == (8, 5)
