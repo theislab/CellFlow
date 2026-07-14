@@ -303,7 +303,30 @@ class ConditionalVelocityField(nn.Module):
         train: bool = True,
         force_uncond: bool = False,
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        squeeze = x_t.ndim == 1
+        # Split into "encode the condition" and "velocity given the embedding" so the predict path can
+        # encode once and reuse the embedding across every ODE step (the condition is constant along the
+        # trajectory). `__call__` composes them, so the training path and any single-shot call are
+        # unchanged — see `encode_condition` / `velocity_from_embedding`.
+        cond_embedding, cond_mean, cond_logvar = self.encode_condition(
+            cond, encoder_noise, train=train, force_uncond=force_uncond
+        )
+        out = self.velocity_from_embedding(t, x_t, cond_embedding, train=train)
+        return out, cond_mean, cond_logvar
+
+    def encode_condition(
+        self,
+        cond: dict[str, jnp.ndarray],
+        encoder_noise: jnp.ndarray,
+        train: bool = True,
+        force_uncond: bool = False,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Encode the condition into its (pre-concatenation) embedding and raw Gaussian parameters.
+
+        The Gaussian parameters (mean, log-variance) feed the stochastic-encoder regularization.
+        This is the part of the forward pass that only depends on ``cond`` (not on ``t`` or ``x``), so
+        the predict path evaluates it once per condition and passes the result to
+        :meth:`velocity_from_embedding` at every ODE step.
+        """
         if self.condition_null == "mask_value":
             cond = self._maybe_null_input(cond, train=train, force_uncond=force_uncond)
         cond_mean, cond_logvar = self.condition_encoder(cond, training=train)
@@ -315,22 +338,35 @@ class ConditionalVelocityField(nn.Module):
         cond_embedding = self.layer_cond_output_dropout(cond_embedding, deterministic=not train)
         if self.condition_null == "zero_embedding":
             cond_embedding = self._maybe_null_embedding(cond_embedding, train=train, force_uncond=force_uncond)
+        cond_embedding = self.layer_norm_condition(cond_embedding)
+        return cond_embedding, cond_mean, cond_logvar
 
+    def velocity_from_embedding(
+        self,
+        t: jnp.ndarray,
+        x_t: jnp.ndarray,
+        cond_embedding: jnp.ndarray,
+        train: bool = True,
+    ) -> jnp.ndarray:
+        """Velocity for ``x_t`` at time ``t`` given an already-encoded (and normed) ``cond_embedding``.
+
+        This is the ODE right-hand side; it contains no condition-encoder work, so integrating with a
+        precomputed embedding avoids re-encoding the condition on every step.
+        """
+        squeeze = x_t.ndim == 1
         t_encoded = sinusoidal_time_encoder(t, time_freqs=self.time_freqs, time_max_period=self.time_max_period)
         t_encoded = self.time_encoder(t_encoded, training=train)
         x_encoded = self._encode_x(x_t, squeeze, train)
 
         t_encoded = self.layer_norm_time(t_encoded)
         x_encoded = self.layer_norm_x(x_encoded)
-        cond_embedding = self.layer_norm_condition(cond_embedding)
 
         if squeeze:
             cond_embedding = jnp.squeeze(cond_embedding)  # , 0)
         elif cond_embedding.shape[0] != x_t.shape[0]:  # type: ignore[attr-defined]
             cond_embedding = jnp.tile(cond_embedding, (x_t.shape[0], 1))
 
-        out = self._combine_and_decode(t_encoded, x_encoded, cond_embedding, squeeze, train)
-        return out, cond_mean, cond_logvar
+        return self._combine_and_decode(t_encoded, x_encoded, cond_embedding, squeeze, train)
 
     def _encode_x(self, x_t: jnp.ndarray, squeeze: bool, train: bool) -> jnp.ndarray:
         """Encode ``x_t`` before conditioning. Override to insert pre-conditioning processing."""
