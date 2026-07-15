@@ -10,6 +10,7 @@ embeddings reuse the in-memory machinery — a cell-free ``AnnData`` shell (``ob
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -52,7 +53,7 @@ class AnnbatchTraining:
 
 
 def build_annbatch_training(
-    source: Container,
+    data: Container | str | os.PathLike | Sequence[str | os.PathLike | ad.AnnData],
     *,
     sample_rep: str,
     control_key: str,
@@ -71,7 +72,8 @@ def build_annbatch_training(
 ) -> AnnbatchTraining:
     """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).
 
-    ``source`` is an out-of-core :class:`annbatch.DatasetCollection` or an in-memory ``AnnData``.
+    ``data`` is an out-of-core :class:`annbatch.DatasetCollection`, an in-memory ``AnnData``, an adata
+    zarr path, or a list of adata zarr paths (paths are resolved via :func:`~dagloader._io.open_source`).
     ``rep_dict`` holds the covariate embedding tables (as ``adata.uns`` would); pass :obj:`None` when the
     primary covariate is categorical (one-hot).
 
@@ -98,7 +100,7 @@ def build_annbatch_training(
     are ``uniform`` — byte-identical to before.
     """
     from dagloader import Bind, Node, Scheme, uniform
-    from dagloader._io import key_backings, obs_columns
+    from dagloader._io import key_backings, obs_columns, open_source
 
     context = tuple(split_covariates or ())
     pert_cols = tuple(c for grp in perturbation_covariates.values() for c in grp)
@@ -106,16 +108,23 @@ def build_annbatch_training(
     cols = tuple(dict.fromkeys((*context, *pert_cols, *samp_cols)))  # grouping cols (deduped, ordered)
     key = sample_rep_to_key(sample_rep)
 
-    obs = obs_columns(source, [*cols, control_key])
+    # Accept a zarr path / list of adata zarr paths too: resolve to a Container (reads only `key` + the
+    # grouping obs). Path-backed data is out-of-core, so — like a DatasetCollection — it is never
+    # reordered here; only a user-supplied in-memory AnnData is stable-sorted below.
+    from_path = isinstance(data, (str, os.PathLike, list, tuple))
+    if from_path:
+        data = open_source(data, keys=[key], cols=[*cols, control_key])
 
-    # In-memory source: stable-sort by the grouping columns so `chunk_size > 1` reads contiguous slices
-    # (cheap, and cell order is irrelevant). Out-of-core sources aren't reordered (expensive zarr re-sort) —
-    # they must be built grouped; the run-length filter below drops short-run perturbed conditions and
+    obs = obs_columns(data, [*cols, control_key])
+
+    # In-memory data: stable-sort by the grouping columns so `chunk_size > 1` reads contiguous slices
+    # (cheap, and cell order is irrelevant). Out-of-core data isn't reordered (expensive zarr re-sort) —
+    # it must be built grouped; the run-length filter below drops short-run perturbed conditions and
     # annbatch validates the rest (and the controls) when it builds its samplers.
-    if isinstance(source, ad.AnnData):
+    if isinstance(data, ad.AnnData) and not from_path:
         order = obs[list(cols)].reset_index(drop=True).sort_values(list(cols), kind="stable").index.to_numpy()
-        source = source[order].copy()
-        obs = obs_columns(source, [*cols, control_key])
+        data = data[order].copy()
+        obs = obs_columns(data, [*cols, control_key])
 
     # The encoder and the scheme leaves depend only on the UNIQUE (grouping-cols, control) combinations —
     # a few ×10^4 rows — not on the ~10^8 cells. So deduplicate ONCE here and drive the whole encoder
@@ -223,7 +232,7 @@ def build_annbatch_training(
                 f"dropped every perturbed condition: none has >= min_cells_per_condition="
                 f"{min_cells_per_condition} total cells (largest {largest}) and a contiguous run >= "
                 f"chunk_size={chunk_size} (longest run {longest}). Lower the thresholds, use chunk_size=1, or "
-                f"group the source so each condition forms runs >= chunk_size (e.g. `add_adatas(groupby=...)`)."
+                f"group the data so each condition forms runs >= chunk_size (e.g. `add_adatas(groupby=...)`)."
             )
         if n_kept < len(pert):
             dropped = sum(stat.get(tuple(map(str, lf)), (0, 0))[0] for lf, w in pert_weights.items() if w == 0)
@@ -241,7 +250,7 @@ def build_annbatch_training(
     # perturbed target keeps streaming out of core. dagloader owns the materialization (Node.in_memory);
     # the bind still matches control↔target by the context columns.
     scheme = Scheme(
-        sources={"data": source},
+        sources={"data": data},
         nodes={
             "pert": Node("data", cols, key, pert_weights),
             "ctrl": Node("data", cols, key, uniform(ctrl), in_memory=control_in_memory),
@@ -251,7 +260,7 @@ def build_annbatch_training(
         seed=seed,
     )
 
-    data_dim = int(key_backings(source, key)[0].shape[1])  # key_backings wraps sparse groups → has .shape
+    data_dim = int(key_backings(data, key)[0].shape[1])  # key_backings wraps sparse groups → has .shape
     return AnnbatchTraining(
         scheme=scheme,
         condition_fn=condition_fn,

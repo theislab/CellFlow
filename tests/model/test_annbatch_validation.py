@@ -38,7 +38,7 @@ def _adata(*, rep_dim=None, x_dim=5, n_per_combo=8, drugs=("control", "d1", "d2"
 
 def _prepare(cf, source, *, sample_rep="X", **kwargs):
     cf.prepare_data(
-        source=source,
+        data=source,
         sample_rep=sample_rep,
         control_key="control",
         perturbation_covariates={"drug": ["drug"]},
@@ -52,12 +52,12 @@ class TestAnnbatchValidation:
     def test_prepare_validation_without_setup_raises(self):
         cf = cellflow.model.CellFlowAnnbatch()
         with pytest.raises(ValueError, match="prepare_data"):
-            cf.prepare_validation_data(source=_adata(), name="val")
+            cf.prepare_validation_data(data=_adata(), name="val")
 
     def test_validation_sampler_reads_matched_source_and_target(self):
         cf = cellflow.model.CellFlowAnnbatch()
         _prepare(cf, _adata())  # sample_rep="X"
-        cf.prepare_validation_data(source=_adata(seed=1), name="val")
+        cf.prepare_validation_data(data=_adata(seed=1), name="val")
         vs = cf.validation_data["val"]
         assert isinstance(vs, DAGEvalAdapter)
         batch = vs.sample("on_train_end")
@@ -74,7 +74,7 @@ class TestAnnbatchValidation:
         cf = cellflow.model.CellFlowAnnbatch()
         _prepare(cf, _adata(rep_dim=3), sample_rep="X_pca")
         assert cf._data_dim == 3
-        cf.prepare_validation_data(source=_adata(rep_dim=3, seed=2), name="val")
+        cf.prepare_validation_data(data=_adata(rep_dim=3, seed=2), name="val")
         batch = cf.validation_data["val"].sample("on_train_end")
         for k in batch["target"]:
             assert np.asarray(batch["target"][k]).shape[1] == 3
@@ -96,7 +96,7 @@ class TestAnnbatchValidation:
     def test_train_with_validation_runs(self):
         cf = cellflow.model.CellFlowAnnbatch()
         _prepare(cf, _adata())
-        cf.prepare_validation_data(source=_adata(seed=3), name="val")
+        cf.prepare_validation_data(data=_adata(seed=3), name="val")
         cf.prepare_model(
             pooling="mean", condition_embedding_dim=8, time_encoder_dims=(8,), hidden_dims=(8,), decoder_dims=(8,)
         )

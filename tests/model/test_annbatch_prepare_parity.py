@@ -39,7 +39,7 @@ def _grouping_cols(pert_covars, split_covars, samp_covars):
 
 def _build(adata, pert_covars, pert_reps, split_covars, samp_covars, samp_reps):
     return build_annbatch_training(
-        source=adata,
+        data=adata,
         sample_rep="X",
         control_key="control",
         perturbation_covariates=pert_covars,
@@ -137,7 +137,7 @@ def test_tahoe_shaped_object_drug_parity(pert_reps):
         drugs = list(pd.unique(adata.obs["drug"]))
         adata.uns["drug_emb"] = {d: np.random.default_rng(1).normal(size=6).astype("float32") for d in drugs}
     built = build_annbatch_training(
-        source=adata,
+        data=adata,
         sample_rep="X",
         control_key="control",
         perturbation_covariates={"drug": ["drug"]},

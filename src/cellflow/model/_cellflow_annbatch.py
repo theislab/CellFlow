@@ -4,6 +4,9 @@ Trains, validates and predicts over an out-of-core :class:`~annbatch.DatasetColl
 in-memory ``AnnData`` alike.
 """
 
+from __future__ import annotations
+
+import os
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -19,6 +22,10 @@ if TYPE_CHECKING:
     from annbatch import DatasetCollection  # optional dep — only imported for typing
 
     from dagloader import DAGEvalLoader, SamplerConfig, Scheme  # optional deps — typing only
+
+    # accepted `data` inputs: an in-memory ``AnnData`` / out-of-core ``DatasetCollection``, an adata zarr
+    # path, or a list of adata zarr paths (paths resolved via ``dagloader``'s ``open_source``).
+    DataInput = ad.AnnData | DatasetCollection | str | os.PathLike | Sequence[str | os.PathLike | ad.AnnData]
 
 __all__ = ["CellFlowAnnbatch"]
 
@@ -48,7 +55,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
     def prepare_data(
         self,
-        source: "ad.AnnData | DatasetCollection",
+        data: DataInput,
         sample_rep: str,
         control_key: str,
         perturbation_covariates: dict[str, Sequence[str]],
@@ -59,7 +66,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         max_combination_length: int | None = None,
         null_value: float = 0.0,
         rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
-        sampler_config: "SamplerConfig | Mapping[str, SamplerConfig] | None" = None,
+        sampler_config: SamplerConfig | Mapping[str, SamplerConfig] | None = None,
         seed: int = 0,
         control_in_memory: bool = True,
         min_cells_per_condition: int = 0,
@@ -79,10 +86,11 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         Parameters
         ----------
-        source
-            An out-of-core :class:`annbatch.DatasetCollection` to stream cells from (an in-memory
-            ``AnnData`` also works — the ``dagloader`` is container-agnostic). Its ``obs`` supplies the
-            grouping / condition columns; ``sample_rep`` selects the streamed representation.
+        data
+            The cells to stream: an out-of-core :class:`annbatch.DatasetCollection`, an in-memory
+            ``AnnData`` (the ``dagloader`` is container-agnostic), an adata zarr path, or a list of adata
+            zarr paths. Its ``obs`` supplies the grouping / condition columns; ``sample_rep`` selects the
+            streamed representation.
         rep_dict
             The covariate embedding tables that ``adata.uns`` would hold in the in-memory path (keys
             match the values of ``perturbation_covariate_reps`` / ``sample_covariate_reps``). Required
@@ -144,7 +152,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         # Build the Scheme + condition_fn + condition embeddings from the covariate spec (obs only).
         built = build_annbatch_training(
-            source,
+            data,
             sample_rep=sample_rep,
             control_key=control_key,
             perturbation_covariates=perturbation_covariates,
@@ -280,7 +288,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
     def prepare_validation_data(
         self,
-        source: "ad.AnnData | DatasetCollection",
+        data: DataInput,
         name: str,
         n_conditions_on_log_iteration: int | None = None,
         n_conditions_on_train_end: int | None = None,
@@ -288,15 +296,16 @@ class CellFlowAnnbatch(BaseCellFlow):
     ) -> None:
         """Register a validation set read via :class:`~dagloader.DAGEvalLoader` (no boolean masking).
 
-        The ``source`` (an :class:`~anndata.AnnData` or an :class:`~annbatch.DatasetCollection`) is
-        grouped by the same covariate spec passed to :meth:`prepare_data`; each of its conditions is
-        read in full (all its cells + all matched controls) at validation time. Overrides any same-named
-        auto-wired split loader. Preserves the legacy per-condition metric semantics.
+        The ``data`` (an :class:`~anndata.AnnData`, an :class:`~annbatch.DatasetCollection`, an adata zarr
+        path, or a list of adata zarr paths) is grouped by the same covariate spec passed to
+        :meth:`prepare_data`; each of its conditions is read in full (all its cells + all matched controls)
+        at validation time. Overrides any same-named auto-wired split loader. Preserves the legacy
+        per-condition metric semantics.
 
         Parameters
         ----------
-        source
-            The held-out validation source (out-of-core or in-memory).
+        data
+            The held-out validation cells (out-of-core, in-memory, or an adata zarr path / list of paths).
         name
             Key under which the validation set is stored in :attr:`validation_data`.
         n_conditions_on_log_iteration, n_conditions_on_train_end
@@ -310,7 +319,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         from cellflow.data._annbatch import build_annbatch_training
         from dagloader import DAGEvalLoader
 
-        built = build_annbatch_training(source, **self._prep_kwargs)
+        built = build_annbatch_training(data, **self._prep_kwargs)
         eval_loader = DAGEvalLoader(built.scheme, self._eval_cfg, built.condition_fn, seed=self._seed)
         self._validation_data[name] = DAGEvalAdapter(
             eval_loader,
@@ -324,11 +333,11 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._validation_data["predict_kwargs"] = predict_kwargs
 
     @property
-    def split_eval_loaders(self) -> dict[str, "DAGEvalLoader"]:
+    def split_eval_loaders(self) -> dict[str, DAGEvalLoader]:
         """Per-split :class:`~dagloader.DAGEvalLoader` objects for non-train splits (e.g. ``val``, ``test``)."""
         return self._split_eval_loaders
 
-    # ── path-specific hook implementations ───────────────────────────────────────────────────────
+    # ── path-specific hook implementations
     def _encoder_conditions(self) -> tuple[dict[str, np.ndarray], int]:
         if self._condition_data is None or self._max_combination_length is None:
             raise ValueError("Data not initialized. Please call `prepare_data(...)` first.")

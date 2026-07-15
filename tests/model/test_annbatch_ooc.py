@@ -62,7 +62,7 @@ class TestOutOfCore:
     def test_grouped_collection_chunked_trains(self, tmp_path):
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_collection(tmp_path, grouped=True),
+            data=_collection(tmp_path, grouped=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
             **_PREP,
         )
@@ -76,7 +76,7 @@ class TestOutOfCore:
         cf = cellflow.model.CellFlowAnnbatch()
         with pytest.raises(ValueError, match="chunk_size|[Rr]e-chunk|run"):
             cf.prepare_data(
-                source=_collection(tmp_path, grouped=False),
+                data=_collection(tmp_path, grouped=False),
                 sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
                 **_PREP,
             )
@@ -85,7 +85,7 @@ class TestOutOfCore:
         # chunk_size=1 streams per-row → no grouping needed even for an interleaved collection
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_collection(tmp_path, grouped=False),
+            data=_collection(tmp_path, grouped=False),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=1, preload_nchunks=16),
             **_PREP,
         )
@@ -94,7 +94,7 @@ class TestOutOfCore:
     def test_grouped_collection_split_chunked(self, tmp_path):
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_collection(tmp_path, grouped=True),
+            data=_collection(tmp_path, grouped=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
             split_by=["drug"],
             split_ratios={"train": 0.5, "val": 0.25, "test": 0.25},
@@ -106,7 +106,7 @@ class TestOutOfCore:
         # an in-memory (interleaved) AnnData source is grouped automatically → chunk_size>1 works
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_adata(interleaved=True),
+            data=_adata(interleaved=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
             **_PREP,
         )
@@ -135,7 +135,7 @@ class TestOutOfCore:
 
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(  # chunk_size=4 <= run length 10 → must be accepted
-            source=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP
+            data=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP
         )
         assert cf._dataloader.sample()["tgt_cell_data"].shape == (8, 5)
 
@@ -145,7 +145,7 @@ class TestOutOfCore:
         # Construction (which runs add_datasets) is the assertion here; reading sparse batches needs cupy.
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_collection(tmp_path, grouped=True, sparse=True),
+            data=_collection(tmp_path, grouped=True, sparse=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=1, preload_nchunks=16),
             **_PREP,
         )
@@ -156,7 +156,7 @@ class TestOutOfCore:
         # prepare_data building the loader runs materialize_node over the (sparse) collection.
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_collection(tmp_path, grouped=True, sparse=True),
+            data=_collection(tmp_path, grouped=True, sparse=True),
             sampler_config=SamplerConfig(batch_size=16, chunk_size=1, preload_nchunks=16),
             control_in_memory=True,
             **_PREP,
@@ -180,7 +180,7 @@ class TestOutOfCore:
         dc = DatasetCollection(str(tmp_path / "sc.zarr"), mode="a").add_adatas([str(tmp_path / "s.h5ad")], shuffle=False)
 
         cf = cellflow.model.CellFlowAnnbatch()
-        cf.prepare_data(source=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP)
+        cf.prepare_data(data=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP)
         pos = {leaf[1] for leaf, w in cf._scheme.nodes["pert"].weights.items() if w > 0}
         assert pos == {"d1"}  # d2 dropped for its run of 2 < chunk 4, despite total 12
         assert cf._dataloader.sample()["tgt_cell_data"].shape == (8, 5)

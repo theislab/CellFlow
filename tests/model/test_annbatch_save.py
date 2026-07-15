@@ -38,7 +38,7 @@ def _adata():
 
 def _prepared(seed=7):
     cf = cellflow.model.CellFlowAnnbatch()
-    cf.prepare_data(source=_adata(), sampler_config=_CFG, seed=seed, **_PREP)
+    cf.prepare_data(data=_adata(), sampler_config=_CFG, seed=seed, **_PREP)
     return cf
 
 

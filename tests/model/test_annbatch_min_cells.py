@@ -45,7 +45,7 @@ def _toy_adata(counts: dict[str, int] = _COUNTS, line: str = "A") -> ad.AnnData:
 
 def _prepare(cf, *, sampler_config, **kwargs):
     return cf.prepare_data(
-        source=_toy_adata(),
+        data=_toy_adata(),
         sample_rep="X",
         control_key="control",
         perturbation_covariates={"drug": ["drug"]},

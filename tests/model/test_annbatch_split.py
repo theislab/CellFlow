@@ -64,7 +64,7 @@ class TestPrepareAnnbatchData:
 
     def _prepare(self, cf, **kwargs):
         return cf.prepare_data(
-            source=_toy_adata(),
+            data=_toy_adata(),
             sample_rep="X",
             control_key="control",
             perturbation_covariates={"drug": ["drug"]},
@@ -77,7 +77,7 @@ class TestPrepareAnnbatchData:
         cf = cellflow.model.CellFlowAnnbatch()
         with pytest.raises(ValueError, match="sampler_config` is required"):
             cf.prepare_data(
-                source=_toy_adata(),
+                data=_toy_adata(),
                 sample_rep="X",
                 control_key="control",
                 perturbation_covariates={"drug": ["drug"]},
@@ -107,7 +107,7 @@ class TestPrepareAnnbatchData:
         train = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
         small = SamplerConfig(batch_size=4, chunk_size=1, preload_nchunks=4)
         cf.prepare_data(
-            source=_toy_adata(),
+            data=_toy_adata(),
             sample_rep="X",
             control_key="control",
             perturbation_covariates={"drug": ["drug"]},
@@ -122,7 +122,7 @@ class TestPrepareAnnbatchData:
         cf = cellflow.model.CellFlowAnnbatch()
         with pytest.raises(ValueError, match="missing config"):
             cf.prepare_data(
-                source=_toy_adata(),
+                data=_toy_adata(),
                 sample_rep="X",
                 control_key="control",
                 perturbation_covariates={"drug": ["drug"]},
@@ -147,7 +147,7 @@ class TestPrepareAnnbatchData:
         adata.X = sp.csr_matrix(adata.X)
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=adata,
+            data=adata,
             sample_rep="X",
             control_key="control",
             perturbation_covariates={"drug": ["drug"]},

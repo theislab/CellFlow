@@ -61,7 +61,7 @@ def _collection(tmp_path) -> DatasetCollection:
 def _prepare(tmp_path, *, control_in_memory=True, **extra):
     cf = cellflow.model.CellFlowAnnbatch()
     cf.prepare_data(
-        source=_collection(tmp_path),
+        data=_collection(tmp_path),
         sampler_config=SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8),
         control_in_memory=control_in_memory,
         **_PREP,
@@ -76,7 +76,7 @@ class TestOutOfCoreMemorySplit:
         dc = _collection(tmp_path)
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=dc,
+            data=dc,
             sampler_config=SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8),
             control_in_memory=True,
             **_PREP,

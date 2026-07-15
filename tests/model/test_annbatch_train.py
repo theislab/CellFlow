@@ -38,7 +38,7 @@ class TestAnnbatchTraining:
     def test_train_runs_without_split(self):
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_toy_adata(),
+            data=_toy_adata(),
             sample_rep="X",
             control_key="control",
             perturbation_covariates={"drug": ["drug"]},
@@ -53,7 +53,7 @@ class TestAnnbatchTraining:
     def test_train_runs_on_train_split(self):
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
-            source=_toy_adata(),
+            data=_toy_adata(),
             sample_rep="X",
             control_key="control",
             perturbation_covariates={"drug": ["drug"]},
