@@ -19,19 +19,34 @@ from dagloader._schema import Container
 __all__ = ["key_backings", "leaf_codes", "obs_columns"]
 
 
+def _readable(x):
+    """A rep backing annbatch can read (dense passes through; a sparse zarr group gets wrapped).
+
+    A **sparse** rep in a ``DatasetCollection`` is a zarr *group* (CSR: data/indices/indptr) with no
+    ``.shape``, so wrap it as an anndata ``CSRDataset`` (which exposes ``.shape`` + row indexing).
+    In-memory ``AnnData`` reps (scipy/numpy) and dense zarr arrays already qualify and pass through.
+    """
+    if hasattr(x, "shape"):
+        return x
+    from anndata.io import sparse_dataset
+
+    return sparse_dataset(x)
+
+
 def key_backings(source: Container, loc: str) -> list:
     """The array(s) backing rep ``loc`` for a source, ready to feed one annbatch ``add_datasets``.
 
     annbatch's ``add_datasets`` concatenates on the obs axis and needs equal feature dims, so each rep
     gets its own loader over its own array(s). For a ``DatasetCollection`` the per-dataset arrays are
-    gathered in order (matching the global row layout).
+    gathered in order (matching the global row layout); a sparse rep's zarr group is wrapped so it is
+    readable (see :func:`_readable`).
     """
     if loc == "X":
-        return [source.X] if isinstance(source, ad.AnnData) else [g["X"] for g in source]
+        return [source.X] if isinstance(source, ad.AnnData) else [_readable(g["X"]) for g in source]
     field, sub = loc.split("/", 1)  # "obsm/X_pca" | "layers/log1p"
     if isinstance(source, ad.AnnData):
         return [getattr(source, field)[sub]]
-    return [g[field][sub] for g in source]  # DatasetCollection: one zarr array per dataset
+    return [_readable(g[field][sub]) for g in source]  # DatasetCollection: one backing per dataset
 
 
 def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list[tuple]]:
