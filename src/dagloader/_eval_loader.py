@@ -20,11 +20,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 
 import numpy as np
-from annbatch import Loader
 from annbatch.samplers import BoundClassSampler, SequentialClassSampler
 
-from dagloader._io import key_backings, leaf_codes, materialize_node, obs_columns
-from dagloader._loader import _HAS_CUPY, _flat_categorical
+from dagloader._io import leaf_codes, obs_columns
+from dagloader._loader import _bind_on, _build_loaders, _flat_categorical, _resolve_source
 from dagloader._schema import SamplerConfig, Scheme, _weight_vector
 
 __all__ = ["DAGEvalLoader"]
@@ -67,8 +66,7 @@ class DAGEvalLoader:
         self._ctrl = scheme.nodes[b.child]  # control / source
         self._context = b.common
         # control source honors Node.in_memory (materialize the control cells into RAM once)
-        ctrl_src = scheme.sources[self._ctrl.source]
-        self._src = materialize_node(ctrl_src, self._ctrl) if self._ctrl.in_memory else ctrl_src
+        self._src = _resolve_source(scheme, self._ctrl)
         self._src_p = scheme.sources[self._pert.source]
 
         # per-node tuple-labelled categorical + weight vector (obs only). Control/perturbed cells live in
@@ -81,7 +79,7 @@ class DAGEvalLoader:
         self._pert_w = _weight_vector(self._pert.weights, pl)
         self._ctrl_leaves = cl
         # inner (control) tuple position -> target tuple position, for each shared context column
-        self._on = {self._ctrl.cols.index(c): self._pert.cols.index(c) for c in self._context}
+        self._on = _bind_on(self._ctrl, self._pert, self._context)
         # the control populations to visit (positive-weight control leaves)
         self._ctrl_codes = np.array([i for i in range(len(cl)) if self._ctrl_w[i] > 0], dtype=np.int64)
         if self._ctrl_codes.size == 0:
@@ -111,19 +109,6 @@ class DAGEvalLoader:
             rng=np.random.default_rng(self._seed),
         )
 
-
-    # TODO(selmanozleyen): rename to _loaders_from_node
-    def _node_loaders(self, src, node, make_sampler) -> dict:
-        cfg = self._cfg
-        preload_to_gpu = cfg.preload_to_gpu if cfg.preload_to_gpu is not None else _HAS_CUPY  # None ⇒ auto
-        loaders = {}
-        for key in node.keys:
-            loader = Loader(
-                batch_sampler=make_sampler(), return_index=False, to=cfg.to, preload_to_gpu=preload_to_gpu
-            ).add_datasets(key_backings(src, key))
-            loaders[key] = loader
-        return loaders
-
     def iter_conditions(self, n_conditions: int | None = None) -> Iterator[dict]:
         """Yield one batch per scheduled control population.
 
@@ -144,12 +129,10 @@ class DAGEvalLoader:
         ctx = len(self._context)
         cond_leaves = [tuple(vocab[int(c)])[ctx:] for c in oracle.batch_codes()]  # strip the shared context prefix
 
-        src_iters = {
-            k: iter(ld) for k, ld in self._node_loaders(self._src, self._ctrl, lambda: self._inner(schedule)).items()
-        }
-        tgt_iters = {
-            k: iter(ld) for k, ld in self._node_loaders(self._src_p, self._pert, lambda: self._bound(schedule)).items()
-        }
+        src_loaders = _build_loaders(self._src, self._ctrl, self._cfg, lambda: self._inner(schedule))
+        tgt_loaders = _build_loaders(self._src_p, self._pert, self._cfg, lambda: self._bound(schedule))
+        src_iters = {k: iter(ld) for k, ld in src_loaders.items()}
+        tgt_iters = {k: iter(ld) for k, ld in tgt_loaders.items()}
         skeys, tkeys = list(src_iters), list(tgt_iters)
 
         for j in range(len(schedule)):

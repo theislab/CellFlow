@@ -12,7 +12,7 @@ exact same stream. See ``README.md``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from importlib.util import find_spec
 
@@ -58,6 +58,60 @@ def _flat_categorical(codes: np.ndarray, leaves: list[tuple]) -> pd.Categorical:
     return pd.Categorical.from_codes(codes, categories=categories)
 
 
+def _resolve_source(scheme: Scheme, node) -> Container:
+    """A node's source, materialized into RAM once when ``node.in_memory`` (else the scheme source as-is)."""
+    src = scheme.sources[node.source]
+    return materialize_node(src, node) if node.in_memory else src
+
+
+def _bind_on(inner_node, bound_node, common: Sequence[str]) -> dict[int, int]:
+    """Map inner-node tuple positions → bound-node tuple positions for each shared ``common`` column."""
+    return {inner_node.cols.index(c): bound_node.cols.index(c) for c in common}
+
+
+def _attach(loader: Loader, src: Container, key: str) -> Loader:
+    """Feed rep ``key`` of ``src`` to a fresh ``Loader`` via the source-appropriate annbatch entry point.
+
+    Dispatch by source kind, streaming only rep ``key`` with **no obs** — dagloader owns the class
+    labels through the sampler (``classes=``), so annbatch never needs the source's obs:
+
+    * ``DatasetCollection`` → :meth:`~annbatch.Loader.use_collection` (annbatch's own collection API),
+      each group's rep loaded as an obs-free ``X`` (the default ``load_adata`` would decode *all* obs);
+    * **backed** ``AnnData`` / list of backed ``AnnData`` → the raw rep backings through ``add_datasets``;
+    * **in-memory** ``AnnData`` (a user adata, or a materialized ``in_memory`` node such as the matched
+      control) → ``add_adatas`` over the rep wrapped as an obs-free ``X``.
+    """
+    if isinstance(src, DatasetCollection):
+        return loader.use_collection(src, load_adata=lambda g: ad.AnnData(X=_group_rep(g, key)))
+    backings = key_backings(src, key)
+    if isinstance(src, ad.AnnData) and not _is_backed(backings[0]):  # in-memory adata → add_adatas
+        return loader.add_adatas([ad.AnnData(X=b) for b in backings])
+    return loader.add_datasets(backings)  # backed adata or list of backed adata
+
+
+def _build_loaders(
+    src: Container,
+    node,
+    cfg: SamplerConfig,
+    make_sampler: Callable[[], ClassSampler | BoundClassSampler],
+) -> dict[str, Loader]:
+    """Per rep (``node.keys``) an annbatch ``Loader`` over its own fresh sampler, fed via :func:`_attach`.
+
+    Reps need separate Loaders (annbatch can't mix feature dims in one loader), each with native chunked
+    reads.
+
+    ``to`` (default "jax") + ``preload_to_gpu`` come from the ``SamplerConfig``. ``to="jax"`` yields native
+    jax arrays (no host round-trip); ``preload_to_gpu`` keeps the read window on-GPU (needs cupy), else it
+    defers the device copy to the step. Auto-selects cupy when ``preload_to_gpu`` is unset.
+    """
+    preload_to_gpu = cfg.preload_to_gpu if cfg.preload_to_gpu is not None else _HAS_CUPY  # None ⇒ auto
+    loaders: dict[str, Loader] = {}
+    for key in node.keys:
+        base = Loader(batch_sampler=make_sampler(), return_index=False, to=cfg.to, preload_to_gpu=preload_to_gpu)
+        loaders[key] = _attach(base, src, key)
+    return loaders
+
+
 class DAGLoader:
     """Yields ``{"source", "target", "condition"}`` batches; every node streams through its own loader."""
 
@@ -85,10 +139,7 @@ class DAGLoader:
         }
 
         # resolve each node's source; a `Node.in_memory` node is materialized into RAM once (see _io).
-        self._nodes: dict[str, Container] = {
-            name: (materialize_node(scheme.sources[node.source], node) if node.in_memory else scheme.sources[node.source])
-            for name, node in scheme.nodes.items()
-        }
+        self._nodes: dict[str, Container] = {name: _resolve_source(scheme, node) for name, node in scheme.nodes.items()}
 
         # per-node leaf partition + weights + tuple-labelled categorical (obs only — no cell matrices).
         # Nodes over the same source object + cols (e.g. the perturbed root and its matched-control child)
@@ -163,11 +214,6 @@ class DAGLoader:
         except ValueError as e:
             raise ValueError(f"node {name!r}: {e}") from e
 
-    def _bound_on(self, b: Bind) -> dict[int, int]:
-        """Map root tuple positions → child tuple positions for the bind's ``common`` columns."""
-        rcols, ccols = self._st[b.parent]["node"].cols, self._st[b.child]["node"].cols
-        return {rcols.index(c): ccols.index(c) for c in b.common}
-
     def _new_bound_sampler(self, b: Bind) -> BoundClassSampler:
         inner = self._new_class_sampler(self.s.root)
         # Match on the bind's shared columns; the child's leaf weights (0 for excluded leaves, e.g.
@@ -177,7 +223,7 @@ class DAGLoader:
         return self._make_bound(
             b,
             inner,
-            on=self._bound_on(b),
+            on=_bind_on(self._st[b.parent]["node"], self._st[b.child]["node"], b.common),
             classes=self._st[b.child]["cats"],
             class_weights=self._st[b.child]["w"],
         )
@@ -212,8 +258,7 @@ class DAGLoader:
 
         A per-child schedule *oracle* and each bound's inner are root-seeded so their class draws agree
         with the target's; all of a node's keys share the node seed, so the (identical) samplers select
-        the same rows every batch — every rep of a node is the same cells. Reps need separate Loaders
-        (annbatch can't mix feature dims in one loader), each with native chunked reads.
+        the same rows every batch — every rep of a node is the same cells.
         """
         self._oracle = self._new_class_sampler(self.s.root)  # supplies the per-batch condition schedule
 
@@ -224,38 +269,7 @@ class DAGLoader:
 
     def _add_node_loaders(self, name: str, make_sampler: Callable[[], ClassSampler | BoundClassSampler]) -> None:
         node = self._st[name]["node"]
-        src = self._nodes[name]
-        cfg = self._cfg[name]
-        preload_to_gpu = cfg.preload_to_gpu if cfg.preload_to_gpu is not None else _HAS_CUPY  # None ⇒ auto
-        self._loaders[name] = {}
-        for ki, key in enumerate(node.keys):
-            return_index = name == self.s.root and ki == 0  # only for the schedule↔row alignment check
-            # `to` (default "jax") + `preload_to_gpu` are user-set via SamplerConfig. `to="jax"` yields
-            # native jax arrays (no host round-trip); `preload_to_gpu` keeps the read window on-GPU (needs
-            # cupy), else it defers the device copy to the step. Auto-selects cupy when unset.
-            base = Loader(
-                batch_sampler=make_sampler(), return_index=return_index, to=cfg.to, preload_to_gpu=preload_to_gpu
-            )
-            self._loaders[name][key] = self._attach(base, src, key)
-
-    def _attach(self, loader: Loader, src: Container, key: str) -> Loader:
-        """Feed rep ``key`` of ``src`` to a fresh ``Loader`` via the source-appropriate annbatch entry point.
-
-        Dispatch by source kind, streaming only rep ``key`` with **no obs** — dagloader owns the class
-        labels through the sampler (``classes=``), so annbatch never needs the source's obs:
-
-        * ``DatasetCollection`` → :meth:`~annbatch.Loader.use_collection` (annbatch's own collection API),
-          each group's rep loaded as an obs-free ``X`` (the default ``load_adata`` would decode *all* obs);
-        * **backed** ``AnnData`` / list of backed ``AnnData`` → the raw rep backings through ``add_datasets``;
-        * **in-memory** ``AnnData`` (a user adata, or a materialized ``in_memory`` node such as the matched
-          control) → ``add_adatas`` over the rep wrapped as an obs-free ``X``.
-        """
-        if isinstance(src, DatasetCollection):
-            return loader.use_collection(src, load_adata=lambda g: ad.AnnData(X=_group_rep(g, key)))
-        backings = key_backings(src, key)
-        if isinstance(src, ad.AnnData) and not _is_backed(backings[0]):  # in-memory adata → add_adatas
-            return loader.add_adatas([ad.AnnData(X=b) for b in backings])
-        return loader.add_datasets(backings)  # backed adata or list of backed adata
+        self._loaders[name] = _build_loaders(self._nodes[name], node, self._cfg[name], make_sampler)
 
     # ── per-pass scheduling ────────────────────────────────────────────────
     def _start_pass(self) -> None:
