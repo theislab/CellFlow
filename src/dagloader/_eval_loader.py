@@ -109,6 +109,8 @@ class DAGEvalLoader:
             rng=np.random.default_rng(self._seed),
         )
 
+
+    # TODO(selmanozleyen): rename to _loaders_from_node
     def _node_loaders(self, src, node, make_sampler) -> dict:
         loaders = {}
         for key in node.keys:
@@ -138,6 +140,7 @@ class DAGEvalLoader:
         ctx = len(self._context)
         cond_leaves = [tuple(vocab[int(c)])[ctx:] for c in oracle.batch_codes()]  # strip the shared context prefix
 
+        # TODO(selmanozleyen): inline x_loaders since there is no need
         src_loaders = self._node_loaders(self._src, self._ctrl, lambda: self._inner(schedule))
         tgt_loaders = self._node_loaders(self._src_p, self._pert, lambda: self._bound(schedule))
         src_iters = {k: iter(ld) for k, ld in src_loaders.items()}
