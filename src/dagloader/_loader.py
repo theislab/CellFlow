@@ -67,7 +67,7 @@ class DAGLoader:
         }
 
         # resolve each node's source; a `Node.in_memory` node is materialized into RAM once (see _io).
-        self._node_src: dict[str, Container] = {
+        self._nodes: dict[str, Container] = {
             name: (materialize_node(scheme.sources[node.source], node) if node.in_memory else scheme.sources[node.source])
             for name, node in scheme.nodes.items()
         }
@@ -75,7 +75,7 @@ class DAGLoader:
         # per-node leaf partition + weights + tuple-labelled categorical (obs only — no cell matrices)
         self._st: dict[str, dict] = {}
         for name, node in scheme.nodes.items():
-            obs = obs_columns(self._node_src[name], node.cols)
+            obs = obs_columns(self._nodes[name], node.cols)
             codes, leaves = leaf_codes(obs, node.cols)
             self._st[name] = {
                 "node": node,
@@ -184,7 +184,7 @@ class DAGLoader:
 
     def _add_node_loaders(self, name: str, make_sampler: Callable[[], ClassSampler | BoundClassSampler]) -> None:
         node = self._st[name]["node"]
-        src = self._node_src[name]
+        src = self._nodes[name]
         cfg = self._cfg[name]
         preload_to_gpu = cfg.preload_to_gpu if cfg.preload_to_gpu is not None else _HAS_CUPY  # None ⇒ auto
         self._samplers[name], self._loaders[name] = {}, {}

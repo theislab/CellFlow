@@ -162,7 +162,7 @@ class TestOutOfCore:
             **_PREP,
         )
         assert cf._scheme.nodes["ctrl"].in_memory is True  # cellflow flagged it
-        assert isinstance(cf._dataloader._loader._node_src["ctrl"], ad.AnnData)  # dagloader materialized it
+        assert isinstance(cf._dataloader._loader._nodes["ctrl"], ad.AnnData)  # dagloader materialized it
 
 
 class TestChunkableCheck:

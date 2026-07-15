@@ -145,6 +145,6 @@ def test_in_memory_node_materialized():
     )
     cfg = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8, to="jax", preload_to_gpu=False)
     dl = DAGLoader(scheme, cfg, condition_fn=_condition_fn)
-    assert isinstance(dl._node_src["ctrl"], ad.AnnData)  # ctrl node materialized into RAM
+    assert isinstance(dl._nodes["ctrl"], ad.AnnData)  # ctrl node materialized into RAM
     batch = next(iter(dl))
     assert (np.asarray(batch["source"])[:, 2] == 1.0).all()  # source = matched control cells (from RAM)

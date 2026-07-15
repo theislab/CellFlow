@@ -16,13 +16,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from os import PathLike
 
 import anndata as ad
 import numpy as np
 from annbatch import DatasetCollection
 
-# A cell source: an in-memory AnnData or an out-of-core annbatch DatasetCollection.
-Container = ad.AnnData | DatasetCollection
+# A cell source: an in-memory/backed AnnData, an out-of-core annbatch DatasetCollection, or a list of
+# AnnData (streamed as one logical source — one annbatch backing per adata, in list order).
+Container = ad.AnnData | DatasetCollection | list[ad.AnnData]
 
 # A sampling scheme is just a mapping {combination -> weight}. A combination absent from the mapping
 # (or with weight 0) is excluded — that IS the selection. ``uniform`` / ``frequency`` /
@@ -210,6 +212,43 @@ class Scheme:
     root: str
     seed: int
     binds: tuple[Bind, ...] = ()
+
+    @classmethod
+    def from_paths(
+        cls,
+        sources: Mapping[str, Container | str | PathLike | Sequence[str | PathLike]],
+        nodes: Mapping[str, Node],
+        root: str,
+        seed: int,
+        binds: tuple[Bind, ...] = (),
+    ) -> Scheme:
+        """Build a :class:`Scheme` where a source may be given as a zarr path (or list of paths).
+
+        Same signature as the constructor, but each ``sources`` value may additionally be:
+
+        * a **path** to a single zarr adata → read backed (only the reps the referencing nodes use);
+        * a **path** to an annbatch collection root → opened as a :class:`~annbatch.DatasetCollection`
+          (auto-detected from its ``encoding-type``);
+        * a **list of paths** to zarr adatas → a list of backed AnnData streamed as one source (one
+          annbatch backing per adata, in list order).
+
+        An already-constructed :data:`Container` (AnnData / DatasetCollection / list of AnnData) passes
+        through unchanged. Everything on disk is expected in **zarr**. Only the ``keys`` and ``cols`` the
+        nodes referencing a source actually need are read (see :func:`~dagloader._io.open_source`).
+        """
+        from dagloader._io import open_source
+
+        keys_by_src: dict[str, set[str]] = {name: set() for name in sources}
+        cols_by_src: dict[str, set[str]] = {name: set() for name in sources}
+        for node in nodes.values():
+            if node.source in keys_by_src:  # unknown sources are reported by __post_init__
+                keys_by_src[node.source].update(node.keys)
+                cols_by_src[node.source].update(node.cols)
+        resolved = {
+            name: open_source(src, keys=keys_by_src[name], cols=cols_by_src[name])
+            for name, src in sources.items()
+        }
+        return cls(sources=resolved, nodes=nodes, root=root, seed=seed, binds=binds)
 
     def __post_init__(self) -> None:  # structural: rooted tree + references
         if self.root not in self.nodes:

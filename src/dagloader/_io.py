@@ -8,6 +8,7 @@ only when a batch is materialized (by annbatch's own loader over the returned ba
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 import anndata as ad
@@ -16,7 +17,7 @@ import pandas as pd
 
 from dagloader._schema import Container
 
-__all__ = ["key_backings", "leaf_codes", "materialize_node", "obs_columns"]
+__all__ = ["key_backings", "leaf_codes", "load_backed_adata", "materialize_node", "obs_columns", "open_source"]
 
 
 def _readable(x):
@@ -37,10 +38,12 @@ def key_backings(source: Container, loc: str) -> list:
     """The array(s) backing rep ``loc`` for a source, ready to feed one annbatch ``add_datasets``.
 
     annbatch's ``add_datasets`` concatenates on the obs axis and needs equal feature dims, so each rep
-    gets its own loader over its own array(s). For a ``DatasetCollection`` the per-dataset arrays are
-    gathered in order (matching the global row layout); a sparse rep's zarr group is wrapped so it is
-    readable (see :func:`_readable`).
+    gets its own loader over its own array(s). For a ``DatasetCollection`` (or a ``list`` of AnnData —
+    one backing per adata) the per-dataset arrays are gathered in order (matching the global row
+    layout); a sparse rep's zarr group is wrapped so it is readable (see :func:`_readable`).
     """
+    if isinstance(source, list):  # list of (backed) AnnData: one backing per adata, in list order
+        return [b for a in source for b in key_backings(a, loc)]
     if loc == "X":
         return [source.X] if isinstance(source, ad.AnnData) else [_readable(g["X"]) for g in source]
     field, sub = loc.split("/", 1)  # "obsm/X_pca" | "layers/log1p"
@@ -98,7 +101,63 @@ def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list
 
 
 def obs_columns(source: Container, cols: Sequence[str]) -> pd.DataFrame:
-    """Obs columns from either container (AnnData attr vs DatasetCollection reader) — no cell matrices."""
+    """Obs columns from any container (AnnData attr vs DatasetCollection reader vs list) — no cell matrices."""
+    if isinstance(source, list):  # list of AnnData: concatenate obs in list order (= key_backings order)
+        return pd.concat([obs_columns(a, cols) for a in source], ignore_index=True)
     if isinstance(source, ad.AnnData):
         return source.obs[list(cols)]
     return source.obs(columns=list(cols))  # DatasetCollection
+
+
+def _backed(x):
+    """A zarr rep as a readable backing: dense zarr array passes through; a sparse group is wrapped."""
+    import zarr
+
+    return x if isinstance(x, zarr.Array) else ad.io.sparse_dataset(x)
+
+
+def load_backed_adata(g, *, keys: Sequence[str], cols: Sequence[str] = ()) -> ad.AnnData:
+    """Open a zarr adata group as a (backed) AnnData, reading only the reps in ``keys`` and obs ``cols``.
+
+    ``X`` is read as a backed sparse dataset or lazy dense zarr array; ``obsm/<k>`` / ``layers/<k>`` reps
+    likewise; ``var`` is reduced to its index and ``obs`` to ``cols`` (all of obs if ``cols`` is empty).
+    Only the reps a node actually streams are materialized, so unused representations are never touched.
+    """
+    var = g["var"]
+    obs = ad.io.read_elem(g["obs"])
+    kw: dict = {
+        "obs": obs[list(cols)] if cols else obs,
+        "var": pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
+    }
+    if "X" in keys:
+        kw["X"] = _backed(g["X"])
+    adata = ad.AnnData(**kw)
+    for key in keys:
+        if key == "X":
+            continue
+        field, sub = key.split("/", 1)  # "obsm/X_pca" | "layers/log1p"
+        getattr(adata, field)[sub] = _backed(g[field][sub])
+    return adata
+
+
+def open_source(src, *, keys: Sequence[str], cols: Sequence[str] = ()) -> Container:
+    """Resolve one :class:`~dagloader.Scheme` source value to a :data:`~dagloader.Container`.
+
+    An in-memory ``AnnData`` or ``DatasetCollection`` passes through unchanged. A single path is opened as
+    zarr and auto-detected: an annbatch collection root (``encoding-type`` ``"annbatch-preshuffled"``)
+    becomes a ``DatasetCollection``; otherwise it is a single adata read backed via :func:`load_backed_adata`.
+    A list of paths becomes a list of backed AnnData (the loader feeds one backing per adata to
+    ``add_datasets``). Only the reps in ``keys`` and obs ``cols`` are read (see :func:`load_backed_adata`).
+    """
+    import zarr
+    from annbatch import DatasetCollection
+
+    if isinstance(src, (ad.AnnData, DatasetCollection)):
+        return src
+    if isinstance(src, (str, os.PathLike)):
+        g = zarr.open_group(src, mode="r")
+        if g.attrs.get("encoding-type") == "annbatch-preshuffled":
+            return DatasetCollection(src, mode="r")
+        return load_backed_adata(g, keys=keys, cols=cols)
+    # list/sequence of adata zarr paths (or already-open AnnData) → list of backed AnnData
+    return [a if isinstance(a, ad.AnnData) else load_backed_adata(zarr.open_group(a, mode="r"), keys=keys, cols=cols) for a in src]
