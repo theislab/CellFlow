@@ -19,7 +19,6 @@ import anndata as ad
 from annbatch import DatasetCollection
 
 import cellflow
-from cellflow.data._annbatch import assert_source_chunkable
 from dagloader import SamplerConfig
 
 _PREP = {
@@ -164,25 +163,23 @@ class TestOutOfCore:
         assert cf._scheme.nodes["ctrl"].in_memory is True  # cellflow flagged it
         assert isinstance(cf._dataloader._loader._nodes["ctrl"], ad.AnnData)  # dagloader materialized it
 
+    def test_chunk_drops_short_run_perturbed_only(self, tmp_path):
+        # A perturbed condition with a big TOTAL but a sub-chunk sliver run is dropped (per-RUN, not
+        # per-total); controls are never filtered. d2 has runs [10, 2] (total 12) → its run of 2 < chunk 4
+        # drops it; d1 has runs [10, 10] → kept; control [10, 10] → kept and streamed.
+        def blk(dr, n):
+            return [("A", dr)] * n
 
-class TestChunkableCheck:
-    """`assert_source_chunkable` matches annbatch's rule: runs >= chunk_size, fragmentation allowed."""
-
-    @staticmethod
-    def _frag(block):  # each (cell_line, drug) category appears in 2 runs of `block`
-        rows = [(cl, dr) for _ in range(2) for cl in ("A", "B") for dr in ("d1", "d2") for _ in range(block)]
+        rows = blk("control", 10) + blk("d1", 10) + blk("d2", 10) + blk("control", 10) + blk("d1", 10) + blk("d2", 2)
         obs = pd.DataFrame(rows, columns=["cell_line", "drug"])
+        obs["control"] = obs["drug"] == "control"
         obs.index = obs.index.astype(str)
-        return ad.AnnData(X=np.zeros((len(obs), 2), dtype="float32"), obs=obs)
+        x = np.random.default_rng(0).normal(size=(len(obs), 5)).astype("float32")
+        ad.AnnData(X=x, obs=obs).write_h5ad(tmp_path / "s.h5ad")
+        dc = DatasetCollection(str(tmp_path / "sc.zarr"), mode="a").add_adatas([str(tmp_path / "s.h5ad")], shuffle=False)
 
-    def test_accepts_fragmented_runs(self):
-        # fragmented but every run (10) >= chunk_size (4) → no raise (annbatch accepts this too)
-        assert_source_chunkable(self._frag(10), ("cell_line", "drug"), 4)
-
-    def test_rejects_short_run(self):
-        # runs of 3 < chunk_size 4 → raise, with the groupby hint
-        with pytest.raises(ValueError, match="run of only 3|groupby|chunk_size"):
-            assert_source_chunkable(self._frag(3), ("cell_line", "drug"), 4)
-
-    def test_chunk_size_one_always_ok(self):
-        assert_source_chunkable(self._frag(1), ("cell_line", "drug"), 1)  # runs of 1 >= 1
+        cf = cellflow.model.CellFlowAnnbatch()
+        cf.prepare_data(source=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP)
+        pos = {leaf[1] for leaf, w in cf._scheme.nodes["pert"].weights.items() if w > 0}
+        assert pos == {"d1"}  # d2 dropped for its run of 2 < chunk 4, despite total 12
+        assert cf._dataloader.sample()["tgt_cell_data"].shape == (8, 5)

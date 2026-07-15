@@ -17,60 +17,21 @@ from typing import TYPE_CHECKING
 import anndata as ad
 import numpy as np
 
+from cellflow._logging import logger
 from cellflow.data._condition import _key_layout, build_condition_data, enumerate_perturbations
 from cellflow.data._datamanager import DataManager
 
 if TYPE_CHECKING:
     from cellflow._types import ArrayLike
-    from dagloader import Container, Scheme, Weights
+    from dagloader import Container, Scheme
 
 Leaf = tuple[object, ...]  # a scheme leaf: one value per grouping column
 
 __all__ = [
     "AnnbatchTraining",
-    "assert_source_chunkable",
     "build_annbatch_training",
     "sample_rep_to_key",
 ]
-
-
-def assert_source_chunkable(
-    source: Container, cols: Sequence[str], chunk_size: int, weights: Weights | None = None
-) -> None:
-    """Raise unless ``source`` satisfies annbatch's run-length rule for ``chunk_size`` (reads ``obs`` only).
-
-    With ``chunk_size > 1`` annbatch reads contiguous slices, so every contiguous run of each category
-    (a ``cols`` combination) must be at least ``chunk_size`` cells; a category may span several runs.
-    On a shorter run, raises pointing at ``DatasetCollection.add_adatas(groupby=...)``. In-memory sources
-    are grouped automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs.
-
-    ``weights`` (a node's ``{combo: weight}``) restricts the check to positive-weight leaves: annbatch's
-    ``ClassSampler`` never reads a zero-weight leaf, so it exempts them from the run-length rule. Passing
-    the root node's weights is what lets ``min_cells_per_condition`` unblock ``chunk_size > 1`` — a
-    sub-threshold condition is zero-weighted, so its short run no longer blocks chunked reads. With
-    ``weights=None`` every run is checked (the strict, weight-agnostic behavior).
-    """
-    from dagloader._io import leaf_codes, obs_columns
-
-    codes, leaves = leaf_codes(obs_columns(source, list(cols)), list(cols))
-    if len(codes) == 0:
-        return
-    run_starts = np.concatenate([[0], np.flatnonzero(np.diff(codes) != 0) + 1])
-    run_lengths = np.diff(np.concatenate([run_starts, [len(codes)]]))
-    if weights is not None:  # exempt zero-weight leaves (mirrors ClassSampler): check only their runs
-        positive = [i for i, lf in enumerate(leaves) if weights.get(tuple(lf), 0.0) > 0]
-        run_lengths = run_lengths[np.isin(codes[run_starts], positive)]
-        if len(run_lengths) == 0:
-            return
-    shortest = int(run_lengths.min())
-    if shortest < chunk_size:
-        raise ValueError(
-            f"chunk_size={chunk_size} requires every contiguous run of each category (a {list(cols)} "
-            f"combination) to be at least chunk_size cells, but the source has a run of only {shortest}. "
-            f"Group the source so each category forms long runs — e.g. create the DatasetCollection with "
-            f"`add_adatas(..., groupby={list(cols)})` — or use chunk_size=1. (A category may span several "
-            f"runs; only each run's length matters.)"
-        )
 
 
 def sample_rep_to_key(sample_rep: str) -> str:
@@ -106,6 +67,7 @@ def build_annbatch_training(
     seed: int = 0,
     control_in_memory: bool = False,
     min_cells_per_condition: int = 0,
+    chunk_size: int = 1,
 ) -> AnnbatchTraining:
     """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).
 
@@ -119,14 +81,21 @@ def build_annbatch_training(
     large dataloader speedup, since controls are re-drawn every batch. Only enable it when the controls fit
     in host RAM (the small population by design).
 
-    ``min_cells_per_condition`` zero-weights (drops from sampling) any perturbed condition with fewer than
-    this many *total* cells — a scientific filter on untrainable tiny conditions, and the lever that unblocks
-    ``chunk_size > 1``: a zero-weight leaf is exempt from annbatch's run-length rule, so a condition with a
-    sub-``chunk_size`` run no longer blocks chunked reads. The default ``0`` drops nothing (weights identical
-    to ``uniform``). Caveat: this counts *total* cells per condition, so it unblocks ``chunk_size > 1`` only
-    when the kept conditions' per-plate *runs* are also ``>= chunk_size``; a big condition with a rare
-    sub-``chunk_size`` run in one plate would still need a per-run guard (a generic ``min_rows_per_leaf`` in
-    dagloader — out of scope here).
+    Two perturbed-only weight filters shape the root (target) node — controls are never filtered (with
+    ``control_in_memory`` the control node is materialized+sorted in RAM; otherwise its run-length is
+    annbatch's own concern, not ours):
+
+    ``min_cells_per_condition`` zero-weights any perturbed condition with fewer than this many *total*
+    cells — a scientific filter on untrainable tiny conditions. Default ``0`` drops nothing.
+
+    ``chunk_size`` (the streamed ``SamplerConfig.chunk_size``) drives the run-length filter. With
+    ``chunk_size > 1`` annbatch reads contiguous ``chunk_size``-long slices, so every run of a positive-weight
+    class must be ``>= chunk_size``. Any perturbed condition whose *smallest* contiguous run is shorter is
+    zero-weighted here (and thereby excluded from every split), so the rest stream chunked without annbatch
+    raising. This is the per-run guard a *total* filter can't provide — a big condition with a rare
+    sub-``chunk_size`` sliver in one plate is dropped. Dropped counts are logged. Default ``1`` filters
+    nothing; with both filters inactive (``min_cells_per_condition=0`` and ``chunk_size=1``) the root weights
+    are ``uniform`` — byte-identical to before.
     """
     from dagloader import Bind, Node, Scheme, uniform
     from dagloader._io import key_backings, obs_columns
@@ -140,8 +109,9 @@ def build_annbatch_training(
     obs = obs_columns(source, [*cols, control_key])
 
     # In-memory source: stable-sort by the grouping columns so `chunk_size > 1` reads contiguous slices
-    # (cheap, and cell order is irrelevant). Out-of-core sources aren't reordered (expensive zarr re-sort)
-    # — they must be built grouped; `assert_source_chunkable` enforces that.
+    # (cheap, and cell order is irrelevant). Out-of-core sources aren't reordered (expensive zarr re-sort) —
+    # they must be built grouped; the run-length filter below drops short-run perturbed conditions and
+    # annbatch validates the rest (and the controls) when it builds its samplers.
     if isinstance(source, ad.AnnData):
         order = obs[list(cols)].reset_index(drop=True).sort_values(list(cols), kind="stable").index.to_numpy()
         source = source[order].copy()
@@ -223,22 +193,46 @@ def build_annbatch_training(
     pert = [tuple(r) for r in uniq.loc[~ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
     ctrl = [tuple(r) for r in uniq.loc[ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
 
-    # Root (perturbed) leaf weights: uniform over the perturbed combos, except conditions with fewer than
-    # `min_cells_per_condition` total cells are zero-weighted (dropped from sampling). Counts come from the
-    # full `obs` (all cells) via a groupby — cheap on the categorical grouping cols; keyed by string-tuple so
-    # the lookup is robust to `.to_numpy()` dtype quirks. The default 0 keeps every leaf, so `pert_weights`
-    # equals `uniform(pert)` and the whole scheme is byte-identical to before.
-    if min_cells_per_condition > 0:
-        cnt = obs.groupby(list(cols), observed=True).size().reset_index(name="_n").to_numpy()
-        count_of = {tuple(map(str, row[:-1])): int(row[-1]) for row in cnt}  # {str(cols-combo): n_cells}
-        pert_weights = {
-            leaf: (1.0 if count_of.get(tuple(map(str, leaf)), 0) >= min_cells_per_condition else 0.0) for leaf in pert
-        }
-        if pert and not any(pert_weights.values()):
-            largest = max(count_of.get(tuple(map(str, lf)), 0) for lf in pert)
+    # Root (perturbed) leaf weights: `uniform(pert)` minus two perturbed-only filters (controls keep
+    # `uniform(ctrl)` — see the docstring). Both derive from ONE pass over the full `obs` (physical order)
+    # via `leaf_codes`: per-leaf total cells (bincount) and per-leaf smallest contiguous run (run-length
+    # min). Keyed by string-tuple so lookups survive `.to_numpy()` dtype quirks. When both filters are
+    # inactive (min_cells_per_condition=0 and chunk_size<=1) we skip the pass and use `uniform(pert)` —
+    # byte-identical to before.
+    if min_cells_per_condition > 0 or chunk_size > 1:
+        from dagloader._io import leaf_codes
+
+        codes, leaves = leaf_codes(obs, list(cols))
+        total = np.bincount(codes, minlength=len(leaves))
+        run_starts = np.concatenate([[0], np.flatnonzero(np.diff(codes) != 0) + 1])
+        run_len = np.diff(np.concatenate([run_starts, [len(codes)]]))
+        min_run = np.full(len(leaves), len(codes) + 1, dtype=np.int64)
+        np.minimum.at(min_run, codes[run_starts], run_len)  # smallest run per leaf
+        stat = {tuple(map(str, lf)): (int(total[i]), int(min_run[i])) for i, lf in enumerate(leaves)}
+
+        def _keep(leaf: Leaf) -> bool:  # perturbed-only: total-cells filter AND per-run (chunk) filter
+            n_total, shortest = stat.get(tuple(map(str, leaf)), (0, 0))
+            return n_total >= min_cells_per_condition and (chunk_size <= 1 or shortest >= chunk_size)
+
+        pert_weights = {leaf: (1.0 if _keep(leaf) else 0.0) for leaf in pert}
+        n_kept = sum(w > 0 for w in pert_weights.values())
+        if pert and n_kept == 0:
+            largest = max((stat.get(tuple(map(str, lf)), (0, 0))[0] for lf in pert), default=0)
+            longest = max((stat.get(tuple(map(str, lf)), (0, 0))[1] for lf in pert), default=0)
             raise ValueError(
-                f"min_cells_per_condition={min_cells_per_condition} dropped every perturbed condition "
-                f"(the largest has {largest} cells); lower the threshold."
+                f"dropped every perturbed condition: none has >= min_cells_per_condition="
+                f"{min_cells_per_condition} total cells (largest {largest}) and a contiguous run >= "
+                f"chunk_size={chunk_size} (longest run {longest}). Lower the thresholds, use chunk_size=1, or "
+                f"group the source so each condition forms runs >= chunk_size (e.g. `add_adatas(groupby=...)`)."
+            )
+        if n_kept < len(pert):
+            dropped = sum(stat.get(tuple(map(str, lf)), (0, 0))[0] for lf, w in pert_weights.items() if w == 0)
+            allc = sum(stat.get(tuple(map(str, lf)), (0, 0))[0] for lf in pert)
+            logger.info(
+                f"annbatch streaming: dropped {len(pert) - n_kept}/{len(pert)} perturbed conditions "
+                f"({dropped:,}/{allc:,} cells = {dropped / max(allc, 1) * 100:.1f}%) — below "
+                f"min_cells_per_condition={min_cells_per_condition} or with a contiguous run < "
+                f"chunk_size={chunk_size}. Controls are unaffected."
             )
     else:
         pert_weights = uniform(pert)
