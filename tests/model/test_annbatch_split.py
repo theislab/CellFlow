@@ -1,6 +1,6 @@
 """Tests for the annbatch path split wiring on :class:`~cellflow.model.CellFlow`.
 
-The Scheme + condition + loaders are built from an in-memory ``AnnData`` used as the ``source`` (the
+The Scheme + condition + loaders are built from an in-memory ``AnnData`` passed as ``data`` (the
 ``dagloader`` is container-agnostic), so no ``DatasetCollection`` is needed.
 """
 
@@ -13,10 +13,10 @@ import pytest
 pytest.importorskip("annbatch")  # dagloader (and thus the annbatch path) needs annbatch
 
 import anndata as ad
+from scheme_helpers import perturbation_scheme
 
 import cellflow
 from dagloader import SamplerConfig
-from scheme_helpers import perturbation_scheme
 
 _CFG = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
 

@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from cellflow.data._legacy import OOCTrainSampler, PredictionSampler, TrainSampler
 from cellflow.data._datamanager import DataManager
+from cellflow.data._legacy import OOCTrainSampler, PredictionSampler, TrainSampler
 
 
 class TestTrainSampler:
@@ -86,8 +86,8 @@ class TestOOCTrainSampler:
 class TestValidationSampler:
     @pytest.mark.parametrize("n_conditions_on_log_iteration", [None, 1, 3])
     def test_valid_sampler(self, adata_perturbation, n_conditions_on_log_iteration):
-        from cellflow.data._legacy import ValidationSampler
         from cellflow.data._datamanager import DataManager
+        from cellflow.data._legacy import ValidationSampler
 
         control_key = "control"
         sample_covariates = ["cell_type"]

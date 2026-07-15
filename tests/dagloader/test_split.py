@@ -1,7 +1,7 @@
 """Tests for :func:`dagloader.split_scheme` / :func:`dagloader.split_assignment`.
 
 The split is a weights-only transform on a :class:`~dagloader.Scheme`, so these exercise it on a scheme
-built from a tiny in-memory ``AnnData`` via :func:`~dagloader.perturbation_scheme` — no
+built from a tiny in-memory ``AnnData`` via the ``perturbation_scheme`` test helper — no
 ``DatasetCollection`` and no ``DAGLoader`` are constructed.
 """
 
@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("annbatch")  # dagloader imports annbatch; skip the module if it is not installed
 
 import anndata as ad
+from scheme_helpers import perturbation_scheme
 
 from dagloader import (
     SamplerConfig,
@@ -22,7 +23,6 @@ from dagloader import (
     split_assignment,
     split_scheme,
 )
-from scheme_helpers import perturbation_scheme
 
 
 def _toy_scheme(n_drugs: int = 5, cell_lines: tuple[str, ...] = ("A", "B"), seed: int = 0) -> Scheme:

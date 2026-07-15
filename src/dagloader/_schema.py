@@ -44,6 +44,7 @@ def _rep_loc(key: RepKey) -> str:
         return "X"
     return f"layers/{k}"  # LayerAcc with a key → layers/<k>
 
+
 # A cell source: an in-memory/backed AnnData, an out-of-core annbatch DatasetCollection, or a list of
 # AnnData (streamed as one logical source — one annbatch backing per adata, in list order).
 Container = ad.AnnData | DatasetCollection | list[ad.AnnData]
@@ -126,7 +127,7 @@ class Node:
     in_memory: bool = False  # materialize this node's selected cells into RAM (see dagloader._io)
 
     def __post_init__(self) -> None:  # structural checks (data-free)
-        keys = self.keys if isinstance(self.keys, (tuple, list)) else (self.keys,)  # str/accessor → single
+        keys = self.keys if isinstance(self.keys, tuple | list) else (self.keys,)  # str/accessor → single
         object.__setattr__(self, "keys", tuple(_rep_loc(k) for k in keys))  # normalize accessors → loc str
         if not self.cols:
             raise ValueError("Node.cols must be non-empty.")
@@ -270,8 +271,7 @@ class Scheme:
                 keys_by_src[node.source].update(node.keys)
                 cols_by_src[node.source].update(node.cols)
         resolved = {
-            name: open_source(src, keys=keys_by_src[name], cols=cols_by_src[name])
-            for name, src in sources.items()
+            name: open_source(src, keys=keys_by_src[name], cols=cols_by_src[name]) for name, src in sources.items()
         }
         return cls(sources=resolved, nodes=nodes, root=root, seed=seed, binds=binds)
 

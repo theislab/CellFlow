@@ -185,12 +185,15 @@ def open_source(src, *, keys: Sequence[str], cols: Sequence[str] = ()) -> Contai
     import zarr
     from annbatch import DatasetCollection
 
-    if isinstance(src, (ad.AnnData, DatasetCollection)):
+    if isinstance(src, ad.AnnData | DatasetCollection):
         return src
-    if isinstance(src, (str, os.PathLike)):
+    if isinstance(src, str | os.PathLike):
         g = zarr.open_group(src, mode="r")
         if g.attrs.get("encoding-type") == "annbatch-preshuffled":
             return DatasetCollection(src, mode="r")
         return load_backed_adata(g, keys=keys, cols=cols)
     # list/sequence of adata zarr paths (or already-open AnnData) → list of backed AnnData
-    return [a if isinstance(a, ad.AnnData) else load_backed_adata(zarr.open_group(a, mode="r"), keys=keys, cols=cols) for a in src]
+    return [
+        a if isinstance(a, ad.AnnData) else load_backed_adata(zarr.open_group(a, mode="r"), keys=keys, cols=cols)
+        for a in src
+    ]

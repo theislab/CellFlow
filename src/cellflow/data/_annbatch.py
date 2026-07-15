@@ -111,7 +111,7 @@ def build_annbatch_training(
     # Accept a zarr path / list of adata zarr paths too: resolve to a Container (reads only `key` + the
     # grouping obs). Path-backed data is out-of-core, so — like a DatasetCollection — it is never
     # reordered here; only a user-supplied in-memory AnnData is stable-sorted below.
-    from_path = isinstance(data, (str, os.PathLike, list, tuple))
+    from_path = isinstance(data, str | os.PathLike | list | tuple)
     if from_path:
         data = open_source(data, keys=[key], cols=[*cols, control_key])
 

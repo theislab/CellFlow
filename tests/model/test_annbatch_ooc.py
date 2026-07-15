@@ -177,7 +177,9 @@ class TestOutOfCore:
         obs.index = obs.index.astype(str)
         x = np.random.default_rng(0).normal(size=(len(obs), 5)).astype("float32")
         ad.AnnData(X=x, obs=obs).write_h5ad(tmp_path / "s.h5ad")
-        dc = DatasetCollection(str(tmp_path / "sc.zarr"), mode="a").add_adatas([str(tmp_path / "s.h5ad")], shuffle=False)
+        dc = DatasetCollection(str(tmp_path / "sc.zarr"), mode="a").add_adatas(
+            [str(tmp_path / "s.h5ad")], shuffle=False
+        )
 
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(data=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP)

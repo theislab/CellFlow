@@ -320,8 +320,9 @@ class ConditionalVelocityField(nn.Module):
         train: bool = True,
         force_uncond: bool = False,
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """Encode the condition into its (pre-concatenation) embedding, returning also the raw
-        Gaussian parameters used by the stochastic-encoder regularization.
+        """Encode the condition into its (pre-concatenation) embedding.
+
+        Returns also the raw Gaussian parameters used by the stochastic-encoder regularization.
 
         This is the part of the forward pass that only depends on ``cond`` (not on ``t`` or ``x``), so
         the predict path evaluates it once per condition and passes the result to

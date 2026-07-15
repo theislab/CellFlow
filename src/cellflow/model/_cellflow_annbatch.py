@@ -272,8 +272,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         if self._scheme is None:
             raise ValueError(
-                "No annbatch `Scheme` to split. Call `prepare_data(...)` first "
-                "(the out-of-core streaming path)."
+                "No annbatch `Scheme` to split. Call `prepare_data(...)` first (the out-of-core streaming path)."
             )
         self._split_schemes = split_scheme(
             self._scheme,
