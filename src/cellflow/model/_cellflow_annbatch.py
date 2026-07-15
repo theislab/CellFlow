@@ -62,6 +62,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         sampler_config: "SamplerConfig | Mapping[str, SamplerConfig] | None" = None,
         seed: int = 0,
         control_in_memory: bool = False,
+        min_cells_per_condition: int = 0,
         split_by: Sequence[str] | None = None,
         split_ratios: Mapping[str, float] | None = None,
         split_force_training_values: Mapping[str, object] | None = None,
@@ -97,6 +98,14 @@ class CellFlowAnnbatch(BaseCellFlow):
             (``add_adatas(..., groupby=[...])``) or a clear error is raised.
         seed
             Reproducibility seed for the ``dagloader`` per-node RNG streams.
+        min_cells_per_condition
+            Drop (zero-weight) any perturbed condition with fewer than this many *total* cells — both a
+            scientific filter on untrainable tiny conditions and the lever that unblocks ``chunk_size > 1``:
+            a dropped (zero-weight) condition is exempt from annbatch's run-length rule, so its short run no
+            longer blocks chunked reads. Applied to the training source and to validation sources built from
+            the same spec. The default ``0`` drops nothing (behavior unchanged). Note this counts *total*
+            cells per condition, so it only unblocks ``chunk_size > 1`` when the kept conditions' per-plate
+            *runs* are also ``>= chunk_size``.
         split_by
             If given, split the prepared ``Scheme``'s target combinations into train/val/test in the
             same call (delegates to :meth:`split_annbatch_data`). Columns whose unique combinations are
@@ -138,6 +147,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             rep_dict=rep_dict,
             seed=seed,
             control_in_memory=control_in_memory,
+            min_cells_per_condition=min_cells_per_condition,
         )
         self._scheme = built.scheme
         self._dm = built.data_manager
@@ -161,6 +171,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             "rep_dict": rep_dict,
             "seed": seed,
             "control_in_memory": control_in_memory,
+            "min_cells_per_condition": min_cells_per_condition,
         }
 
         # Splitting step — kept in `prepare_data` so preparing and splitting are one call.
@@ -187,7 +198,10 @@ class CellFlowAnnbatch(BaseCellFlow):
             from cellflow.data._annbatch import assert_source_chunkable
 
             root = self._scheme.nodes[self._scheme.root]
-            assert_source_chunkable(self._scheme.sources["data"], root.cols, max_chunk)
+            # Pass the root weights so sub-threshold (zero-weight) conditions are exempt from the run-length
+            # rule — mirroring annbatch's ClassSampler, which never reads them (this is what lets
+            # `min_cells_per_condition` unblock `chunk_size > 1`).
+            assert_source_chunkable(self._scheme.sources["data"], root.cols, max_chunk, weights=root.weights)
 
         # Only the "train" split is streamed (feeds `train()`); val/test are read via DAGEvalLoader
         # below, so we don't build unused per-split streaming loaders.

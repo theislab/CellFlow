@@ -22,7 +22,7 @@ from cellflow.data._datamanager import DataManager
 
 if TYPE_CHECKING:
     from cellflow._types import ArrayLike
-    from dagloader import Container, Scheme
+    from dagloader import Container, Scheme, Weights
 
 Leaf = tuple[object, ...]  # a scheme leaf: one value per grouping column
 
@@ -34,21 +34,34 @@ __all__ = [
 ]
 
 
-def assert_source_chunkable(source: Container, cols: Sequence[str], chunk_size: int) -> None:
+def assert_source_chunkable(
+    source: Container, cols: Sequence[str], chunk_size: int, weights: Weights | None = None
+) -> None:
     """Raise unless ``source`` satisfies annbatch's run-length rule for ``chunk_size`` (reads ``obs`` only).
 
     With ``chunk_size > 1`` annbatch reads contiguous slices, so every contiguous run of each category
     (a ``cols`` combination) must be at least ``chunk_size`` cells; a category may span several runs.
     On a shorter run, raises pointing at ``DatasetCollection.add_adatas(groupby=...)``. In-memory sources
     are grouped automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs.
+
+    ``weights`` (a node's ``{combo: weight}``) restricts the check to positive-weight leaves: annbatch's
+    ``ClassSampler`` never reads a zero-weight leaf, so it exempts them from the run-length rule. Passing
+    the root node's weights is what lets ``min_cells_per_condition`` unblock ``chunk_size > 1`` — a
+    sub-threshold condition is zero-weighted, so its short run no longer blocks chunked reads. With
+    ``weights=None`` every run is checked (the strict, weight-agnostic behavior).
     """
     from dagloader._io import leaf_codes, obs_columns
 
-    codes, _ = leaf_codes(obs_columns(source, list(cols)), list(cols))
+    codes, leaves = leaf_codes(obs_columns(source, list(cols)), list(cols))
     if len(codes) == 0:
         return
     run_starts = np.concatenate([[0], np.flatnonzero(np.diff(codes) != 0) + 1])
     run_lengths = np.diff(np.concatenate([run_starts, [len(codes)]]))
+    if weights is not None:  # exempt zero-weight leaves (mirrors ClassSampler): check only their runs
+        positive = [i for i, lf in enumerate(leaves) if weights.get(tuple(lf), 0.0) > 0]
+        run_lengths = run_lengths[np.isin(codes[run_starts], positive)]
+        if len(run_lengths) == 0:
+            return
     shortest = int(run_lengths.min())
     if shortest < chunk_size:
         raise ValueError(
@@ -92,6 +105,7 @@ def build_annbatch_training(
     rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
     seed: int = 0,
     control_in_memory: bool = False,
+    min_cells_per_condition: int = 0,
 ) -> AnnbatchTraining:
     """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).
 
@@ -104,6 +118,15 @@ def build_annbatch_training(
     so the matched control is served from memory while the perturbed target keeps streaming out of core — a
     large dataloader speedup, since controls are re-drawn every batch. Only enable it when the controls fit
     in host RAM (the small population by design).
+
+    ``min_cells_per_condition`` zero-weights (drops from sampling) any perturbed condition with fewer than
+    this many *total* cells — a scientific filter on untrainable tiny conditions, and the lever that unblocks
+    ``chunk_size > 1``: a zero-weight leaf is exempt from annbatch's run-length rule, so a condition with a
+    sub-``chunk_size`` run no longer blocks chunked reads. The default ``0`` drops nothing (weights identical
+    to ``uniform``). Caveat: this counts *total* cells per condition, so it unblocks ``chunk_size > 1`` only
+    when the kept conditions' per-plate *runs* are also ``>= chunk_size``; a big condition with a rare
+    sub-``chunk_size`` run in one plate would still need a per-run guard (a generic ``min_rows_per_leaf`` in
+    dagloader — out of scope here).
     """
     from dagloader import Bind, Node, Scheme, uniform
     from dagloader._io import key_backings, obs_columns
@@ -199,13 +222,34 @@ def build_annbatch_training(
     ctrl_flag = uniq[control_key].to_numpy().astype(bool)
     pert = [tuple(r) for r in uniq.loc[~ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
     ctrl = [tuple(r) for r in uniq.loc[ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
+
+    # Root (perturbed) leaf weights: uniform over the perturbed combos, except conditions with fewer than
+    # `min_cells_per_condition` total cells are zero-weighted (dropped from sampling). Counts come from the
+    # full `obs` (all cells) via a groupby — cheap on the categorical grouping cols; keyed by string-tuple so
+    # the lookup is robust to `.to_numpy()` dtype quirks. The default 0 keeps every leaf, so `pert_weights`
+    # equals `uniform(pert)` and the whole scheme is byte-identical to before.
+    if min_cells_per_condition > 0:
+        cnt = obs.groupby(list(cols), observed=True).size().reset_index(name="_n").to_numpy()
+        count_of = {tuple(map(str, row[:-1])): int(row[-1]) for row in cnt}  # {str(cols-combo): n_cells}
+        pert_weights = {
+            leaf: (1.0 if count_of.get(tuple(map(str, leaf)), 0) >= min_cells_per_condition else 0.0) for leaf in pert
+        }
+        if pert and not any(pert_weights.values()):
+            largest = max(count_of.get(tuple(map(str, lf)), 0) for lf in pert)
+            raise ValueError(
+                f"min_cells_per_condition={min_cells_per_condition} dropped every perturbed condition "
+                f"(the largest has {largest} cells); lower the threshold."
+            )
+    else:
+        pert_weights = uniform(pert)
+
     # `control_in_memory` just tells dagloader to materialize the control (child) node into RAM — the
     # perturbed target keeps streaming out of core. dagloader owns the materialization (Node.in_memory);
     # the bind still matches control↔target by the context columns.
     scheme = Scheme(
         sources={"data": source},
         nodes={
-            "pert": Node("data", cols, key, uniform(pert)),
+            "pert": Node("data", cols, key, pert_weights),
             "ctrl": Node("data", cols, key, uniform(ctrl), in_memory=control_in_memory),
         },
         root="pert",
