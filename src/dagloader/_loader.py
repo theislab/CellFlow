@@ -72,11 +72,18 @@ class DAGLoader:
             for name, node in scheme.nodes.items()
         }
 
-        # per-node leaf partition + weights + tuple-labelled categorical (obs only — no cell matrices)
+        # per-node leaf partition + weights + tuple-labelled categorical (obs only — no cell matrices).
+        # Nodes over the same source object + cols (e.g. the perturbed root and its matched-control child)
+        # produce identical `(codes, leaves)` — only their weights differ — so read obs and factorize ONCE
+        # per (source, cols) and reuse. This avoids re-reading/re-factorizing the (100M-row) obs per node.
         self._st: dict[str, dict] = {}
+        leaf_cache: dict[tuple[int, tuple[str, ...]], tuple[np.ndarray, list[tuple]]] = {}
         for name, node in scheme.nodes.items():
-            obs = obs_columns(self._nodes[name], node.cols)
-            codes, leaves = leaf_codes(obs, node.cols)
+            src = self._nodes[name]
+            ck = (id(src), tuple(node.cols))
+            if ck not in leaf_cache:
+                leaf_cache[ck] = leaf_codes(obs_columns(src, node.cols), node.cols)
+            codes, leaves = leaf_cache[ck]
             self._st[name] = {
                 "node": node,
                 "leaves": leaves,

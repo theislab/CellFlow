@@ -124,9 +124,24 @@ def build_annbatch_training(
         source = source[order].copy()
         obs = obs_columns(source, [*cols, control_key])
 
-    # DataManager as a covariate-encoder factory: reads only obs + uns, so a cell-free shell suffices.
+    # The encoder and the scheme leaves depend only on the UNIQUE (grouping-cols, control) combinations —
+    # a few ×10^4 rows — not on the ~10^8 cells. So deduplicate ONCE here and drive the whole encoder
+    # (shell + DataManager + build_condition_data + enumerate_perturbations) and the pert/ctrl leaf lists
+    # off that tiny frame; feeding the full obs made every step O(n_cells) (a ~10-min prepare on Tahoe).
+    # Cast string grouping cols to `category` first so this single full-obs dedup hashes small integer
+    # codes, not raw strings. Parity-safe: `enumerate_perturbations` casts string cols the same way, so
+    # the leaf order is unchanged; only *object* (string) cols are cast, leaving numeric/bool covariates
+    # numeric (casting them would flip DataManager's numeric-vs-categorical detection) and preserving
+    # already-categorical cols' category order.
+    to_categorical = {c: "category" for c in cols if obs[c].dtype == object}
+    if to_categorical:
+        obs = obs.astype(to_categorical)
+    uniq = obs[[*cols, control_key]].drop_duplicates().reset_index(drop=True)
+
+    # DataManager as a covariate-encoder factory: reads only obs + uns, so a cell-free, deduplicated shell
+    # suffices — it reads the unique category values (not per-cell counts), so the encoder is identical.
     # `sample_rep` is stored for validation's `_get_cell_data` (verification is type-only, so it's safe here).
-    shell = ad.AnnData(obs=obs.copy())
+    shell = ad.AnnData(obs=uniq.copy())
     shell.uns = dict(rep_dict or {})
     dm = DataManager(
         shell,
@@ -143,7 +158,7 @@ def build_annbatch_training(
 
     # Per-condition embeddings — the shared helper → identical to the in-memory path (parity-tested).
     condition_data = build_condition_data(
-        obs,
+        uniq,
         shell.uns,
         control_key=control_key,
         perturb_covar_keys=dm._perturb_covar_keys,
@@ -164,7 +179,7 @@ def build_annbatch_training(
     # order (differs from `cols`), so re-project the leaf; string-normalize both sides so dtype quirks
     # (categorical / numpy scalars) don't break the match.
     idx_to_cov = enumerate_perturbations(
-        obs,
+        uniq,
         control_key=control_key,
         perturb_covar_keys=dm._perturb_covar_keys,
         split_covariates=list(context),
@@ -179,9 +194,11 @@ def build_annbatch_training(
         return {group: condition_data[group][[idx]] for group in condition_data}
 
     # The Scheme: root = perturbed combos, child = matched-control combos (bound on the context columns).
-    ctrl_flag = obs[control_key].to_numpy().astype(bool)
-    pert = [tuple(r) for r in obs.loc[~ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
-    ctrl = [tuple(r) for r in obs.loc[ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
+    # Built off the deduplicated frame — identical set of leaves to the full obs (order is irrelevant:
+    # `uniform` builds a dict and the loader resolves weights per string-sorted leaf).
+    ctrl_flag = uniq[control_key].to_numpy().astype(bool)
+    pert = [tuple(r) for r in uniq.loc[~ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
+    ctrl = [tuple(r) for r in uniq.loc[ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
     # `control_in_memory` just tells dagloader to materialize the control (child) node into RAM — the
     # perturbed target keeps streaming out of core. dagloader owns the materialization (Node.in_memory);
     # the bind still matches control↔target by the context columns.

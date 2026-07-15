@@ -93,11 +93,38 @@ def materialize_node(source: Container, node) -> ad.AnnData:
 
 
 def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list[tuple]]:
-    """Per-cell leaf code + the ordered leaf combinations (the grouping over ``cols``)."""
-    tuples = [tuple(row) for row in obs[list(cols)].to_numpy()]
-    leaves = sorted(set(tuples), key=lambda t: tuple(map(str, t)))
-    code_of = {lf: i for i, lf in enumerate(leaves)}
-    return np.array([code_of[t] for t in tuples], dtype=np.int64), leaves
+    """Per-cell leaf code + the ordered leaf combinations (the grouping over ``cols``).
+
+    ``leaves`` are the unique ``cols`` combinations as ``.to_numpy()``-typed tuples — the *same*
+    construction the ``{combo: weight}`` mappings use, so a leaf hash-equals its weight key — ordered by
+    per-element string key. ``codes[i]`` indexes ``leaves`` for cell ``i``.
+
+    Vectorized: the rows are factorized once at C level (no per-cell Python loop) and the raw factorize
+    codes are remapped onto the string-sorted leaf order. Grouping columns are cast to ``category`` first
+    so the factorize hashes small integer codes rather than raw (string) values — a pure speed lever, the
+    returned ``(codes, leaves)`` are identical either way (already-categorical columns are left as-is, so
+    a column's category order — hence the leaf order — is untouched).
+    """
+    cols = list(cols)
+    sub = obs[cols]
+    # leaves keep the source dtypes' `.to_numpy()` element types (loop over the FEW unique rows only).
+    leaves = sorted((tuple(r) for r in sub.drop_duplicates().to_numpy()), key=lambda t: tuple(map(str, t)))
+    if len(sub) == 0:
+        return np.zeros(0, dtype=np.int64), leaves
+    # Factorize the rows once at C level → a raw per-cell group code (appearance order). Cast only
+    # non-categorical cols first (keeps existing category orders) so the hashing runs over small integer
+    # codes; NaN is a real code, not a sentinel.
+    cast = {c: sub[c].astype("category") for c in cols if not isinstance(sub[c].dtype, pd.CategoricalDtype)}
+    raw = pd.factorize(pd.MultiIndex.from_frame(sub.assign(**cast) if cast else sub), use_na_sentinel=False)[0]
+    # Remap raw group codes → string-sorted leaf codes. The per-group representative is read back through
+    # `.to_numpy()` (like `leaves`), so both sides share the same dtype promotion (e.g. mixed int/float →
+    # float) and NaN normalizes to "nan" on both — the raw factorize `uniques` would not (it keeps each
+    # column's own dtype), which is why we key off representative rows, not `uniques`.
+    _, first_idx = np.unique(raw, return_index=True)  # first row of each group code g = 0..G-1
+    reps = sub.iloc[first_idx].to_numpy()
+    key_to_code = {tuple(map(str, lf)): i for i, lf in enumerate(leaves)}
+    remap = np.fromiter((key_to_code[tuple(map(str, r))] for r in reps), dtype=np.int64, count=len(reps))
+    return remap[raw], leaves
 
 
 def obs_columns(source: Container, cols: Sequence[str]) -> pd.DataFrame:
