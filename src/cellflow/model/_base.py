@@ -21,9 +21,9 @@ import pandas as pd
 from cellflow import _constants
 from cellflow._compat import BrownianBridge, ConstantNoiseFlow
 from cellflow._types import ArrayLike, Layers_separate_input_t, Layers_t
-from cellflow.data._data import ConditionData, ValidationData
+from cellflow.data._data import ConditionData
 from cellflow.data._datamanager import DataManager
-from cellflow.data._legacy import PredictionSampler
+from cellflow.data._legacy import PredictionSampler, ValidationData
 from cellflow.model._utils import _write_predictions
 from cellflow.networks import _velocity_field
 from cellflow.plotting import _utils

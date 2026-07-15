@@ -11,7 +11,6 @@ __all__ = [
     "BaseDataMixin",
     "ConditionData",
     "PredictionData",
-    "ValidationData",
 ]
 
 
@@ -78,55 +77,6 @@ class ConditionData(BaseDataMixin):
     perturbation_idx_to_id: dict[int, Any]
     null_value: Any
     data_manager: Any
-
-
-@dataclass
-class ValidationData(BaseDataMixin):
-    """Data container for the validation data.
-
-    Parameters
-    ----------
-    cell_data
-        The representation of cell data, e.g. PCA of gene expression data.
-    split_covariates_mask
-        Mask of the split covariates.
-    split_idx_to_covariates
-        Dictionary explaining values in ``split_covariates_mask``.
-    perturbation_covariates_mask
-        Mask of the perturbation covariates.
-    perturbation_idx_to_covariates
-        Dictionary explaining values in ``perturbation_covariates_mask``.
-    condition_data
-        Dictionary with embeddings for conditions.
-    control_to_perturbation
-        Mapping from control index to target distribution indices.
-    max_combination_length
-        Maximum number of covariates in a combination.
-    data_manager
-        The data manager
-    n_conditions_on_log_iteration
-        Number of conditions to use for computation callbacks at each logged iteration.
-        If :obj:`None`, use all conditions.
-    n_conditions_on_train_end
-        Number of conditions to use for computation callbacks at the end of training.
-        If :obj:`None`, use all conditions.
-    """
-
-    cell_data: np.ndarray  # (n_cells, n_features)
-    split_covariates_mask: np.ndarray  # (n_cells,), which cell assigned to which source distribution
-    split_idx_to_covariates: dict[int, tuple[Any, ...]]  # (n_sources,) dictionary explaining split_covariates_mask
-    perturbation_covariates_mask: np.ndarray  # (n_cells,), which cell assigned to which target distribution
-    perturbation_idx_to_covariates: dict[
-        int, tuple[str, ...]
-    ]  # (n_targets,), dictionary explaining perturbation_covariates_mask
-    perturbation_idx_to_id: dict[int, Any]
-    condition_data: dict[str, np.ndarray]  # (n_targets,) all embeddings for conditions
-    control_to_perturbation: dict[int, np.ndarray]  # mapping from control idx to target distribution idcs
-    max_combination_length: int
-    null_value: Any
-    data_manager: Any
-    n_conditions_on_log_iteration: int | None = None
-    n_conditions_on_train_end: int | None = None
 
 
 @dataclass
