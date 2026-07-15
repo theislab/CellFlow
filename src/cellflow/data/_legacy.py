@@ -3,7 +3,7 @@
 These samplers operate on materialized :mod:`cellflow.data` containers
 (:class:`~cellflow.data.TrainingData`, :class:`~cellflow.data.ValidationData`,
 :class:`~cellflow.data.PredictionData`) held fully in memory. They are superseded by the
-annbatch/``dagloader`` streaming path (see :class:`cellflow.data._dataloader.DAGLoaderAdapter`
+annbatch/``dagloader`` streaming path (see :class:`cellflow.data._dataloader.DAGTrainAdapter`
 and :meth:`cellflow.model.CellFlowAnnbatch.prepare_data`), which streams cells out of core and also
 accepts an in-memory ``AnnData``. Kept here for backward compatibility.
 """
@@ -12,14 +12,16 @@ import abc
 import queue
 import threading
 from collections.abc import Generator
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import jax
 import numpy as np
 
-from cellflow.data._data import PredictionData, TrainingData, ValidationData
+from cellflow.data._data import BaseDataMixin, PredictionData, ValidationData
 
 __all__ = [
+    "TrainingData",
     "TrainSampler",
     "BaseValidSampler",
     "ValidationSampler",
@@ -27,6 +29,47 @@ __all__ = [
     "OOCTrainSampler",
     "prefetch_to_device",
 ]
+
+
+@dataclass
+class TrainingData(BaseDataMixin):
+    """Training data (in-memory path).
+
+    Parameters
+    ----------
+    cell_data
+        The representation of cell data, e.g. PCA of gene expression data.
+    split_covariates_mask
+        Mask of the split covariates.
+    split_idx_to_covariates
+        Dictionary explaining values in ``split_covariates_mask``.
+    perturbation_covariates_mask
+        Mask of the perturbation covariates.
+    perturbation_idx_to_covariates
+        Dictionary explaining values in ``perturbation_covariates_mask``.
+    condition_data
+        Dictionary with embeddings for conditions.
+    control_to_perturbation
+        Mapping from control index to target distribution indices.
+    max_combination_length
+        Maximum number of covariates in a combination.
+    data_manager
+        The data manager
+    """
+
+    cell_data: np.ndarray  # (n_cells, n_features)
+    split_covariates_mask: np.ndarray  # (n_cells,), which cell assigned to which source distribution
+    split_idx_to_covariates: dict[int, tuple[Any, ...]]  # (n_sources,) dictionary explaining split_covariates_mask
+    perturbation_covariates_mask: np.ndarray  # (n_cells,), which cell assigned to which target distribution
+    perturbation_idx_to_covariates: dict[
+        int, tuple[str, ...]
+    ]  # (n_targets,), dictionary explaining perturbation_covariates_mask
+    perturbation_idx_to_id: dict[int, Any]
+    condition_data: dict[str, np.ndarray]  # (n_targets,) all embeddings for conditions
+    control_to_perturbation: dict[int, np.ndarray]  # mapping from control idx to target distribution idcs
+    max_combination_length: int
+    null_value: Any
+    data_manager: Any
 
 
 class TrainSampler:

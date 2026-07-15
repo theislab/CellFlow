@@ -11,7 +11,6 @@ __all__ = [
     "BaseDataMixin",
     "ConditionData",
     "PredictionData",
-    "TrainingData",
     "ValidationData",
 ]
 
@@ -77,47 +76,6 @@ class ConditionData(BaseDataMixin):
     max_combination_length: int
     perturbation_idx_to_covariates: dict[int, tuple[str, ...]]
     perturbation_idx_to_id: dict[int, Any]
-    null_value: Any
-    data_manager: Any
-
-
-@dataclass
-class TrainingData(BaseDataMixin):
-    """Training data.
-
-    Parameters
-    ----------
-    cell_data
-        The representation of cell data, e.g. PCA of gene expression data.
-    split_covariates_mask
-        Mask of the split covariates.
-    split_idx_to_covariates
-        Dictionary explaining values in ``split_covariates_mask``.
-    perturbation_covariates_mask
-        Mask of the perturbation covariates.
-    perturbation_idx_to_covariates
-        Dictionary explaining values in ``perturbation_covariates_mask``.
-    condition_data
-        Dictionary with embeddings for conditions.
-    control_to_perturbation
-        Mapping from control index to target distribution indices.
-    max_combination_length
-        Maximum number of covariates in a combination.
-    data_manager
-        The data manager
-    """
-
-    cell_data: np.ndarray  # (n_cells, n_features)
-    split_covariates_mask: np.ndarray  # (n_cells,), which cell assigned to which source distribution
-    split_idx_to_covariates: dict[int, tuple[Any, ...]]  # (n_sources,) dictionary explaining split_covariates_mask
-    perturbation_covariates_mask: np.ndarray  # (n_cells,), which cell assigned to which target distribution
-    perturbation_idx_to_covariates: dict[
-        int, tuple[str, ...]
-    ]  # (n_targets,), dictionary explaining perturbation_covariates_mask
-    perturbation_idx_to_id: dict[int, Any]
-    condition_data: dict[str, np.ndarray]  # (n_targets,) all embeddings for conditions
-    control_to_perturbation: dict[int, np.ndarray]  # mapping from control idx to target distribution idcs
-    max_combination_length: int
     null_value: Any
     data_manager: Any
 

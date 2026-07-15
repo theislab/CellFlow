@@ -1,7 +1,7 @@
 """Validation in the streaming path: each condition's full cell set is read via ``DAGEvalLoader``.
 
 Validation preserves the legacy per-condition contract (``{source, condition, target}`` dicts, one entry
-per condition) through :class:`~cellflow.data._annbatch.AnnbatchValidationSampler`, but reads cells via
+per condition) through :class:`~cellflow.data._dataloader.DAGEvalAdapter`, but reads cells via
 annbatch slice reads instead of boolean-masking a materialized matrix. The regression that matters: cells
 are read at the real ``sample_rep`` (e.g. an obsm key), not the internal ``"X"`` encoder-factory
 placeholder. The ``val``/``test`` splits from ``split_by`` are auto-wired as evaluation sources.
@@ -18,7 +18,7 @@ pytest.importorskip("annbatch")
 import anndata as ad
 
 import cellflow
-from cellflow.data._annbatch import AnnbatchValidationSampler
+from cellflow.data._dataloader import DAGEvalAdapter
 from dagloader import SamplerConfig
 
 _CFG = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
@@ -59,7 +59,7 @@ class TestAnnbatchValidation:
         _prepare(cf, _adata())  # sample_rep="X"
         cf.prepare_validation_data(source=_adata(seed=1), name="val")
         vs = cf.validation_data["val"]
-        assert isinstance(vs, AnnbatchValidationSampler)
+        assert isinstance(vs, DAGEvalAdapter)
         batch = vs.sample("on_train_end")
         assert set(batch) == {"source", "condition", "target"}
         # control-rooted: one batch per control population (2 cell lines), keyed by the drawn (line, drug)
@@ -91,7 +91,7 @@ class TestAnnbatchValidation:
         )
         # non-train splits become DAGEvalLoaders; "val" also feeds training-time validation
         assert set(cf.split_eval_loaders) == {"val", "test"}
-        assert isinstance(cf.validation_data.get("val"), AnnbatchValidationSampler)
+        assert isinstance(cf.validation_data.get("val"), DAGEvalAdapter)
 
     def test_train_with_validation_runs(self):
         cf = cellflow.model.CellFlowAnnbatch()

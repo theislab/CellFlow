@@ -12,8 +12,7 @@ import numpy as np
 import pandas as pd
 
 from cellflow._types import ArrayLike
-from cellflow.data._annbatch import AnnbatchValidationSampler
-from cellflow.data._dataloader import DAGLoaderAdapter
+from cellflow.data._dataloader import DAGEvalAdapter, DAGTrainAdapter
 from cellflow.model._base import BaseCellFlow
 
 if TYPE_CHECKING:
@@ -192,7 +191,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         # Only the "train" split is streamed (feeds `train()`); val/test are read via DAGEvalLoader
         # below, so we don't build unused per-split streaming loaders.
-        self._dataloader = DAGLoaderAdapter(
+        self._dataloader = DAGTrainAdapter(
             DAGLoader(schemes["train"], self._annbatch_sampler_configs["train"], condition_fn=condition_fn)
         )
 
@@ -209,7 +208,7 @@ class CellFlowAnnbatch(BaseCellFlow):
                     continue
                 self._split_eval_loaders[split_name] = DAGEvalLoader(sch, self._eval_cfg, condition_fn, seed=seed)
             if "val" in self._split_eval_loaders:
-                self._validation_data["val"] = AnnbatchValidationSampler(self._split_eval_loaders["val"])
+                self._validation_data["val"] = DAGEvalAdapter(self._split_eval_loaders["val"])
 
     def split_annbatch_data(
         self,
@@ -296,7 +295,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         built = build_annbatch_training(source, **self._prep_kwargs)
         eval_loader = DAGEvalLoader(built.scheme, self._eval_cfg, built.condition_fn, seed=self._seed)
-        self._validation_data[name] = AnnbatchValidationSampler(
+        self._validation_data[name] = DAGEvalAdapter(
             eval_loader,
             n_conditions_on_log_iteration=n_conditions_on_log_iteration,
             n_conditions_on_train_end=n_conditions_on_train_end,
@@ -319,7 +318,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         return self._condition_data, self._max_combination_length
 
     def _bind_train_dataloader(self, batch_size: int, out_of_core_dataloading: bool) -> None:
-        # the streaming `_dataloader` (DAGLoaderAdapter) was already set in `prepare_data`.
+        # the streaming `_dataloader` (DAGTrainAdapter) was already set in `prepare_data`.
         return None
 
     def _build_validation_loaders(self) -> dict[str, Any]:

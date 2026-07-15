@@ -11,9 +11,8 @@ from typing import Any, Literal
 import anndata as ad
 import numpy as np
 
-from cellflow.data._data import TrainingData
 from cellflow.data._datamanager import DataManager
-from cellflow.data._legacy import OOCTrainSampler, TrainSampler, ValidationSampler
+from cellflow.data._legacy import OOCTrainSampler, TrainingData, TrainSampler, ValidationSampler
 from cellflow.model._base import BaseCellFlow
 
 __all__ = ["CellFlow"]

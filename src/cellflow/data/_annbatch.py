@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
@@ -22,63 +22,16 @@ from cellflow.data._datamanager import DataManager
 
 if TYPE_CHECKING:
     from cellflow._types import ArrayLike
-    from dagloader import Container, DAGEvalLoader, Scheme
+    from dagloader import Container, Scheme
 
 Leaf = tuple[object, ...]  # a scheme leaf: one value per grouping column
 
 __all__ = [
     "AnnbatchTraining",
-    "AnnbatchValidationSampler",
     "assert_source_chunkable",
     "build_annbatch_training",
     "sample_rep_to_key",
 ]
-
-
-class AnnbatchValidationSampler:
-    """Validation sampler over a :class:`dagloader.DAGEvalLoader` — the trainer's ``sample(mode)`` contract.
-
-    Yields per-condition ``{"source", "condition", "target"}`` dicts (keyed by the perturbed leaf), as the
-    trainer expects. The control-rooted ``DAGEvalLoader`` reads each control population's cells in full for
-    the source and samples a matched perturbed batch for the target — via annbatch, no boolean masking.
-    ``n_conditions_*`` sets how many (control-population, drug) batches to draw per mode.
-
-    Parameters
-    ----------
-    eval_loader
-        A :class:`dagloader.DAGEvalLoader` built over the validation source.
-    n_conditions_on_log_iteration, n_conditions_on_train_end
-        How many conditions to draw per mode; :obj:`None` visits each control population once.
-    """
-
-    def __init__(
-        self,
-        eval_loader: DAGEvalLoader,
-        *,
-        n_conditions_on_log_iteration: int | None = None,
-        n_conditions_on_train_end: int | None = None,
-    ) -> None:
-        self._eval = eval_loader
-        self.n_conditions_on_log_iteration = n_conditions_on_log_iteration
-        self.n_conditions_on_train_end = n_conditions_on_train_end
-
-    def sample(self, mode: Literal["on_log_iteration", "on_train_end"]) -> dict[str, dict[Any, Any]]:
-        """Sample a validation batch: per-condition source/condition/target dicts (keyed by perturbed leaf)."""
-        # Densify the streamed cell reps exactly as the training adapter does: with the GPU read path
-        # (cupy) annbatch yields a jax *sparse* CSR, which the solver's `predict` can't index — so the
-        # eval source/target must be densified here too, or validation crashes on `jnp.asarray(sparse)`.
-        from cellflow.data._dataloader import _densify
-
-        n = self.n_conditions_on_log_iteration if mode == "on_log_iteration" else self.n_conditions_on_train_end
-        source: dict[Any, Any] = {}
-        condition: dict[Any, Any] = {}
-        target: dict[Any, Any] = {}
-        for out in self._eval.iter_conditions(n_conditions=n):
-            key = tuple(out["leaf"])
-            source[key] = _densify(out["source"])
-            condition[key] = out["condition"]
-            target[key] = _densify(out["target"])
-        return {"source": source, "condition": condition, "target": target}
 
 
 def assert_source_chunkable(source: Container, cols: Sequence[str], chunk_size: int) -> None:

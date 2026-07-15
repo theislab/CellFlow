@@ -15,7 +15,8 @@ from pandas.api.types import is_numeric_dtype
 
 from cellflow._types import ArrayLike
 from cellflow.data._condition import get_max_combination_length
-from cellflow.data._data import ConditionData, PredictionData, ReturnData, TrainingData, ValidationData
+from cellflow.data._data import ConditionData, PredictionData, ReturnData, ValidationData
+from cellflow.data._legacy import TrainingData
 
 from ._utils import _flatten_list, _to_list
 
