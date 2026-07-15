@@ -1,20 +1,19 @@
-"""Factory helpers ("the above layer") that fill a :class:`Scheme` from an obs table.
+"""Test-only Scheme factory (moved out of ``dagloader``'s public API).
 
-These are conveniences, not privileged: they build the same ``Node`` / ``Bind`` / ``Scheme`` a caller
-could assemble by hand. :func:`perturbation_scheme` is the cellflow-shaped case (control → perturbed,
-matched on context). Read parameters (batch / chunk / preload) are a separate :class:`SamplerConfig`
-given to the loader, so the factory only builds structure. sc-flow-tools-shaped schemes are usually
-assembled directly from a ``DataManager`` config; see ``README.md``.
+``perturbation_scheme`` builds the cellflow-shaped two-node :class:`~dagloader.Scheme` (control →
+perturbed, matched on context) from an obs table. Production cellflow assembles this scheme internally
+(:func:`cellflow.data._annbatch.build_annbatch_training`); only the split tests need the standalone
+factory, so it lives here rather than shipping as library surface. Importable as ``scheme_helpers`` via
+the ``pythonpath = ["tests"]`` pytest setting.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from dagloader import Bind, Node, Scheme, uniform
 from dagloader._io import obs_columns
-from dagloader._schema import Bind, Container, Node, Scheme, uniform
-
-__all__ = ["perturbation_scheme"]
+from dagloader._schema import Container
 
 
 def perturbation_scheme(

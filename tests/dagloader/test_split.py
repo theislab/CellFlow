@@ -18,11 +18,11 @@ import anndata as ad
 from dagloader import (
     SamplerConfig,
     Scheme,
-    perturbation_scheme,
     resolve_split_configs,
     split_assignment,
     split_scheme,
 )
+from scheme_helpers import perturbation_scheme
 
 
 def _toy_scheme(n_drugs: int = 5, cell_lines: tuple[str, ...] = ("A", "B"), seed: int = 0) -> Scheme:

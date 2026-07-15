@@ -128,7 +128,7 @@ e.g. a chunked root and a per-row control).
 
 cellflow trains a conditional flow from a **control** population to a **perturbed** population,
 matched within a context, one perturbation condition per batch. That maps directly onto a two-node
-scheme built by `perturbation_scheme` (`_schemes.py`):
+scheme (control child bound to the perturbed root on the context columns):
 
 | cellflow concept | dagloader |
 |---|---|
@@ -142,14 +142,20 @@ scheme built by `perturbation_scheme` (`_schemes.py`):
 | `perturbation_covariate_reps` (embeddings) | `condition_fn(leaf) -> embedding` |
 
 ```python
-from dagloader import DAGLoader, SamplerConfig, perturbation_scheme
+from dagloader import Bind, DAGLoader, Node, SamplerConfig, Scheme, uniform
 
-scheme = perturbation_scheme(
-    adata_or_collection,
-    context=["cell_line"],          # split_covariates
-    perturbation=["drug"],          # perturbation_covariates
-    control_values={"drug": "control"},
-    key="X",                        # sample_rep
+cols = ("cell_line", "drug")  # context (split_covariates) + perturbation columns
+combos = [tuple(r) for r in adata_or_collection.obs[list(cols)].drop_duplicates().to_numpy()]
+pert = [c for c in combos if c[1] != "control"]  # control_values={"drug": "control"}
+ctrl = [c for c in combos if c[1] == "control"]
+scheme = Scheme(
+    sources={"data": adata_or_collection},
+    nodes={
+        "pert": Node("data", cols, "X", uniform(pert)),  # root = perturbed; key="X" is sample_rep
+        "ctrl": Node("data", cols, "X", uniform(ctrl)),  # matched control child
+    },
+    root="pert",
+    binds=(Bind("pert", "ctrl", common=("cell_line",)),),  # match on context
     seed=0,
 )
 loader = DAGLoader(
@@ -160,11 +166,11 @@ loader = DAGLoader(
 batch = next(loader)  # {"target", "source", "condition"} — source is a matched-cell-line control
 ```
 
-**How cellflow uses it.** The collection/streaming path is **additive** to cellflow's in-memory
-`adata` + `perturbation_covariates` API — add `perturbation_scheme` + `DAGLoader` as a new
-dataloader alongside the existing ones (see `docs/perturbation_combinations.md` → "minimal churn").
-The condition encoding (categorical embeddings, combinations, pooling) stays in the model; the loader
-only needs a `condition_fn` that turns a leaf tuple into the per-condition embedding.
+**How cellflow uses it.** `cellflow.data._annbatch.build_annbatch_training` assembles exactly this
+scheme (plus the `condition_fn`) from a `prepare_data` covariate spec — the collection/streaming path is
+**additive** to cellflow's in-memory `adata` API. The condition encoding (categorical embeddings,
+combinations, pooling) stays in the model; the loader only needs a `condition_fn` that turns a leaf
+tuple into the per-condition embedding.
 
 ---
 
@@ -239,7 +245,6 @@ each node → a `Node`, the matched-subpopulation tree → the binds, `control_v
 | `_scheduled_sampler.py` | `ScheduledClassSampler` (reuses annbatch `_iter_requests` via an rng wrapper; the upstream candidate) |
 | `_io.py` | container-agnostic obs / leaf-code / rep-backing helpers (AnnData or DatasetCollection; X / obsm / layers) |
 | `_loader.py` | `DAGLoader` (config resolution, per-pass scheduling, bind derivation, batch assembly) |
-| `_schemes.py` | `perturbation_scheme` factory (the cellflow-shaped case) |
 
 Tests live in `tests/dagloader/`, organized by the cases above:
 

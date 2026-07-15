@@ -181,6 +181,7 @@ lint.pydocstyle.convention = "numpy"
 
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
+pythonpath = [ "tests" ]  # import shared test helpers (e.g. scheme_helpers) by bare module name
 xfail_strict = true
 addopts = [
   "--import-mode=importlib", # allow using test files with same name

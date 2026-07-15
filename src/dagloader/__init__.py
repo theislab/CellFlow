@@ -25,7 +25,6 @@ from dagloader._schema import (
     inverse_frequency,
     uniform,
 )
-from dagloader._schemes import perturbation_scheme
 from dagloader._split import resolve_split_configs, split_assignment, split_scheme
 
 __all__ = [
@@ -39,7 +38,6 @@ __all__ = [
     "Weights",
     "frequency",
     "inverse_frequency",
-    "perturbation_scheme",
     "resolve_split_configs",
     "split_assignment",
     "split_scheme",

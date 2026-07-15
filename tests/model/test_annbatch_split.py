@@ -15,7 +15,8 @@ pytest.importorskip("annbatch")  # dagloader (and thus the annbatch path) needs 
 import anndata as ad
 
 import cellflow
-from dagloader import SamplerConfig, perturbation_scheme
+from dagloader import SamplerConfig
+from scheme_helpers import perturbation_scheme
 
 _CFG = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
 
