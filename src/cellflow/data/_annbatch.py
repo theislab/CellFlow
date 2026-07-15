@@ -64,15 +64,20 @@ class AnnbatchValidationSampler:
 
     def sample(self, mode: Literal["on_log_iteration", "on_train_end"]) -> dict[str, dict[Any, Any]]:
         """Sample a validation batch: per-condition source/condition/target dicts (keyed by perturbed leaf)."""
+        # Densify the streamed cell reps exactly as the training adapter does: with the GPU read path
+        # (cupy) annbatch yields a jax *sparse* CSR, which the solver's `predict` can't index — so the
+        # eval source/target must be densified here too, or validation crashes on `jnp.asarray(sparse)`.
+        from cellflow.data._dataloader import _densify
+
         n = self.n_conditions_on_log_iteration if mode == "on_log_iteration" else self.n_conditions_on_train_end
         source: dict[Any, Any] = {}
         condition: dict[Any, Any] = {}
         target: dict[Any, Any] = {}
         for out in self._eval.iter_conditions(n_conditions=n):
             key = tuple(out["leaf"])
-            source[key] = out["source"]
+            source[key] = _densify(out["source"])
             condition[key] = out["condition"]
-            target[key] = out["target"]
+            target[key] = _densify(out["target"])
         return {"source": source, "condition": condition, "target": target}
 
 
@@ -119,6 +124,60 @@ class AnnbatchTraining:
     max_combination_length: int
 
 
+def _backing_nrows(b) -> int:
+    """Obs count of a rep backing — a dense array or an anndata sparse zarr group (shape lives in attrs)."""
+    return int(b.shape[0]) if hasattr(b, "shape") else int(tuple(b.attrs["shape"])[0])
+
+
+def _backing_ncols(b) -> int:
+    """Feature dim of a rep backing (dense array or anndata sparse zarr group)."""
+    return int(b.shape[1]) if hasattr(b, "shape") else int(tuple(b.attrs["shape"])[1])
+
+
+def _materialize_controls(source: Container, obs, cols: Sequence[str], control_key: str, key: str) -> ad.AnnData:
+    """Read the control cells' rep into an in-memory (dense) ``AnnData`` — a second Scheme source in RAM.
+
+    Controls are the small population re-drawn for *every* target batch, so re-streaming them from disk
+    each step is the dataloader bottleneck; pinning them in memory removes it. Reads only control rows
+    (per-dataset gather over the rep backings), densifies, and sorts by ``cols`` so ``chunk_size > 1``
+    still reads contiguous runs. Requires the controls to fit in host RAM (they are small by design).
+    """
+    from dagloader._io import key_backings
+
+    # a rep backing is a dense array (ndarray / zarr array / scipy sparse) OR an anndata sparse zarr
+    # *group* (CSR: data/indices/indptr sub-arrays) — the latter has no `.shape` and needs a sparse reader.
+    def _rows(b, loc: np.ndarray) -> np.ndarray:
+        if hasattr(b, "shape"):
+            sub = b.oindex[loc] if hasattr(b, "oindex") else b[loc]
+        else:  # sparse zarr group → anndata sparse dataset supports efficient row fancy-indexing
+            try:
+                from anndata.io import sparse_dataset
+            except ImportError:  # older anndata
+                from anndata.experimental import sparse_dataset
+            sub = sparse_dataset(b)[loc]
+        dense = getattr(sub, "todense", None)
+        return np.asarray(dense()) if dense is not None else np.asarray(sub)
+
+    ctrl_mask = obs[control_key].to_numpy().astype(bool)
+    ctrl_idx = np.flatnonzero(ctrl_mask)
+    backings = key_backings(source, key)  # global-obs-order backings: 1 (AnnData) or per-dataset (collection)
+    offs = np.concatenate([[0], np.cumsum([_backing_nrows(b) for b in backings])]).astype(np.int64)
+    parts = []
+    for d, b in enumerate(backings):
+        loc = np.sort(ctrl_idx[(ctrl_idx >= offs[d]) & (ctrl_idx < offs[d + 1])] - offs[d])
+        if loc.size:
+            parts.append(_rows(b, loc))
+    rep = np.concatenate(parts, axis=0) if parts else np.empty((0, _backing_ncols(backings[0])), dtype=np.float32)
+    ctrl_obs = obs.loc[ctrl_mask, [*cols, control_key]].reset_index(drop=True)
+    order = ctrl_obs.sort_values(list(cols), kind="stable").index.to_numpy()  # contiguous runs for chunk_size>1
+    ctrl_obs, rep = ctrl_obs.iloc[order].reset_index(drop=True), rep[order]
+    if key == "X":
+        return ad.AnnData(X=rep, obs=ctrl_obs)  # construct WITH X so n_var is inferred (not 0)
+    ctrl_ad = ad.AnnData(obs=ctrl_obs)  # obsm-only rep; X unused (n_var=0 is fine, the node reads obsm/<k>)
+    ctrl_ad.obsm[key.split("/", 1)[1]] = rep
+    return ctrl_ad
+
+
 def build_annbatch_training(
     source: Container,
     *,
@@ -133,12 +192,18 @@ def build_annbatch_training(
     null_value: float = 0.0,
     rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
     seed: int = 0,
+    control_in_memory: bool = False,
 ) -> AnnbatchTraining:
     """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).
 
     ``source`` is an out-of-core :class:`annbatch.DatasetCollection` or an in-memory ``AnnData``.
     ``rep_dict`` holds the covariate embedding tables (as ``adata.uns`` would); pass :obj:`None` when the
     primary covariate is categorical (one-hot).
+
+    ``control_in_memory`` materializes the control cells into an in-memory ``AnnData`` (a second Scheme
+    source) so the matched source/control is served from RAM while the perturbed target keeps streaming
+    out of core — a large dataloader speedup, since controls are re-drawn every batch. Only enable it when
+    the controls fit in host RAM (they are the small population by design).
     """
     from dagloader import Bind, Node, Scheme, uniform
     from dagloader._io import key_backings, obs_columns
@@ -217,18 +282,23 @@ def build_annbatch_training(
     ctrl_flag = obs[control_key].to_numpy().astype(bool)
     pert = [tuple(r) for r in obs.loc[~ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
     ctrl = [tuple(r) for r in obs.loc[ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
+    # `control_in_memory`: serve the matched control from a RAM-resident AnnData (a second source) while
+    # the perturbed target keeps streaming out of core. The bind matches by label across sources.
+    if control_in_memory:
+        sources = {"data": source, "ctrl_mem": _materialize_controls(source, obs, cols, control_key, key)}
+        ctrl_node = Node("ctrl_mem", cols, key, uniform(ctrl))
+    else:
+        sources = {"data": source}
+        ctrl_node = Node("data", cols, key, uniform(ctrl))
     scheme = Scheme(
-        sources={"data": source},
-        nodes={
-            "pert": Node("data", cols, key, uniform(pert)),
-            "ctrl": Node("data", cols, key, uniform(ctrl)),
-        },
+        sources=sources,
+        nodes={"pert": Node("data", cols, key, uniform(pert)), "ctrl": ctrl_node},
         root="pert",
         binds=(Bind("pert", "ctrl", common=context),),
         seed=seed,
     )
 
-    data_dim = int(key_backings(source, key)[0].shape[1])
+    data_dim = _backing_ncols(key_backings(source, key)[0])
     return AnnbatchTraining(
         scheme=scheme,
         condition_fn=condition_fn,

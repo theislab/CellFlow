@@ -66,7 +66,7 @@ class TestAnnbatchTraining:
         _prepare_model_small(cf)
         cf.train(num_iterations=2, valid_freq=100)
         assert cf.solver is not None
-        # val/test split loaders are streamable too
-        assert set(cf._annbatch_loaders) == {"train", "val", "test"}
-        val_batch = next(iter(cf._annbatch_loaders["val"]))
-        assert "target" in val_batch and "source" in val_batch
+        # val/test are read via DAGEvalLoader (control-rooted eval), not streamed as train-style loaders
+        assert set(cf.split_eval_loaders) == {"val", "test"}
+        val_out = next(cf.split_eval_loaders["val"].iter_conditions())
+        assert "target" in val_out and "source" in val_out

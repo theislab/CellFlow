@@ -19,7 +19,7 @@ from cellflow.model._base import BaseCellFlow
 if TYPE_CHECKING:
     from annbatch import DatasetCollection  # optional dep — only imported for typing
 
-    from dagloader import DAGEvalLoader, DAGLoader, SamplerConfig, Scheme  # optional deps — typing only
+    from dagloader import DAGEvalLoader, SamplerConfig, Scheme  # optional deps — typing only
 
 __all__ = ["CellFlowAnnbatch"]
 
@@ -40,7 +40,6 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._split_assignment: pd.DataFrame | None = None
         self._annbatch_sampler_configs: dict[str, SamplerConfig] | None = None
         self._eval_cfg: SamplerConfig | None = None  # target read params for DAGEvalLoader
-        self._annbatch_loaders: dict[str, DAGLoader] | None = None
         self._condition_data: dict[str, np.ndarray] | None = None  # condition embeddings
         self._max_combination_length: int | None = None
         self._condition_fn = None  # leaf -> embedding (set by `prepare_data`)
@@ -63,6 +62,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
         sampler_config: "SamplerConfig | Mapping[str, SamplerConfig] | None" = None,
         seed: int = 0,
+        control_in_memory: bool = False,
         split_by: Sequence[str] | None = None,
         split_ratios: Mapping[str, float] | None = None,
         split_force_training_values: Mapping[str, object] | None = None,
@@ -118,8 +118,8 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         Notes
         -----
-        The ``"train"`` split's loader is wired to :meth:`train`; when a split is made, the ``val`` /
-        ``test`` split loaders are kept on :attr:`_annbatch_loaders` for later use.
+        The ``"train"`` split feeds :meth:`train`; when a split is made, the ``val`` / ``test`` splits are
+        read via :class:`~dagloader.DAGEvalLoader` (see :attr:`split_eval_loaders`), not streamed.
         """
         from cellflow.data._annbatch import build_annbatch_training
         from dagloader import DAGLoader, resolve_split_configs
@@ -138,6 +138,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             null_value=null_value,
             rep_dict=rep_dict,
             seed=seed,
+            control_in_memory=control_in_memory,
         )
         self._scheme = built.scheme
         self._dm = built.data_manager
@@ -160,6 +161,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             "null_value": null_value,
             "rep_dict": rep_dict,
             "seed": seed,
+            "control_in_memory": control_in_memory,
         }
 
         # Splitting step — kept in `prepare_data` so preparing and splitting are one call.
@@ -188,12 +190,11 @@ class CellFlowAnnbatch(BaseCellFlow):
             root = self._scheme.nodes[self._scheme.root]
             assert_source_chunkable(self._scheme.sources["data"], root.cols, max_chunk)
 
-        # One streaming DAGLoader per split; the "train" split feeds `train()`, others are kept for reuse.
-        self._annbatch_loaders = {
-            name: DAGLoader(schemes[name], self._annbatch_sampler_configs[name], condition_fn=condition_fn)
-            for name in schemes
-        }
-        self._dataloader = DAGLoaderAdapter(self._annbatch_loaders["train"])
+        # Only the "train" split is streamed (feeds `train()`); val/test are read via DAGEvalLoader
+        # below, so we don't build unused per-split streaming loaders.
+        self._dataloader = DAGLoaderAdapter(
+            DAGLoader(schemes["train"], self._annbatch_sampler_configs["train"], condition_fn=condition_fn)
+        )
 
         # Auto-wire the val/test split combinations as evaluation sources over the same cells: a
         # `DAGEvalLoader` reads each held-out condition's full cell set + matched controls. The "val"
@@ -257,8 +258,8 @@ class CellFlowAnnbatch(BaseCellFlow):
             force_training_values=force_training_values,
             random_state=random_state,
         )
-        # `prepare_data` turns these split Schemes into per-split DAGLoaders (train feeds
-        # `train()`; val/test are kept on `_annbatch_loaders`); here we only produce the schemes + table.
+        # `prepare_data` wires the "train" split into the streaming loader and the val/test splits into
+        # `DAGEvalLoader`s (`split_eval_loaders`); here we only produce the schemes + table.
         return split_assignment(self._split_schemes)
 
     def prepare_validation_data(

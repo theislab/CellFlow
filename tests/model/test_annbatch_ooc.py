@@ -99,7 +99,7 @@ class TestOutOfCore:
             split_ratios={"train": 0.5, "val": 0.25, "test": 0.25},
             **_PREP,
         )
-        assert set(cf._annbatch_loaders) == {"train", "val", "test"}
+        assert set(cf.split_eval_loaders) == {"val", "test"}  # non-train splits read via DAGEvalLoader
 
     def test_in_memory_unsorted_source_is_auto_grouped(self):
         # an in-memory (interleaved) AnnData source is grouped automatically → chunk_size>1 works

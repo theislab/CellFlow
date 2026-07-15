@@ -87,8 +87,8 @@ class TestPrepareAnnbatchData:
         cf = cellflow.model.CellFlowAnnbatch()
         self._prepare(cf)
         assert cf._scheme is not None and cf._scheme.root == "pert"
-        assert set(cf._annbatch_loaders) == {"train"}  # no split → single "train"
         assert cf._dataloader is not None  # DAGLoaderAdapter wired for train()
+        assert cf.split_eval_loaders == {}  # no split → no eval loaders
         # condition embeddings assembled (drug is categorical → one-hot), data dim from X
         assert set(cf._condition_data) == {"drug"}
         assert cf._data_dim == 5
@@ -98,7 +98,7 @@ class TestPrepareAnnbatchData:
         cf = cellflow.model.CellFlowAnnbatch()
         assert self._prepare(cf, split_by=["drug"], split_random_state=0) is None  # prepare_* returns None
         assert set(cf._split_assignment["split"]) == {"train", "val", "test"}
-        assert set(cf._annbatch_loaders) == {"train", "val", "test"}
+        assert set(cf.split_eval_loaders) == {"val", "test"}  # eval loaders for the non-train splits
         assert set(cf._annbatch_sampler_configs) == {"train", "val", "test"}
         assert cf._dataloader is not None
 
