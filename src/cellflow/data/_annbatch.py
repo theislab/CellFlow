@@ -64,7 +64,7 @@ def build_annbatch_training(
     null_value: float = 0.0,
     rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
     seed: int = 0,
-    control_in_memory: bool = False,
+    control_in_memory: bool = True,
     min_cells_per_condition: int = 0,
 ) -> AnnbatchTraining:
     """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).

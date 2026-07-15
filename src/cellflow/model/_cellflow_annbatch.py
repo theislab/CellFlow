@@ -61,7 +61,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         rep_dict: Mapping[str, Mapping[str, ArrayLike]] | None = None,
         sampler_config: "SamplerConfig | Mapping[str, SamplerConfig] | None" = None,
         seed: int = 0,
-        control_in_memory: bool = False,
+        control_in_memory: bool = True,
         min_cells_per_condition: int = 0,
         split_by: Sequence[str] | None = None,
         split_ratios: Mapping[str, float] | None = None,
