@@ -144,12 +144,13 @@ class DAGEvalLoader:
         ctx = len(self._context)
         cond_leaves = [tuple(vocab[int(c)])[ctx:] for c in oracle.batch_codes()]  # strip the shared context prefix
 
-        # TODO(selmanozleyen): inline x_loaders since there is no need
-        src_loaders = self._node_loaders(self._src, self._ctrl, lambda: self._inner(schedule))
-        tgt_loaders = self._node_loaders(self._src_p, self._pert, lambda: self._bound(schedule))
-        src_iters = {k: iter(ld) for k, ld in src_loaders.items()}
-        tgt_iters = {k: iter(ld) for k, ld in tgt_loaders.items()}
-        skeys, tkeys = list(src_loaders), list(tgt_loaders)
+        src_iters = {
+            k: iter(ld) for k, ld in self._node_loaders(self._src, self._ctrl, lambda: self._inner(schedule)).items()
+        }
+        tgt_iters = {
+            k: iter(ld) for k, ld in self._node_loaders(self._src_p, self._pert, lambda: self._bound(schedule)).items()
+        }
+        skeys, tkeys = list(src_iters), list(tgt_iters)
 
         for j in range(len(schedule)):
             src = {k: next(src_iters[k])["X"] for k in skeys}

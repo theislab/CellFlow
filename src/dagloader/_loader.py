@@ -217,7 +217,6 @@ class DAGLoader:
         """
         self._oracle = self._new_class_sampler(self.s.root)  # supplies the per-batch condition schedule
 
-        self._samplers: dict[str, dict[str, ClassSampler | BoundClassSampler]] = {}
         self._loaders: dict[str, dict[str, Loader]] = {}
         self._add_node_loaders(self.s.root, lambda: self._new_class_sampler(self.s.root))
         for b in self._child_binds:
@@ -228,16 +227,16 @@ class DAGLoader:
         src = self._nodes[name]
         cfg = self._cfg[name]
         preload_to_gpu = cfg.preload_to_gpu if cfg.preload_to_gpu is not None else _HAS_CUPY  # None ⇒ auto
-        self._samplers[name], self._loaders[name] = {}, {}
+        self._loaders[name] = {}
         for ki, key in enumerate(node.keys):
-            sampler = make_sampler()
             return_index = name == self.s.root and ki == 0  # only for the schedule↔row alignment check
             # `to` (default "jax") + `preload_to_gpu` are user-set via SamplerConfig. `to="jax"` yields
             # native jax arrays (no host round-trip); `preload_to_gpu` keeps the read window on-GPU (needs
             # cupy), else it defers the device copy to the step. Auto-selects cupy when unset.
-            base = Loader(batch_sampler=sampler, return_index=return_index, to=cfg.to, preload_to_gpu=preload_to_gpu)
-            loader = self._attach(base, src, key)
-            self._samplers[name][key], self._loaders[name][key] = sampler, loader
+            base = Loader(
+                batch_sampler=make_sampler(), return_index=return_index, to=cfg.to, preload_to_gpu=preload_to_gpu
+            )
+            self._loaders[name][key] = self._attach(base, src, key)
 
     def _attach(self, loader: Loader, src: Container, key: str) -> Loader:
         """Feed rep ``key`` of ``src`` to a fresh ``Loader`` via the source-appropriate annbatch entry point.
