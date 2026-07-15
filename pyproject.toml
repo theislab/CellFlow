@@ -31,7 +31,7 @@ classifiers = [
 dynamic = [ "version" ]
 dependencies = [
   "adjusttext",
-  "anndata",
+  "anndata>=0.13",  # lazy read accessors (read_lazy) — the loader reads reps via AnnData, not key_backings
   "cloudpickle",
   "coverage",
   "dask",
@@ -188,6 +188,12 @@ addopts = [
 markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
   "internet: marks tests that require internet access (deselect with '-m \"not internet\"')",
+]
+filterwarnings = [
+  # jaxopt is unmaintained and warns on import; it is pulled in transitively by ott-jax
+  # (ott.geometry.costs imports it on every version, incl. main) — not by cellflow. Nothing to fix
+  # on our side, so silence the noise rather than fail on it.
+  "ignore:JAXopt is no longer maintained:DeprecationWarning",
 ]
 
 [tool.coverage.run]
