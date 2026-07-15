@@ -16,12 +16,13 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from importlib.util import find_spec
 
+import anndata as ad
 import numpy as np
 import pandas as pd
-from annbatch import Loader
+from annbatch import DatasetCollection, Loader
 from annbatch.samplers import BoundClassSampler, ClassSampler
 
-from dagloader._io import key_backings, leaf_codes, materialize_node, obs_columns
+from dagloader._io import _readable, key_backings, leaf_codes, materialize_node, obs_columns
 from dagloader._schema import Bind, Container, SamplerConfig, Scheme, _weight_vector
 
 __all__ = ["DAGLoader"]
@@ -29,6 +30,22 @@ __all__ = ["DAGLoader"]
 # annbatch's GPU path (cupy vstack/indexing → `to="jax"` yields a GPU-resident array via dlpack) needs
 # cupy. When it's absent (CPU-only envs — Mac, CI), fall back so `to="jax"` still yields a CPU jax array.
 _HAS_CUPY = find_spec("cupy") is not None
+
+
+def _is_backed(arr) -> bool:
+    """True if ``arr`` is an on-disk backing (dense zarr array / backed ``CSRDataset``), not in-memory."""
+    import zarr
+    from anndata.abc import CSRDataset
+
+    return isinstance(arr, zarr.Array | CSRDataset)
+
+
+def _group_rep(g, key: str):
+    """Rep ``key`` of a collection's zarr group as a readable backing (dense array / wrapped CSR group)."""
+    if key == "X":
+        return _readable(g["X"])
+    field, sub = key.split("/", 1)  # "obsm/X_pca" | "layers/log1p"
+    return _readable(g[field][sub])
 
 
 def _flat_categorical(codes: np.ndarray, leaves: list[tuple]) -> pd.Categorical:
@@ -218,10 +235,28 @@ class DAGLoader:
             # `to` (default "jax") + `preload_to_gpu` are user-set via SamplerConfig. `to="jax"` yields
             # native jax arrays (no host round-trip); `preload_to_gpu` keeps the read window on-GPU (needs
             # cupy), else it defers the device copy to the step. Auto-selects cupy when unset.
-            loader = Loader(
-                batch_sampler=sampler, return_index=return_index, to=cfg.to, preload_to_gpu=preload_to_gpu
-            ).add_datasets(key_backings(src, key))
+            base = Loader(batch_sampler=sampler, return_index=return_index, to=cfg.to, preload_to_gpu=preload_to_gpu)
+            loader = self._attach(base, src, key)
             self._samplers[name][key], self._loaders[name][key] = sampler, loader
+
+    def _attach(self, loader: Loader, src: Container, key: str) -> Loader:
+        """Feed rep ``key`` of ``src`` to a fresh ``Loader`` via the source-appropriate annbatch entry point.
+
+        Dispatch by source kind, streaming only rep ``key`` with **no obs** — dagloader owns the class
+        labels through the sampler (``classes=``), so annbatch never needs the source's obs:
+
+        * ``DatasetCollection`` → :meth:`~annbatch.Loader.use_collection` (annbatch's own collection API),
+          each group's rep loaded as an obs-free ``X`` (the default ``load_adata`` would decode *all* obs);
+        * **backed** ``AnnData`` / list of backed ``AnnData`` → the raw rep backings through ``add_datasets``;
+        * **in-memory** ``AnnData`` (a user adata, or a materialized ``in_memory`` node such as the matched
+          control) → ``add_adatas`` over the rep wrapped as an obs-free ``X``.
+        """
+        if isinstance(src, DatasetCollection):
+            return loader.use_collection(src, load_adata=lambda g: ad.AnnData(X=_group_rep(g, key)))
+        backings = key_backings(src, key)
+        if isinstance(src, ad.AnnData) and not _is_backed(backings[0]):  # in-memory adata → add_adatas
+            return loader.add_adatas([ad.AnnData(X=b) for b in backings])
+        return loader.add_datasets(backings)  # backed adata or list of backed adata
 
     # ── per-pass scheduling ────────────────────────────────────────────────
     def _start_pass(self) -> None:
