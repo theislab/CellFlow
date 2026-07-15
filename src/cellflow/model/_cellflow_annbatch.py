@@ -191,17 +191,11 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._annbatch_sampler_configs = resolve_split_configs(sampler_config, list(schemes))
         self._eval_cfg = self._annbatch_sampler_configs["train"]  # target-batch read params for eval loaders
 
-        # `chunk_size > 1` reads contiguous slices → every category's runs must be >= chunk_size
-        # (in-memory sources are auto-grouped above; out-of-core collections must be built grouped).
-        max_chunk = max(cfg.chunk_size for cfg in self._annbatch_sampler_configs.values())
-        if max_chunk > 1:
-            from cellflow.data._annbatch import assert_source_chunkable
-
-            root = self._scheme.nodes[self._scheme.root]
-            # Pass the root weights so sub-threshold (zero-weight) conditions are exempt from the run-length
-            # rule — mirroring annbatch's ClassSampler, which never reads them (this is what lets
-            # `min_cells_per_condition` unblock `chunk_size > 1`).
-            assert_source_chunkable(self._scheme.sources["data"], root.cols, max_chunk, weights=root.weights)
+        # No cellflow-side run-length pre-check: annbatch enforces the `chunk_size > 1` run-length rule
+        # itself when building each node's sampler (raising a clear, class-level error), so a redundant
+        # check here would only duplicate that logic. `min_cells_per_condition` zero-weights sub-threshold
+        # conditions (annbatch's ClassSampler skips them), and an in-memory control node samples at
+        # chunk_size=1 (see DAGLoader) — so only the streamed perturbed layout has to satisfy the rule.
 
         # Only the "train" split is streamed (feeds `train()`); val/test are read via DAGEvalLoader
         # below, so we don't build unused per-split streaming loaders.

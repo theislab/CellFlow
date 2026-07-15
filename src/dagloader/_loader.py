@@ -13,6 +13,7 @@ exact same stream. See ``README.md``.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import replace
 from importlib.util import find_spec
 
 import numpy as np
@@ -104,13 +105,29 @@ class DAGLoader:
         self._pos = 0
 
     def _resolve_configs(self, cfg: SamplerConfig | Mapping[str, SamplerConfig]) -> dict[str, SamplerConfig]:
-        """Normalize to one config per node (nodes may use different batch sizes)."""
+        """Normalize to one config per node (nodes may use different batch sizes).
+
+        An ``in_memory`` node is materialized into RAM (see :func:`~dagloader._io.materialize_node`), so
+        chunked contiguous reads buy it nothing and the run-length rule is meaningless for it — force
+        ``chunk_size=1`` there. Its in-RAM reads then carry no run-length constraint, so a matched-control
+        child in memory never blocks a ``chunk_size > 1`` perturbed stream; only streamed nodes' on-disk
+        layouts have to satisfy the rule. ``preload_nchunks`` must stay a positive multiple of
+        ``batch_size // chunk_size`` (``= batch_size`` at chunk 1), so it is rescaled to preserve the read
+        window's cell count.
+        """
         if isinstance(cfg, SamplerConfig):
-            return dict.fromkeys(self.s.nodes, cfg)
-        missing = set(self.s.nodes) - set(cfg)
-        if missing:
-            raise ValueError(f"sampler_config mapping is missing node(s): {sorted(missing)}.")
-        return {name: cfg[name] for name in self.s.nodes}
+            resolved = dict.fromkeys(self.s.nodes, cfg)
+        else:
+            missing = set(self.s.nodes) - set(cfg)
+            if missing:
+                raise ValueError(f"sampler_config mapping is missing node(s): {sorted(missing)}.")
+            resolved = {name: cfg[name] for name in self.s.nodes}
+        for name, node in self.s.nodes.items():
+            c = resolved[name]
+            if node.in_memory and c.chunk_size != 1:
+                windows = max(1, round(c.chunk_size * c.preload_nchunks / c.batch_size))
+                resolved[name] = replace(c, chunk_size=1, preload_nchunks=windows * c.batch_size)
+        return resolved
 
     # ── build ────────────────────────────────────────────────────────────
     def _new_class_sampler(self, name: str) -> ClassSampler:

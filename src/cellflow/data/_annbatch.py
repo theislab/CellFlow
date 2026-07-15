@@ -22,55 +22,15 @@ from cellflow.data._datamanager import DataManager
 
 if TYPE_CHECKING:
     from cellflow._types import ArrayLike
-    from dagloader import Container, Scheme, Weights
+    from dagloader import Container, Scheme
 
 Leaf = tuple[object, ...]  # a scheme leaf: one value per grouping column
 
 __all__ = [
     "AnnbatchTraining",
-    "assert_source_chunkable",
     "build_annbatch_training",
     "sample_rep_to_key",
 ]
-
-
-def assert_source_chunkable(
-    source: Container, cols: Sequence[str], chunk_size: int, weights: Weights | None = None
-) -> None:
-    """Raise unless ``source`` satisfies annbatch's run-length rule for ``chunk_size`` (reads ``obs`` only).
-
-    With ``chunk_size > 1`` annbatch reads contiguous slices, so every contiguous run of each category
-    (a ``cols`` combination) must be at least ``chunk_size`` cells; a category may span several runs.
-    On a shorter run, raises pointing at ``DatasetCollection.add_adatas(groupby=...)``. In-memory sources
-    are grouped automatically by :func:`build_annbatch_training`, so this only bites out-of-core inputs.
-
-    ``weights`` (a node's ``{combo: weight}``) restricts the check to positive-weight leaves: annbatch's
-    ``ClassSampler`` never reads a zero-weight leaf, so it exempts them from the run-length rule. Passing
-    the root node's weights is what lets ``min_cells_per_condition`` unblock ``chunk_size > 1`` — a
-    sub-threshold condition is zero-weighted, so its short run no longer blocks chunked reads. With
-    ``weights=None`` every run is checked (the strict, weight-agnostic behavior).
-    """
-    from dagloader._io import leaf_codes, obs_columns
-
-    codes, leaves = leaf_codes(obs_columns(source, list(cols)), list(cols))
-    if len(codes) == 0:
-        return
-    run_starts = np.concatenate([[0], np.flatnonzero(np.diff(codes) != 0) + 1])
-    run_lengths = np.diff(np.concatenate([run_starts, [len(codes)]]))
-    if weights is not None:  # exempt zero-weight leaves (mirrors ClassSampler): check only their runs
-        positive = [i for i, lf in enumerate(leaves) if weights.get(tuple(lf), 0.0) > 0]
-        run_lengths = run_lengths[np.isin(codes[run_starts], positive)]
-        if len(run_lengths) == 0:
-            return
-    shortest = int(run_lengths.min())
-    if shortest < chunk_size:
-        raise ValueError(
-            f"chunk_size={chunk_size} requires every contiguous run of each category (a {list(cols)} "
-            f"combination) to be at least chunk_size cells, but the source has a run of only {shortest}. "
-            f"Group the source so each category forms long runs — e.g. create the DatasetCollection with "
-            f"`add_adatas(..., groupby={list(cols)})` — or use chunk_size=1. (A category may span several "
-            f"runs; only each run's length matters.)"
-        )
 
 
 def sample_rep_to_key(sample_rep: str) -> str:
@@ -141,7 +101,7 @@ def build_annbatch_training(
 
     # In-memory source: stable-sort by the grouping columns so `chunk_size > 1` reads contiguous slices
     # (cheap, and cell order is irrelevant). Out-of-core sources aren't reordered (expensive zarr re-sort)
-    # — they must be built grouped; `assert_source_chunkable` enforces that.
+    # — they must be built grouped; annbatch enforces the run-length rule when it builds each sampler.
     if isinstance(source, ad.AnnData):
         order = obs[list(cols)].reset_index(drop=True).sort_values(list(cols), kind="stable").index.to_numpy()
         source = source[order].copy()

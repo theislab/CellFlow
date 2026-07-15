@@ -19,7 +19,6 @@ import anndata as ad
 from annbatch import DatasetCollection
 
 import cellflow
-from cellflow.data._annbatch import assert_source_chunkable
 from dagloader import SamplerConfig
 
 _PREP = {
@@ -73,8 +72,9 @@ class TestOutOfCore:
         assert cf.solver is not None
 
     def test_ungrouped_collection_chunked_raises(self, tmp_path):
+        # annbatch enforces the run-length rule itself when building the sampler (no cellflow pre-check).
         cf = cellflow.model.CellFlowAnnbatch()
-        with pytest.raises(ValueError, match="grouped|groupby"):
+        with pytest.raises(ValueError, match="chunk_size|[Rr]e-chunk|run"):
             cf.prepare_data(
                 source=_collection(tmp_path, grouped=False),
                 sampler_config=SamplerConfig(batch_size=16, chunk_size=4, preload_nchunks=16),
@@ -163,26 +163,3 @@ class TestOutOfCore:
         )
         assert cf._scheme.nodes["ctrl"].in_memory is True  # cellflow flagged it
         assert isinstance(cf._dataloader._loader._nodes["ctrl"], ad.AnnData)  # dagloader materialized it
-
-
-class TestChunkableCheck:
-    """`assert_source_chunkable` matches annbatch's rule: runs >= chunk_size, fragmentation allowed."""
-
-    @staticmethod
-    def _frag(block):  # each (cell_line, drug) category appears in 2 runs of `block`
-        rows = [(cl, dr) for _ in range(2) for cl in ("A", "B") for dr in ("d1", "d2") for _ in range(block)]
-        obs = pd.DataFrame(rows, columns=["cell_line", "drug"])
-        obs.index = obs.index.astype(str)
-        return ad.AnnData(X=np.zeros((len(obs), 2), dtype="float32"), obs=obs)
-
-    def test_accepts_fragmented_runs(self):
-        # fragmented but every run (10) >= chunk_size (4) → no raise (annbatch accepts this too)
-        assert_source_chunkable(self._frag(10), ("cell_line", "drug"), 4)
-
-    def test_rejects_short_run(self):
-        # runs of 3 < chunk_size 4 → raise, with the groupby hint
-        with pytest.raises(ValueError, match="run of only 3|groupby|chunk_size"):
-            assert_source_chunkable(self._frag(3), ("cell_line", "drug"), 4)
-
-    def test_chunk_size_one_always_ok(self):
-        assert_source_chunkable(self._frag(1), ("cell_line", "drug"), 1)  # runs of 1 >= 1
