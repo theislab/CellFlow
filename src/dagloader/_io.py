@@ -136,34 +136,40 @@ def obs_columns(source: Container, cols: Sequence[str]) -> pd.DataFrame:
     return source.obs(columns=list(cols))  # DatasetCollection
 
 
-def _backed(x):
-    """A zarr rep as a readable backing: dense zarr array passes through; a sparse group is wrapped."""
-    import zarr
+def _read_obs_cols(obs_group, cols: Sequence[str]) -> pd.DataFrame:
+    """Read only ``cols`` from a zarr obs group as a pandas frame — no full read, no xarray ``Dataset2D``.
 
-    return x if isinstance(x, zarr.Array) else ad.io.sparse_dataset(x)
+    ``read_elem(obs_group)`` would decode every column; ``read_lazy`` would yield an xarray-backed
+    ``Dataset2D``. Instead read the index element plus each requested column element on its own (each
+    ``read_elem`` reconstructs its dtype — categoricals included), so unused obs columns are never touched.
+    """
+    index = pd.Index(ad.io.read_elem(obs_group[obs_group.attrs["_index"]]))
+    if not cols:
+        return ad.io.read_elem(obs_group)
+    return pd.DataFrame({c: ad.io.read_elem(obs_group[c]) for c in cols}, index=index)
 
 
 def load_backed_adata(g, *, keys: Sequence[str], cols: Sequence[str] = ()) -> ad.AnnData:
     """Open a zarr adata group as a (backed) AnnData, reading only the reps in ``keys`` and obs ``cols``.
 
-    ``X`` is read as a backed sparse dataset or lazy dense zarr array; ``obsm/<k>`` / ``layers/<k>`` reps
-    likewise; ``var`` is reduced to its index and ``obs`` to ``cols`` (all of obs if ``cols`` is empty).
-    Only the reps a node actually streams are materialized, so unused representations are never touched.
+    Every rep (``X`` / ``obsm/<k>`` / ``layers/<k>``) is read through the same anndata accessor the loader
+    uses everywhere (:func:`_readable`: a dense zarr array passes through, a sparse group becomes a backed
+    ``CSRDataset``) — so nothing is pulled into RAM. ``var`` is reduced to its index and ``obs`` to ``cols``
+    (see :func:`_read_obs_cols` — only those columns are decoded). Unused representations are never touched.
     """
     var = g["var"]
-    obs = ad.io.read_elem(g["obs"])
     kw: dict = {
-        "obs": obs[list(cols)] if cols else obs,
+        "obs": _read_obs_cols(g["obs"], cols),
         "var": pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
     }
     if "X" in keys:
-        kw["X"] = _backed(g["X"])
+        kw["X"] = _readable(g["X"])
     adata = ad.AnnData(**kw)
     for key in keys:
         if key == "X":
             continue
         field, sub = key.split("/", 1)  # "obsm/X_pca" | "layers/log1p"
-        getattr(adata, field)[sub] = _backed(g[field][sub])
+        getattr(adata, field)[sub] = _readable(g[field][sub])
     return adata
 
 

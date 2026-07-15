@@ -17,10 +17,32 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from os import PathLike
+from typing import TYPE_CHECKING, Union
 
 import anndata as ad
 import numpy as np
 from annbatch import DatasetCollection
+
+if TYPE_CHECKING:
+    from anndata.acc import RefAcc
+
+# A representation location a node streams. Either a loc string — ``"X"`` | ``"obsm/<k>"`` |
+# ``"layers/<k>"`` — or the equivalent :mod:`anndata.acc` accessor describing the same spot
+# (``A.X`` | ``A.obsm["<k>"]`` | ``A.layers["<k>"]``). Accessors are normalized to the loc string in
+# :meth:`Node.__post_init__`, which stays the internal + batch-dict key.
+RepKey = Union[str, "RefAcc"]
+
+
+def _rep_loc(key: RepKey) -> str:
+    """Normalize a rep key (loc string or :mod:`anndata.acc` accessor) to a loc string."""
+    if isinstance(key, str):
+        return key
+    dim, k = getattr(key, "dim", None), getattr(key, "k", None)  # anndata.acc reference
+    if dim in ("obs", "var"):  # MultiAcc → obsm / varm
+        return f"{dim}m/{k}"
+    if k is None:  # LayerAcc with no key → X
+        return "X"
+    return f"layers/{k}"  # LayerAcc with a key → layers/<k>
 
 # A cell source: an in-memory/backed AnnData, an out-of-core annbatch DatasetCollection, or a list of
 # AnnData (streamed as one logical source — one annbatch backing per adata, in list order).
@@ -81,11 +103,13 @@ class Node:
         cells). These are the grouping/condition columns (cellflow's ``split_covariates`` +
         ``perturbation_covariates`` columns; sc-flow-tools' grouping keys).
     keys
-        Representation location(s) to stream: ``"X"`` | ``"obsm/<k>"`` | ``"layers/<k>"``
-        (cellflow's ``sample_rep``). A single string streams one rep; a tuple streams SEVERAL
-        **aligned** reps of the *same* sampled cells — e.g. the state plus a per-cell continuous
-        condition. The first key drives sampling (via annbatch's ``ClassSampler``); the rest are
-        read back for the exact same rows, so every rep of a batch is the same cells.
+        Representation location(s) to stream, each a loc string — ``"X"`` | ``"obsm/<k>"`` |
+        ``"layers/<k>"`` (cellflow's ``sample_rep``) — or the equivalent :mod:`anndata.acc` accessor
+        describing the same spot (``A.X`` | ``A.obsm["<k>"]`` | ``A.layers["<k>"]``); accessors are
+        normalized to the loc string. A single key streams one rep; a tuple streams SEVERAL **aligned**
+        reps of the *same* sampled cells — e.g. the state plus a per-cell continuous condition. The
+        first key drives sampling (via annbatch's ``ClassSampler``); the rest are read back for the
+        exact same rows, so every rep of a batch is the same cells.
     weights
         ``{combo: weight}``; a combination absent or with weight 0 is excluded (= the selection).
     in_memory
@@ -97,12 +121,13 @@ class Node:
 
     source: str
     cols: tuple[str, ...]
-    keys: str | tuple[str, ...] = "X"  # one rep, or several aligned reps of the same cells
+    keys: RepKey | Sequence[RepKey] = "X"  # one rep (loc str / accessor), or several aligned reps
     weights: Weights = field(default_factory=dict)
     in_memory: bool = False  # materialize this node's selected cells into RAM (see dagloader._io)
 
     def __post_init__(self) -> None:  # structural checks (data-free)
-        object.__setattr__(self, "keys", (self.keys,) if isinstance(self.keys, str) else tuple(self.keys))
+        keys = self.keys if isinstance(self.keys, (tuple, list)) else (self.keys,)  # str/accessor → single
+        object.__setattr__(self, "keys", tuple(_rep_loc(k) for k in keys))  # normalize accessors → loc str
         if not self.cols:
             raise ValueError("Node.cols must be non-empty.")
         if not self.keys or any(not k for k in self.keys):

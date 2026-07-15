@@ -20,7 +20,7 @@ import scipy.sparse as sp
 from annbatch import DatasetCollection
 
 from dagloader import Bind, DAGLoader, Node, SamplerConfig, Scheme, uniform
-from dagloader._io import load_backed_adata, open_source
+from dagloader._io import load_backed_adata
 
 LINES = ("A", "B")
 DRUGS = ("control", "d1", "d2")
@@ -154,3 +154,34 @@ def test_from_paths_streams_matched_batches(tmp_path, make_source):
     assert batch["target"].shape == (16, 5)
     assert batch["source"].shape == (16, 5)  # matched control rows
     assert batch["source_reps"]["obsm/emb"].shape == (16, 3)  # aligned obsm rep of the same cells
+
+
+# ── Node.keys accepts anndata.acc accessors (normalized to loc strings) ────────────────────────
+
+
+def test_node_keys_accept_anndata_accessors():
+    from anndata.acc import A
+
+    from dagloader import Node
+
+    # single accessor and a tuple of accessors both normalize to the loc-string form
+    assert Node("s", COLS, A.X).keys == ("X",)
+    assert Node("s", COLS, A.obsm["emb"]).keys == ("obsm/emb",)
+    assert Node("s", COLS, A.layers["log1p"]).keys == ("layers/log1p",)
+    assert Node("s", COLS, (A.X, A.obsm["emb"])).keys == ("X", "obsm/emb")
+    # mixed accessor + legacy string is fine
+    assert Node("s", COLS, (A.X, "layers/log1p")).keys == ("X", "layers/log1p")
+
+
+def test_from_paths_streams_with_accessor_keys(tmp_path):
+    from anndata.acc import A
+
+    pert, ctrl = _weights()
+    p = _write_zarr(_adata(), tmp_path / "a.zarr")
+    # describe the spots with accessors instead of "X" / "obsm/emb" strings
+    nodes = {"pert": Node("data", COLS, A.X, pert), "ctrl": Node("data", COLS, (A.X, A.obsm["emb"]), ctrl)}
+    s = Scheme.from_paths(sources={"data": p}, nodes=nodes, root="pert", seed=0, binds=(Bind("pert", "ctrl", ("cell_line",)),))
+
+    assert list(s.sources["data"].obsm) == ["emb"]  # accessor-described rep resolved & loaded
+    batch = next(iter(DAGLoader(s, _cfg())))
+    assert batch["source_reps"]["obsm/emb"].shape == (16, 3)  # keyed by the normalized loc string
