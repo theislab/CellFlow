@@ -16,7 +16,7 @@ import pandas as pd
 
 from dagloader._schema import Container
 
-__all__ = ["key_backings", "leaf_codes", "obs_columns"]
+__all__ = ["key_backings", "leaf_codes", "materialize_node", "obs_columns"]
 
 
 def _readable(x):
@@ -47,6 +47,46 @@ def key_backings(source: Container, loc: str) -> list:
     if isinstance(source, ad.AnnData):
         return [getattr(source, field)[sub]]
     return [_readable(g[field][sub]) for g in source]  # DatasetCollection: one backing per dataset
+
+
+def _read_rows(source: Container, loc: str, row_idx: np.ndarray) -> np.ndarray:
+    """Densely read the global rows ``row_idx`` (ascending) of rep ``loc`` from a source's backings."""
+    backings = key_backings(source, loc)  # each has ``.shape`` (sparse groups already wrapped by _readable)
+    offs = np.concatenate([[0], np.cumsum([b.shape[0] for b in backings])]).astype(np.int64)
+    parts = []
+    for d, b in enumerate(backings):
+        lb = row_idx[(row_idx >= offs[d]) & (row_idx < offs[d + 1])] - offs[d]  # ascending within this dataset
+        if lb.size:
+            sub = b.oindex[lb] if hasattr(b, "oindex") else b[lb]  # zarr array: orthogonal; CSRDataset/scipy: []
+            dense = getattr(sub, "todense", None)
+            parts.append(np.asarray(dense()) if dense is not None else np.asarray(sub))
+    return np.concatenate(parts, axis=0) if parts else np.empty((0, int(backings[0].shape[1])), dtype=np.float32)
+
+
+def materialize_node(source: Container, node) -> ad.AnnData:
+    """Materialize a node's selected (positive-weight) cells into an in-memory (dense) ``AnnData``.
+
+    The general "read this node's cells into RAM" op behind :attr:`~dagloader.Node.in_memory`: reads only
+    the rows whose leaf has positive weight — for each of the node's reps (``keys``) — and sorts them by
+    ``cols`` so ``chunk_size > 1`` still reads contiguous runs. Handles dense and sparse (CSR-group)
+    backings alike (via :func:`key_backings`). Cells must fit host RAM (the intended use is a small,
+    frequently re-drawn population such as matched controls).
+    """
+    from dagloader._schema import _weight_vector
+
+    obs = obs_columns(source, node.cols)
+    codes, leaves = leaf_codes(obs, node.cols)
+    selected = np.flatnonzero(_weight_vector(node.weights, leaves) > 0)  # leaf codes with positive weight
+    row_idx = np.flatnonzero(np.isin(codes, selected))  # ascending global rows of the selected leaves
+    reps = {key: _read_rows(source, key, row_idx) for key in node.keys}
+    sub_obs = obs.iloc[row_idx].reset_index(drop=True)
+    order = sub_obs.sort_values(list(node.cols), kind="stable").index.to_numpy()  # contiguous runs for chunk>1
+    sub_obs, reps = sub_obs.iloc[order].reset_index(drop=True), {k: v[order] for k, v in reps.items()}
+    adata = ad.AnnData(X=reps["X"], obs=sub_obs) if "X" in reps else ad.AnnData(obs=sub_obs)  # X-> n_var inferred
+    for key, v in reps.items():
+        if key != "X":
+            adata.obsm[key.split("/", 1)[1]] = v
+    return adata
 
 
 def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list[tuple]]:

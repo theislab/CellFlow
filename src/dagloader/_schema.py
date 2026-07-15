@@ -86,12 +86,18 @@ class Node:
         read back for the exact same rows, so every rep of a batch is the same cells.
     weights
         ``{combo: weight}``; a combination absent or with weight 0 is excluded (= the selection).
+    in_memory
+        If :obj:`True`, the loader materializes this node's selected (positive-weight) cells into an
+        in-memory ``AnnData`` once and streams them from RAM instead of re-reading the source every batch
+        (see :func:`~dagloader._io.materialize_node`). Use for a small, frequently re-drawn population
+        (e.g. matched controls). Requires those cells to fit in host RAM.
     """
 
     source: str
     cols: tuple[str, ...]
     keys: str | tuple[str, ...] = "X"  # one rep, or several aligned reps of the same cells
     weights: Weights = field(default_factory=dict)
+    in_memory: bool = False  # materialize this node's selected cells into RAM (see dagloader._io)
 
     def __post_init__(self) -> None:  # structural checks (data-free)
         object.__setattr__(self, "keys", (self.keys,) if isinstance(self.keys, str) else tuple(self.keys))
@@ -155,11 +161,19 @@ class SamplerConfig:
         Chunks per annbatch read window. **Required** and explicit — there is no hidden default; set it
         deliberately (e.g. ``batch_size // chunk_size`` for one batch per window). Must be a positive
         multiple of ``batch_size // chunk_size``.
+    to
+        annbatch ``Loader`` output backend for the yielded batches — ``"jax"`` (default), ``"torch"``, or
+        :obj:`None` (annbatch's own default). Forwarded verbatim to :class:`annbatch.Loader`.
+    preload_to_gpu
+        Whether annbatch keeps the read window on-GPU (needs ``cupy``). :obj:`None` (default) auto-selects
+        it from cupy availability; pass ``True``/``False`` to force it.
     """
 
     batch_size: int
     chunk_size: int
     preload_nchunks: int
+    to: str = "jax"
+    preload_to_gpu: bool | None = None
 
 
 @dataclass(frozen=True)

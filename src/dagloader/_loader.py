@@ -20,8 +20,8 @@ import pandas as pd
 from annbatch import Loader
 from annbatch.samplers import BoundClassSampler, ClassSampler
 
-from dagloader._io import key_backings, leaf_codes, obs_columns
-from dagloader._schema import Bind, SamplerConfig, Scheme, _weight_vector
+from dagloader._io import key_backings, leaf_codes, materialize_node, obs_columns
+from dagloader._schema import Bind, Container, SamplerConfig, Scheme, _weight_vector
 
 __all__ = ["DAGLoader"]
 
@@ -66,10 +66,16 @@ class DAGLoader:
             )
         }
 
+        # resolve each node's source; a `Node.in_memory` node is materialized into RAM once (see _io).
+        self._node_src: dict[str, Container] = {
+            name: (materialize_node(scheme.sources[node.source], node) if node.in_memory else scheme.sources[node.source])
+            for name, node in scheme.nodes.items()
+        }
+
         # per-node leaf partition + weights + tuple-labelled categorical (obs only — no cell matrices)
         self._st: dict[str, dict] = {}
         for name, node in scheme.nodes.items():
-            obs = obs_columns(scheme.sources[node.source], node.cols)
+            obs = obs_columns(self._node_src[name], node.cols)
             codes, leaves = leaf_codes(obs, node.cols)
             self._st[name] = {
                 "node": node,
@@ -178,17 +184,18 @@ class DAGLoader:
 
     def _add_node_loaders(self, name: str, make_sampler: Callable[[], ClassSampler | BoundClassSampler]) -> None:
         node = self._st[name]["node"]
-        src = self.s.sources[node.source]
+        src = self._node_src[name]
+        cfg = self._cfg[name]
+        preload_to_gpu = cfg.preload_to_gpu if cfg.preload_to_gpu is not None else _HAS_CUPY  # None ⇒ auto
         self._samplers[name], self._loaders[name] = {}, {}
         for ki, key in enumerate(node.keys):
             sampler = make_sampler()
             return_index = name == self.s.root and ki == 0  # only for the schedule↔row alignment check
-            # `to="jax"` yields native jax arrays (dense via `jnp.from_dlpack`, sparse as a jax CSR)
-            # instead of numpy, so batches reach the jax solver without a host round-trip / numpy cast.
-            # With cupy present, `preload_to_gpu` keeps the array on-GPU so the yielded jax array is
-            # GPU-resident; without it, the array is a CPU jax array (device copy deferred to the step).
+            # `to` (default "jax") + `preload_to_gpu` are user-set via SamplerConfig. `to="jax"` yields
+            # native jax arrays (no host round-trip); `preload_to_gpu` keeps the read window on-GPU (needs
+            # cupy), else it defers the device copy to the step. Auto-selects cupy when unset.
             loader = Loader(
-                batch_sampler=sampler, return_index=return_index, to="jax", preload_to_gpu=_HAS_CUPY
+                batch_sampler=sampler, return_index=return_index, to=cfg.to, preload_to_gpu=preload_to_gpu
             ).add_datasets(key_backings(src, key))
             self._samplers[name][key], self._loaders[name][key] = sampler, loader
 

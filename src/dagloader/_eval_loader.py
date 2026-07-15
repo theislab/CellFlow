@@ -23,7 +23,7 @@ import numpy as np
 from annbatch import Loader
 from annbatch.samplers import BoundClassSampler, SequentialClassSampler
 
-from dagloader._io import key_backings, leaf_codes, obs_columns
+from dagloader._io import key_backings, leaf_codes, materialize_node, obs_columns
 from dagloader._loader import _HAS_CUPY, _flat_categorical
 from dagloader._schema import SamplerConfig, Scheme, _weight_vector
 
@@ -66,7 +66,9 @@ class DAGEvalLoader:
         self._pert = scheme.nodes[scheme.root]  # perturbed / target
         self._ctrl = scheme.nodes[b.child]  # control / source
         self._context = b.common
-        self._src = scheme.sources[self._ctrl.source]  # same container as the pert source (one "data")
+        # control source honors Node.in_memory (materialize the control cells into RAM once)
+        ctrl_src = scheme.sources[self._ctrl.source]
+        self._src = materialize_node(ctrl_src, self._ctrl) if self._ctrl.in_memory else ctrl_src
         self._src_p = scheme.sources[self._pert.source]
 
         # per-node tuple-labelled categorical + weight vector (obs only). Control/perturbed cells live in
@@ -112,10 +114,12 @@ class DAGEvalLoader:
 
     # TODO(selmanozleyen): rename to _loaders_from_node
     def _node_loaders(self, src, node, make_sampler) -> dict:
+        cfg = self._cfg
+        preload_to_gpu = cfg.preload_to_gpu if cfg.preload_to_gpu is not None else _HAS_CUPY  # None ⇒ auto
         loaders = {}
         for key in node.keys:
             loader = Loader(
-                batch_sampler=make_sampler(), return_index=False, to="jax", preload_to_gpu=_HAS_CUPY
+                batch_sampler=make_sampler(), return_index=False, to=cfg.to, preload_to_gpu=preload_to_gpu
             ).add_datasets(key_backings(src, key))
             loaders[key] = loader
         return loaders

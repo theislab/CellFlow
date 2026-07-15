@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import scipy.sparse as sp
 
 pytest.importorskip("annbatch")
 
@@ -29,7 +30,7 @@ _PREP = {
 }
 
 
-def _adata(*, interleaved: bool, n_per_combo=40, drugs=("control", "d1", "d2", "d3"), lines=("A", "B")):
+def _adata(*, interleaved: bool, n_per_combo=40, drugs=("control", "d1", "d2", "d3"), lines=("A", "B"), sparse=False):
     rng = np.random.default_rng(0)
     rows = [(cl, dr) for cl in lines for dr in drugs for _ in range(n_per_combo)]
     if interleaved:
@@ -38,12 +39,12 @@ def _adata(*, interleaved: bool, n_per_combo=40, drugs=("control", "d1", "d2", "
     obs["control"] = obs["drug"] == "control"
     obs.index = obs.index.astype(str)
     x = rng.normal(size=(len(obs), 5)).astype("float32")
-    return ad.AnnData(X=x, obs=obs)
+    return ad.AnnData(X=sp.csr_matrix(x) if sparse else x, obs=obs)
 
 
-def _collection(tmp_path, *, grouped: bool) -> DatasetCollection:
+def _collection(tmp_path, *, grouped: bool, sparse=False) -> DatasetCollection:
     h5 = tmp_path / "a.h5ad"
-    _adata(interleaved=not grouped).write_h5ad(h5)
+    _adata(interleaved=not grouped, sparse=sparse).write_h5ad(h5)
     dc = DatasetCollection(str(tmp_path / "c.zarr"), mode="a")
     if grouped:  # sort by the grouping columns on add → contiguous category runs
         dc.add_adatas([str(h5)], groupby=["cell_line", "drug"], shuffle=False)
@@ -137,6 +138,31 @@ class TestOutOfCore:
             source=dc, sampler_config=SamplerConfig(batch_size=8, chunk_size=4, preload_nchunks=8), **_PREP
         )
         assert cf._dataloader.sample()["tgt_cell_data"].shape == (8, 5)
+
+    def test_sparse_collection_prepares(self, tmp_path):
+        # a SPARSE-X collection stores X as a zarr *group* (no .shape); key_backings must wrap it so
+        # annbatch's add_datasets accepts it — regression for the "'Group' has no attribute 'shape'" error.
+        # Construction (which runs add_datasets) is the assertion here; reading sparse batches needs cupy.
+        cf = cellflow.model.CellFlowAnnbatch()
+        cf.prepare_data(
+            source=_collection(tmp_path, grouped=True, sparse=True),
+            sampler_config=SamplerConfig(batch_size=16, chunk_size=1, preload_nchunks=16),
+            **_PREP,
+        )
+        assert cf._data_dim == 5  # DAGLoader built (add_datasets accepted the sparse-group backing)
+
+    def test_control_in_memory_materializes(self, tmp_path):
+        # control_in_memory tells dagloader to materialize the ctrl node into RAM (Node.in_memory);
+        # prepare_data building the loader runs materialize_node over the (sparse) collection.
+        cf = cellflow.model.CellFlowAnnbatch()
+        cf.prepare_data(
+            source=_collection(tmp_path, grouped=True, sparse=True),
+            sampler_config=SamplerConfig(batch_size=16, chunk_size=1, preload_nchunks=16),
+            control_in_memory=True,
+            **_PREP,
+        )
+        assert cf._scheme.nodes["ctrl"].in_memory is True  # cellflow flagged it
+        assert isinstance(cf._dataloader._loader._node_src["ctrl"], ad.AnnData)  # dagloader materialized it
 
 
 class TestChunkableCheck:

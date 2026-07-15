@@ -109,3 +109,42 @@ def test_reps_are_aligned_same_cells():
     x = np.asarray(batch["target_reps"]["X"])
     rep = np.asarray(batch["target_reps"]["obsm/rep"])
     np.testing.assert_array_equal(x, rep)  # aligned reps must be the same cells
+
+
+def test_materialize_node_selects_positive_weight_rows():
+    # `materialize_node` reads only a node's positive-weight (here: control) cells into an in-memory AnnData
+    from dagloader._io import materialize_node
+
+    adata = _adata()
+    cols = ("cell_line", "drug")
+    ctrl = [c for c in {tuple(r) for r in adata.obs[list(cols)].to_numpy()} if c[1] == "control"]
+    mem = materialize_node(adata, Node("data", cols, "X", uniform(ctrl)))
+    assert isinstance(mem, ad.AnnData)
+    assert (mem.obs["drug"] == "control").all()  # only positive-weight (control) rows materialized
+    assert mem.n_obs == int((adata.obs["drug"] == "control").sum())
+    assert (np.asarray(mem.X)[:, 2] == 1.0).all()  # X[:,2] encodes is_control
+
+
+def test_in_memory_node_materialized():
+    # Node.in_memory → the loader materializes that node into RAM (served from memory, not re-read each
+    # batch). SamplerConfig also carries the user-set `to` / `preload_to_gpu` (exercised here).
+    adata = _adata()
+    cols = ("cell_line", "drug")
+    combos = {tuple(r) for r in adata.obs[list(cols)].to_numpy()}
+    pert = [c for c in combos if c[1] != "control"]
+    ctrl = [c for c in combos if c[1] == "control"]
+    scheme = Scheme(
+        sources={"data": adata},
+        nodes={
+            "pert": Node("data", cols, "X", uniform(pert)),
+            "ctrl": Node("data", cols, "X", uniform(ctrl), in_memory=True),
+        },
+        root="pert",
+        binds=(Bind("pert", "ctrl", common=("cell_line",)),),
+        seed=0,
+    )
+    cfg = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8, to="jax", preload_to_gpu=False)
+    dl = DAGLoader(scheme, cfg, condition_fn=_condition_fn)
+    assert isinstance(dl._node_src["ctrl"], ad.AnnData)  # ctrl node materialized into RAM
+    batch = next(iter(dl))
+    assert (np.asarray(batch["source"])[:, 2] == 1.0).all()  # source = matched control cells (from RAM)
