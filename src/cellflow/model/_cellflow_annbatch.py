@@ -132,6 +132,16 @@ class CellFlowAnnbatch(BaseCellFlow):
         from cellflow.data._annbatch import build_annbatch_training
         from dagloader import DAGLoader, resolve_split_configs
 
+        # `sampler_config` is required; its (max) chunk_size drives the perturbed run-length filter in
+        # `build_annbatch_training` — short-run perturbed conditions are dropped so chunk_size>1 can stream.
+        if sampler_config is None:
+            raise ValueError("`sampler_config` is required: give a SamplerConfig or a {split: SamplerConfig} mapping.")
+        chunk_size = (
+            sampler_config.chunk_size
+            if hasattr(sampler_config, "chunk_size")
+            else max(c.chunk_size for c in sampler_config.values())
+        )
+
         # Build the Scheme + condition_fn + condition embeddings from the covariate spec (obs only).
         built = build_annbatch_training(
             source,
@@ -148,6 +158,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             seed=seed,
             control_in_memory=control_in_memory,
             min_cells_per_condition=min_cells_per_condition,
+            chunk_size=chunk_size,
         )
         self._scheme = built.scheme
         self._dm = built.data_manager
@@ -186,16 +197,14 @@ class CellFlowAnnbatch(BaseCellFlow):
         # One `SamplerConfig` per split (a single spec ⇒ all splits; a per-split dict ⇒ all specified).
         # The splits are the split schemes when a split was made, else the single ``"train"`` scheme.
         schemes = self._split_schemes if self._split_schemes is not None else {"train": self._scheme}
-        if sampler_config is None:
-            raise ValueError("`sampler_config` is required: give a SamplerConfig or a {split: SamplerConfig} mapping.")
         self._annbatch_sampler_configs = resolve_split_configs(sampler_config, list(schemes))
         self._eval_cfg = self._annbatch_sampler_configs["train"]  # target-batch read params for eval loaders
 
-        # No cellflow-side run-length pre-check: annbatch enforces the `chunk_size > 1` run-length rule
-        # itself when building each node's sampler (raising a clear, class-level error), so a redundant
-        # check here would only duplicate that logic. `min_cells_per_condition` zero-weights sub-threshold
-        # conditions (annbatch's ClassSampler skips them), and an in-memory control node samples at
-        # chunk_size=1 (see DAGLoader) — so only the streamed perturbed layout has to satisfy the rule.
+        # No separate cellflow-side run-length pre-check. The `chunk_size > 1` rule is handled upstream:
+        # `build_annbatch_training` zero-weights short-run perturbed conditions (and sub-threshold
+        # `min_cells_per_condition` ones), an in-memory control node samples at chunk_size=1 (see DAGLoader),
+        # and annbatch validates whatever remains — the streamed perturbed layout and the controls — when it
+        # builds each node's sampler below.
 
         # Only the "train" split is streamed (feeds `train()`); val/test are read via DAGEvalLoader
         # below, so we don't build unused per-split streaming loaders.

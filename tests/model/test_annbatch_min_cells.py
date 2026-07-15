@@ -1,9 +1,11 @@
-"""Tests for the ``min_cells_per_condition`` filter on the annbatch streaming path.
+"""Tests for the perturbed-only weight filters on the annbatch streaming path.
 
-The knob zero-weights perturbed conditions with too few *total* cells — a scientific filter on
-untrainable tiny conditions, and the lever that unblocks ``chunk_size > 1`` (a zero-weight leaf is
-exempt from annbatch's run-length rule). Built from an in-memory ``AnnData`` source (the ``dagloader``
-is container-agnostic), so no ``DatasetCollection`` is needed.
+``min_cells_per_condition`` zero-weights perturbed conditions with too few *total* cells (a scientific
+filter on untrainable tiny conditions). Independently, ``chunk_size > 1`` auto-drops perturbed conditions
+whose smallest contiguous run is shorter than ``chunk_size`` (annbatch's run-length rule; controls are
+exempt). Built from an in-memory ``AnnData`` source — which the build sorts, so there each condition is a
+single run (total == smallest run); the per-run-vs-per-total distinction on a fragmented out-of-core source
+is covered in ``test_annbatch_ooc.py``.
 """
 
 from __future__ import annotations
@@ -83,11 +85,13 @@ class TestMinCellsPerCondition:
         _prepare(cf_explicit, sampler_config=_CFG_CHUNK1, min_cells_per_condition=0)
         assert cf0._scheme.nodes["pert"].weights == cf_explicit._scheme.nodes["pert"].weights
 
-    def test_chunk_gt_1_raises_without_filter(self):
-        # motivation: a 1-cell condition is a run of 1 < chunk_size 2 → the strict check raises.
+    def test_chunk_gt_1_auto_drops_short_runs(self):
+        # chunk_size>1 auto-drops perturbed conditions whose smallest run < chunk_size — no filter needed.
+        # Sorted in-memory ⇒ one run == total, so tiny1 (1 cell, run 1 < 2) drops; tiny2 (2, run 2) is kept.
         cf = cellflow.model.CellFlowAnnbatch()
-        with pytest.raises(ValueError, match="run of only 1|chunk_size"):
-            _prepare(cf, sampler_config=_CFG_CHUNK2)
+        _prepare(cf, sampler_config=_CFG_CHUNK2)  # no min_cells_per_condition
+        assert _positive_drugs(cf) == _BIG | {"tiny2"}  # only tiny1 (run 1 < 2) dropped
+        assert cf._dataloader.sample()["tgt_cell_data"].shape == (4, 5)
 
     def test_chunk_gt_1_ok_with_filter(self):
         # (b) filtering the tiny (short-run) conditions unblocks chunk_size > 1 — no raise, and the loader
