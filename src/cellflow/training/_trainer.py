@@ -124,13 +124,30 @@ class CellFlowTrainer:
         sampler = dataloader
         if isinstance(dataloader, OOCTrainSampler):
             dataloader.set_sampler(num_iterations=num_iterations)
+
+        # Keep per-step losses on-device and materialize them in bulk. Calling ``float(loss)``
+        # every iteration forces a device->host sync that serializes host-side batch sampling
+        # behind GPU compute (GPU bubbles / underutilization). Buffering + a periodic flush
+        # removes ~all per-step syncs while bounding the async look-ahead so device memory
+        # cannot run away, and keeps ``training_logs["loss"]`` as plain floats (unchanged API).
+        loss_buf: list[Any] = []
+        flush_every = min(valid_freq, 50) if valid_freq > 0 else 50
+
+        def _flush_losses() -> None:
+            if loss_buf:
+                self.training_logs["loss"].extend(np.asarray(jax.device_get(loss_buf)).ravel().tolist())
+                loss_buf.clear()
+
         for it in pbar:
             rng_jax, rng_step_fn = jax.random.split(rng_jax, 2)
             batch = sampler.sample(rng_np)
             loss = self.solver.step_fn(rng_step_fn, batch)
-            self.training_logs["loss"].append(float(loss))
+            loss_buf.append(loss)  # on-device; no host sync on the hot path
+            if len(loss_buf) >= flush_every:
+                _flush_losses()
 
             if ((it - 1) % valid_freq == 0) and (it > 1):
+                _flush_losses()
                 # Get predictions from validation data
                 valid_source_data, valid_true_data, valid_pred_data = self._validation_step(
                     valid_loaders, mode="on_log_iteration"
@@ -146,6 +163,7 @@ class CellFlowTrainer:
                 postfix_dict["loss"] = round(mean_loss, 3)
                 pbar.set_postfix(postfix_dict)
 
+        _flush_losses()
         if num_iterations > 0:
             valid_source_data, valid_true_data, valid_pred_data = self._validation_step(
                 valid_loaders, mode="on_train_end"

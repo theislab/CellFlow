@@ -1,5 +1,6 @@
 import warnings
 from collections.abc import Callable
+from functools import partial
 from typing import Any, Protocol, runtime_checkable
 
 import diffrax
@@ -159,7 +160,11 @@ class OTFlowMatching(BaseSolver):
         self.vf_step_fn = self._get_vf_step_fn()
 
     def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
-        @jax.jit
+        # Donate ``vf_state`` (params + optimizer moments + MultiSteps accumulator — the
+        # largest live buffers) so XLA updates them in place instead of allocating a fresh
+        # copy every step. Safe: the caller immediately rebinds ``self.vf_state`` to the
+        # returned state and never reuses the donated input.
+        @partial(jax.jit, donate_argnums=(1,))
         def vf_step_fn(
             rng: jax.Array,
             vf_state: train_state.TrainState,
