@@ -130,10 +130,35 @@ def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list
 def obs_columns(source: Container, cols: Sequence[str]) -> pd.DataFrame:
     """Obs columns from any container (AnnData attr vs DatasetCollection reader vs list) — no cell matrices."""
     if isinstance(source, list):  # list of AnnData: concatenate obs in list order (= key_backings order)
-        return pd.concat([obs_columns(a, cols) for a in source], ignore_index=True)
+        frames = [obs_columns(a, cols) for a in source]
+        _align_categoricals(frames)
+        return pd.concat(frames, ignore_index=True)
     if isinstance(source, ad.AnnData):
         return source.obs[list(cols)]
     return source.obs(columns=list(cols))  # DatasetCollection
+
+
+def _align_categoricals(frames: list[pd.DataFrame]) -> None:
+    """Align each column that is categorical in *every* frame to the union of its categories, in place.
+
+    ``pd.concat`` upcasts categoricals with mismatched categories to ``object`` — so concatenating
+    per-source obs whose category sets differ (e.g. per-plate drugs/cell-lines) turns the grouping
+    columns into strings, and every downstream consumer (:func:`leaf_codes`, the samplers) then
+    re-factorizes ~N-cell string columns. Setting the union categories first keeps the concat
+    categorical (integer codes), which is both faster and lower-memory. No-op for <2 frames or for
+    columns that aren't categorical everywhere. Cheap: obs cols are already in memory; only codes remap.
+    """
+    from pandas.api.types import union_categoricals
+
+    if len(frames) < 2:
+        return
+    for col in frames[0].columns:
+        series = [f[col] for f in frames]
+        if not all(isinstance(s.dtype, pd.CategoricalDtype) for s in series):
+            continue
+        union = union_categoricals(series, ignore_order=True).categories
+        for f in frames:
+            f[col] = f[col].cat.set_categories(union)
 
 
 def _read_obs_cols(obs_group, cols: Sequence[str]) -> pd.DataFrame:
