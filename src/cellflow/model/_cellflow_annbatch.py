@@ -52,6 +52,112 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._prep_kwargs: dict[str, Any] | None = None  # covariate spec, reused for validation sources
         self._seed: int = 0
         self._split_eval_loaders: dict[str, DAGEvalLoader] = {}
+        self._config: Mapping[str, Any] | None = None  # portable config captured by `from_config`
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any]) -> CellFlowAnnbatch:
+        """Config-first, data-free constructor — the single entry point.
+
+        Selects the solver and captures the spec, but touches **no data**. The whole
+        ``prepare_data → prepare_model → train`` sequence collapses to
+        ``from_config → load_data(cells) → train_from_config``: load the config once, then attach the
+        annbatch cells after everything is set.
+
+        Parameters
+        ----------
+        config
+            A plain mapping (YAML/JSON-friendly, so the same config can drive a torch backend too —
+            only the constructed objects differ) with sections:
+
+            - ``model``   — ``solver`` + :meth:`prepare_model` hyperparameters
+              (``condition_embedding_dim``, ``pooling``, ``hidden_dims``, ``decoder_dims``,
+              ``time_encoder_dims``, …; any further ``prepare_model`` kwargs under ``model.extra``).
+            - ``sampler`` — ``batch_size``, ``chunk_size``, ``prefetch_factor`` (→ ``preload_nchunks``),
+              ``min_cells_per_condition``, ``control_in_memory``.
+            - ``data``    — the covariate/rep **spec** only (``sample_rep``, ``control_key``,
+              ``perturbation_covariates``, ``split_covariates``, ``split_by``, ``split_ratios``, …).
+              The cells themselves are passed to :meth:`load_data`, not named here.
+            - ``trainer`` — ``num_iterations``, ``valid_freq`` (+ any :meth:`train` kwargs under
+              ``trainer.extra``).
+            - top-level ``seed``.
+        """
+        model_cfg = dict(config.get("model", {}))
+        self = cls(solver=model_cfg.get("solver", "otfm"))
+        # shallow-copy nested blocks so later mutation of the caller's dict can't change setup
+        self._config = {k: (dict(v) if isinstance(v, Mapping) else v) for k, v in config.items()}
+        return self
+
+    def load_data(self, data: DataInput) -> CellFlowAnnbatch:
+        """Attach the annbatch cells and finish setup (data + model) from the stored config.
+
+        Run once after :meth:`from_config`. Builds the streaming ``Scheme`` from ``data``'s obs
+        (:meth:`prepare_data`) then the model (:meth:`prepare_model`), using the ``data`` / ``sampler``
+        / ``model`` blocks captured by :meth:`from_config`. ``data`` is the cells only (an ``AnnData`` /
+        ``DatasetCollection`` / adata zarr path(s)); every other setting came from the config.
+        """
+        if self._config is None:
+            raise ValueError("Call `from_config(...)` before `load_data(...)`.")
+        from dagloader import SamplerConfig
+
+        cfg = self._config
+        d = dict(cfg.get("data", {}))
+        s = dict(cfg.get("sampler", {}))
+        seed = cfg.get("seed", 0)
+
+        if "sample_rep" not in d:
+            raise ValueError("config['data']['sample_rep'] is required (the streamed representation, e.g. 'X_pca').")
+        batch_size = s.get("batch_size", 1024)
+        chunk_size = s.get("chunk_size", 1)
+        if chunk_size <= 0 or batch_size % chunk_size != 0:
+            raise ValueError(f"sampler.batch_size ({batch_size}) must be a positive multiple of chunk_size ({chunk_size}).")
+        preload = (batch_size // chunk_size) * s.get("prefetch_factor", 2)
+
+        prep_kwargs: dict[str, Any] = {
+            "sample_rep": d["sample_rep"],
+            "control_key": d.get("control_key", "is_control"),
+            "perturbation_covariates": {k: list(v) for k, v in d.get("perturbation_covariates", {}).items()},
+            "perturbation_covariate_reps": d.get("perturbation_covariate_reps") or None,
+            "sample_covariates": d.get("sample_covariates") or None,
+            "split_covariates": d.get("split_covariates") or None,
+            "sampler_config": SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload),
+            "min_cells_per_condition": s.get("min_cells_per_condition", 0),
+            "split_by": d.get("split_by") or None,
+            "split_ratios": d.get("split_ratios"),
+            "seed": seed,
+        }
+        if s.get("control_in_memory") is not None:
+            prep_kwargs["control_in_memory"] = s["control_in_memory"]
+        self.prepare_data(data, **prep_kwargs)
+
+        m = dict(cfg.get("model", {}))
+        m.pop("solver", None)  # consumed at construction
+        m.pop("seed", None)  # seed is top-level
+        merged = {**m, **dict(m.pop("extra", {}) or {})}  # extra may add/override prepare_model kwargs
+        for k in ("hidden_dims", "decoder_dims", "time_encoder_dims"):  # flax needs hashable (tuple) static dims
+            if merged.get(k) is not None:
+                merged[k] = tuple(merged[k])
+        merged.setdefault("seed", seed)
+        self.prepare_model(**merged)
+        return self
+
+    def train_from_config(self, callbacks: Sequence[Any] = ()) -> Any:
+        """Train using the stored config's ``trainer`` / ``sampler`` blocks (run after :meth:`load_data`).
+
+        ``callbacks`` (metrics + loggers) are supplied by the caller: they are app-level (e.g. cf-train
+        builds ``Metrics`` from ``trainer.metrics`` and a ``WandbLogger``) and intentionally not encoded
+        in the portable config.
+        """
+        if self._config is None or self._dm is None:
+            raise ValueError("Call `from_config(...)` then `load_data(...)` before `train_from_config(...)`.")
+        t = dict(self._config.get("trainer", {}))
+        s = dict(self._config.get("sampler", {}))
+        return self.train(
+            num_iterations=t.get("num_iterations", 20000),
+            batch_size=s.get("batch_size", 1024),
+            valid_freq=t.get("valid_freq", 1000),
+            callbacks=list(callbacks),
+            **(t.get("extra", {}) or {}),
+        )
 
     def prepare_data(
         self,
