@@ -114,8 +114,26 @@ def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list
     # Factorize the rows once at C level → a raw per-cell group code (appearance order). Cast only
     # non-categorical cols first (keeps existing category orders) so the hashing runs over small integer
     # codes; NaN is a real code, not a sentinel.
-    cast = {c: sub[c].astype("category") for c in cols if not isinstance(sub[c].dtype, pd.CategoricalDtype)}
-    raw = pd.factorize(pd.MultiIndex.from_frame(sub.assign(**cast) if cast else sub), use_na_sentinel=False)[0]
+    # Per-column categorical codes + mixed-radix combine → a raw per-cell group code, WITHOUT materializing
+    # ~N object tuples (the old `pd.factorize(pd.MultiIndex.from_frame(...))` spent most of its time in
+    # `MultiIndex._values` building N tuples). Cast only non-categorical cols (keeps existing category
+    # orders); a column's NaN is code -1, shifted to slot 0 so it owns a distinct combination.
+    cats = [sub[c] if isinstance(sub[c].dtype, pd.CategoricalDtype) else sub[c].astype("category") for c in cols]
+    ncards = [len(c.cat.categories) + 1 for c in cats]
+    prod = 1
+    for n in ncards:
+        prod *= n
+    if prod < (1 << 62):  # O(N) integer combine (no object tuples); guard against int64 overflow
+        combined = np.zeros(len(sub), dtype=np.int64)
+        mult = 1
+        for cat, n in zip(cats, ncards):
+            combined += (cat.cat.codes.to_numpy().astype(np.int64) + 1) * mult
+            mult *= n
+        raw = pd.factorize(combined, use_na_sentinel=False)[0]
+    else:  # rare: cardinality product overflows int64 → fall back to the object-tuple path
+        raw = pd.factorize(
+            pd.MultiIndex.from_frame(pd.DataFrame({c: cats[i] for i, c in enumerate(cols)})), use_na_sentinel=False
+        )[0]
     # Remap raw group codes → string-sorted leaf codes. The per-group representative is read back through
     # `.to_numpy()` (like `leaves`), so both sides share the same dtype promotion (e.g. mixed int/float →
     # float) and NaN normalizes to "nan" on both — the raw factorize `uniques` would not (it keeps each
