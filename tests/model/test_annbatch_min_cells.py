@@ -19,7 +19,7 @@ pytest.importorskip("annbatch")
 import anndata as ad
 
 import cellflow
-from dagloader import SamplerConfig
+from binded import SamplerConfig
 
 # a couple of tiny (sub-threshold) conditions alongside normal ones; the filter drops only the tiny ones.
 # four "big" drugs so a default 60/20/20 split over the kept conditions still fills every split.

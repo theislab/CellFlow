@@ -1,4 +1,4 @@
-"""End-to-end training over the annbatch/dagloader streaming path (in-memory AnnData as source)."""
+"""End-to-end training over the annbatch/binded streaming path (in-memory AnnData as source)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ pytest.importorskip("annbatch")
 import anndata as ad
 
 import cellflow
-from dagloader import SamplerConfig
+from binded import SamplerConfig
 
 
 def _toy_adata(n_per_combo: int = 20, drugs=("control", "d1", "d2", "d3"), lines=("A", "B")):
@@ -66,7 +66,7 @@ class TestAnnbatchTraining:
         _prepare_model_small(cf)
         cf.train(num_iterations=2, valid_freq=100)
         assert cf.solver is not None
-        # val/test are read via DAGEvalLoader (control-rooted eval), not streamed as train-style loaders
+        # val/test are read via EvalLoader (control-rooted eval), not streamed as train-style loaders
         assert set(cf.split_eval_loaders) == {"val", "test"}
         val_out = next(cf.split_eval_loaders["val"].iter_conditions())
         assert "target" in val_out and "source" in val_out

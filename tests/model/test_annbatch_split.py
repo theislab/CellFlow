@@ -1,7 +1,7 @@
 """Tests for the annbatch path split wiring on :class:`~cellflow.model.CellFlow`.
 
 The Scheme + condition + loaders are built from an in-memory ``AnnData`` passed as ``data`` (the
-``dagloader`` is container-agnostic), so no ``DatasetCollection`` is needed.
+``binded`` is container-agnostic), so no ``DatasetCollection`` is needed.
 """
 
 from __future__ import annotations
@@ -10,13 +10,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("annbatch")  # dagloader (and thus the annbatch path) needs annbatch
+pytest.importorskip("annbatch")  # binded (and thus the annbatch path) needs annbatch
 
 import anndata as ad
 from scheme_helpers import perturbation_scheme
 
 import cellflow
-from dagloader import SamplerConfig
+from binded import SamplerConfig
 
 _CFG = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
 
@@ -141,7 +141,7 @@ class TestPrepareAnnbatchData:
         assert batch["condition"]["drug"].shape[0] == 1  # one condition per batch, leading axis
 
     def test_sparse_source_batches_densified(self):
-        # dagloader streams sparse for a sparse source; the model-boundary adapter densifies.
+        # binded streams sparse for a sparse source; the model-boundary adapter densifies.
         import scipy.sparse as sp
 
         adata = _toy_adata()

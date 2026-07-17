@@ -1,6 +1,6 @@
-"""Test-only Scheme factory (moved out of ``dagloader``'s public API).
+"""Test-only Scheme factory (moved out of ``binded``'s public API).
 
-``perturbation_scheme`` builds the cellflow-shaped two-node :class:`~dagloader.Scheme` (control →
+``perturbation_scheme`` builds the cellflow-shaped two-node :class:`~binded.Scheme` (control →
 perturbed, matched on context) from an obs table. Production cellflow assembles this scheme internally
 (:func:`cellflow.data._annbatch.build_annbatch_training`); only the split tests need the standalone
 factory, so it lives here rather than shipping as library surface. Importable as ``scheme_helpers`` via
@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from dagloader import Bind, Node, Scheme, uniform
-from dagloader._io import obs_columns
-from dagloader._schema import Container
+from binded import Bind, Node, Scheme, uniform
+from binded._io import obs_columns
+from binded._schema import Container
 
 
 def perturbation_scheme(

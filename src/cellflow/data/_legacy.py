@@ -3,7 +3,7 @@
 These samplers operate on materialized :mod:`cellflow.data` containers
 (:class:`~cellflow.data.TrainingData`, :class:`~cellflow.data.ValidationData`,
 :class:`~cellflow.data.PredictionData`) held fully in memory. They are superseded by the
-annbatch/``dagloader`` streaming path (see :class:`cellflow.data._dataloader.DAGTrainAdapter`
+annbatch/``binded`` streaming path (see :class:`cellflow.data._dataloader.DAGTrainAdapter`
 and :meth:`cellflow.model.CellFlowAnnbatch.prepare_data`), which streams cells out of core and also
 accepts an in-memory ``AnnData``. Kept here for backward compatibility.
 """

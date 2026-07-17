@@ -1,4 +1,4 @@
-"""Streaming (annbatch/dagloader) CellFlow: the default path.
+"""Streaming (annbatch/binded) CellFlow: the default path.
 
 Trains, validates and predicts over an out-of-core :class:`~annbatch.DatasetCollection` or an
 in-memory ``AnnData`` alike.
@@ -21,21 +21,21 @@ from cellflow.model._base import BaseCellFlow
 if TYPE_CHECKING:
     from annbatch import DatasetCollection  # optional dep — only imported for typing
 
-    from dagloader import DAGEvalLoader, SamplerConfig, Scheme  # optional deps — typing only
+    from binded import EvalLoader, SamplerConfig, Scheme  # optional deps — typing only
 
     # accepted `data` inputs: an in-memory ``AnnData`` / out-of-core ``DatasetCollection``, an adata zarr
-    # path, or a list of adata zarr paths (paths resolved via ``dagloader``'s ``open_source``).
+    # path, or a list of adata zarr paths (paths resolved via ``binded``'s ``open_source``).
     DataInput = ad.AnnData | DatasetCollection | str | os.PathLike | Sequence[str | os.PathLike | ad.AnnData]
 
 __all__ = ["CellFlowAnnbatch"]
 
 
 class CellFlowAnnbatch(BaseCellFlow):
-    """CellFlow over the annbatch/dagloader streaming path (cells sourced out-of-core or in-memory).
+    """CellFlow over the annbatch/binded streaming path (cells sourced out-of-core or in-memory).
 
     Cells are streamed from an :class:`~annbatch.DatasetCollection` (out-of-core) or an in-memory
     ``AnnData`` via :meth:`prepare_data`; validation and prediction read each condition's full cell
-    set through :class:`~dagloader.DAGEvalLoader` (no boolean masking). Model setup, training, prediction
+    set through :class:`~binded.EvalLoader` (no boolean masking). Model setup, training, prediction
     and IO are inherited from :class:`~cellflow.model._base.BaseCellFlow`.
     """
 
@@ -45,13 +45,13 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._split_schemes: dict[str, Scheme] | None = None
         self._split_assignment: pd.DataFrame | None = None
         self._annbatch_sampler_configs: dict[str, SamplerConfig] | None = None
-        self._eval_cfg: SamplerConfig | None = None  # target read params for DAGEvalLoader
+        self._eval_cfg: SamplerConfig | None = None  # target read params for EvalLoader
         self._condition_data: dict[str, np.ndarray] | None = None  # condition embeddings
         self._max_combination_length: int | None = None
         self._condition_fn = None  # leaf -> embedding (set by `prepare_data`)
         self._prep_kwargs: dict[str, Any] | None = None  # covariate spec, reused for validation sources
         self._seed: int = 0
-        self._split_eval_loaders: dict[str, DAGEvalLoader] = {}
+        self._split_eval_loaders: dict[str, EvalLoader] = {}
         self._config: Mapping[str, Any] | None = None  # portable config captured by `from_config`
 
     @classmethod
@@ -97,7 +97,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         """
         if self._config is None:
             raise ValueError("Call `from_config(...)` before `load_data(...)`.")
-        from dagloader import SamplerConfig
+        from binded import SamplerConfig
 
         cfg = self._config
         d = dict(cfg.get("data", {}))
@@ -182,7 +182,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         split_force_training_values: Mapping[str, object] | None = None,
         split_random_state: int = 42,
     ) -> None:
-        """Prepare the annbatch/dagloader streaming training path (the default, recommended path).
+        """Prepare the annbatch/binded streaming training path (the default, recommended path).
 
         The covariate arguments (``sample_rep``, ``control_key``, ``perturbation_covariates``,
         ``perturbation_covariate_reps``, ``sample_covariates``, ``sample_covariate_reps``,
@@ -195,7 +195,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         ----------
         data
             The cells to stream: an out-of-core :class:`annbatch.DatasetCollection`, an in-memory
-            ``AnnData`` (the ``dagloader`` is container-agnostic), an adata zarr path, or a list of adata
+            ``AnnData`` (the ``binded`` is container-agnostic), an adata zarr path, or a list of adata
             zarr paths. Its ``obs`` supplies the grouping / condition columns; ``sample_rep`` selects the
             streamed representation.
         rep_dict
@@ -205,14 +205,14 @@ class CellFlowAnnbatch(BaseCellFlow):
             categorical (one-hot encoded).
         sampler_config
             Read parameters for the streamed loader(s), **one per split**: a single
-            :class:`dagloader.SamplerConfig` for all splits, or a ``{split_name: SamplerConfig}`` mapping
-            covering every split (see :func:`dagloader.resolve_split_configs`). With no split the only
+            :class:`binded.SamplerConfig` for all splits, or a ``{split_name: SamplerConfig}`` mapping
+            covering every split (see :func:`binded.resolve_split_configs`). With no split the only
             split is ``"train"``. ``chunk_size > 1`` reads contiguous slices, so every run of each
             category must be at least ``chunk_size`` cells — in-memory sources are grouped automatically,
             an out-of-core :class:`~annbatch.DatasetCollection` must be built grouped
             (``add_adatas(..., groupby=[...])``) or a clear error is raised.
         seed
-            Reproducibility seed for the ``dagloader`` per-node RNG streams.
+            Reproducibility seed for the ``binded`` per-node RNG streams.
         min_cells_per_condition
             Drop (zero-weight) any perturbed condition with fewer than this many *total* cells — both a
             scientific filter on untrainable tiny conditions and the lever that unblocks ``chunk_size > 1``:
@@ -242,10 +242,10 @@ class CellFlowAnnbatch(BaseCellFlow):
         Notes
         -----
         The ``"train"`` split feeds :meth:`train`; when a split is made, the ``val`` / ``test`` splits are
-        read via :class:`~dagloader.DAGEvalLoader` (see :attr:`split_eval_loaders`), not streamed.
+        read via :class:`~binded.EvalLoader` (see :attr:`split_eval_loaders`), not streamed.
         """
         from cellflow.data._annbatch import build_annbatch_training
-        from dagloader import DAGLoader, resolve_split_configs
+        from binded import Loader, resolve_split_configs
 
         # `sampler_config` is required; its (max) chunk_size drives the perturbed run-length filter in
         # `build_annbatch_training` — short-run perturbed conditions are dropped so chunk_size>1 can stream.
@@ -281,7 +281,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._data_dim = built.data_dim
         self._max_combination_length = built.max_combination_length
         condition_fn = built.condition_fn
-        # kept so `prepare_validation_data` / the auto-wired split loaders can build DAGEvalLoaders.
+        # kept so `prepare_validation_data` / the auto-wired split loaders can build EvalLoaders.
         self._condition_fn = condition_fn
         self._seed = seed
         self._prep_kwargs = {
@@ -317,28 +317,28 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         # No separate cellflow-side run-length pre-check. The `chunk_size > 1` rule is handled upstream:
         # `build_annbatch_training` zero-weights short-run perturbed conditions (and sub-threshold
-        # `min_cells_per_condition` ones), an in-memory control node samples at chunk_size=1 (see DAGLoader),
+        # `min_cells_per_condition` ones), an in-memory control node samples at chunk_size=1 (see Loader),
         # and annbatch validates whatever remains — the streamed perturbed layout and the controls — when it
         # builds each node's sampler below.
 
-        # Only the "train" split is streamed (feeds `train()`); val/test are read via DAGEvalLoader
+        # Only the "train" split is streamed (feeds `train()`); val/test are read via EvalLoader
         # below, so we don't build unused per-split streaming loaders.
         self._dataloader = DAGTrainAdapter(
-            DAGLoader(schemes["train"], self._annbatch_sampler_configs["train"], condition_fn=condition_fn)
+            Loader(schemes["train"], self._annbatch_sampler_configs["train"], condition_fn=condition_fn)
         )
 
         # Auto-wire the val/test split combinations as evaluation sources over the same cells: a
-        # `DAGEvalLoader` reads each held-out condition's full cell set + matched controls. The "val"
+        # `EvalLoader` reads each held-out condition's full cell set + matched controls. The "val"
         # split (if any) feeds training-time metrics; every non-train split is kept on
         # `split_eval_loaders` for post-hoc evaluation. Override with `prepare_validation_data(...)`.
-        from dagloader import DAGEvalLoader
+        from binded import EvalLoader
 
         self._split_eval_loaders = {}
         if self._split_schemes is not None:
             for split_name, sch in self._split_schemes.items():
                 if split_name == "train":
                     continue
-                self._split_eval_loaders[split_name] = DAGEvalLoader(sch, self._eval_cfg, condition_fn, seed=seed)
+                self._split_eval_loaders[split_name] = EvalLoader(sch, self._eval_cfg, condition_fn, seed=seed)
             if "val" in self._split_eval_loaders:
                 self._validation_data["val"] = DAGEvalAdapter(self._split_eval_loaders["val"])
 
@@ -354,7 +354,7 @@ class CellFlowAnnbatch(BaseCellFlow):
 
         Call after :meth:`prepare_data`. Splits hold out whole *combinations* of ``split_by``
         (a subset of the perturbation / split-covariate columns), not cells; controls are carried through
-        every split. See :func:`dagloader.split_scheme` for the mechanics.
+        every split. See :func:`binded.split_scheme` for the mechanics.
 
         Parameters
         ----------
@@ -375,7 +375,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         A :class:`~pandas.DataFrame` of the target combinations and their assigned split. Also stores
         the per-split schemes on the model.
         """
-        from dagloader import split_assignment, split_scheme
+        from binded import split_assignment, split_scheme
 
         if self._scheme is None:
             raise ValueError(
@@ -389,7 +389,7 @@ class CellFlowAnnbatch(BaseCellFlow):
             random_state=random_state,
         )
         # `prepare_data` wires the "train" split into the streaming loader and the val/test splits into
-        # `DAGEvalLoader`s (`split_eval_loaders`); here we only produce the schemes + table.
+        # `EvalLoader`s (`split_eval_loaders`); here we only produce the schemes + table.
         return split_assignment(self._split_schemes)
 
     def prepare_validation_data(
@@ -400,7 +400,7 @@ class CellFlowAnnbatch(BaseCellFlow):
         n_conditions_on_train_end: int | None = None,
         predict_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        """Register a validation set read via :class:`~dagloader.DAGEvalLoader` (no boolean masking).
+        """Register a validation set read via :class:`~binded.EvalLoader` (no boolean masking).
 
         The ``data`` (an :class:`~anndata.AnnData`, an :class:`~annbatch.DatasetCollection`, an adata zarr
         path, or a list of adata zarr paths) is grouped by the same covariate spec passed to
@@ -423,10 +423,10 @@ class CellFlowAnnbatch(BaseCellFlow):
             raise ValueError("Set up training first via `prepare_data(...)` before preparing validation data.")
 
         from cellflow.data._annbatch import build_annbatch_training
-        from dagloader import DAGEvalLoader
+        from binded import EvalLoader
 
         built = build_annbatch_training(data, **self._prep_kwargs)
-        eval_loader = DAGEvalLoader(built.scheme, self._eval_cfg, built.condition_fn, seed=self._seed)
+        eval_loader = EvalLoader(built.scheme, self._eval_cfg, built.condition_fn, seed=self._seed)
         self._validation_data[name] = DAGEvalAdapter(
             eval_loader,
             n_conditions_on_log_iteration=n_conditions_on_log_iteration,
@@ -439,8 +439,8 @@ class CellFlowAnnbatch(BaseCellFlow):
         self._validation_data["predict_kwargs"] = predict_kwargs
 
     @property
-    def split_eval_loaders(self) -> dict[str, DAGEvalLoader]:
-        """Per-split :class:`~dagloader.DAGEvalLoader` objects for non-train splits (e.g. ``val``, ``test``)."""
+    def split_eval_loaders(self) -> dict[str, EvalLoader]:
+        """Per-split :class:`~binded.EvalLoader` objects for non-train splits (e.g. ``val``, ``test``)."""
         return self._split_eval_loaders
 
     # ── path-specific hook implementations

@@ -1,4 +1,4 @@
-"""Validation in the streaming path: each condition's full cell set is read via ``DAGEvalLoader``.
+"""Validation in the streaming path: each condition's full cell set is read via ``EvalLoader``.
 
 Validation preserves the legacy per-condition contract (``{source, condition, target}`` dicts, one entry
 per condition) through :class:`~cellflow.data._dataloader.DAGEvalAdapter`, but reads cells via
@@ -19,7 +19,7 @@ import anndata as ad
 
 import cellflow
 from cellflow.data._dataloader import DAGEvalAdapter
-from dagloader import SamplerConfig
+from binded import SamplerConfig
 
 _CFG = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8)
 
@@ -89,7 +89,7 @@ class TestAnnbatchValidation:
             split_ratios={"train": 0.5, "val": 0.25, "test": 0.25},
             split_random_state=0,
         )
-        # non-train splits become DAGEvalLoaders; "val" also feeds training-time validation
+        # non-train splits become EvalLoaders; "val" also feeds training-time validation
         assert set(cf.split_eval_loaders) == {"val", "test"}
         assert isinstance(cf.validation_data.get("val"), DAGEvalAdapter)
 
@@ -100,5 +100,5 @@ class TestAnnbatchValidation:
         cf.prepare_model(
             pooling="mean", condition_embedding_dim=8, time_encoder_dims=(8,), hidden_dims=(8,), decoder_dims=(8,)
         )
-        cf.train(num_iterations=2, valid_freq=2)  # triggers a DAGEvalLoader validation pass
+        cf.train(num_iterations=2, valid_freq=2)  # triggers a EvalLoader validation pass
         assert cf.solver is not None

@@ -19,9 +19,9 @@ import anndata as ad
 from annbatch import DatasetCollection
 
 import cellflow
-from dagloader import SamplerConfig
-from dagloader._io import key_backings
-from dagloader._loader import _is_backed
+from binded import SamplerConfig
+from binded._io import key_backings
+from binded._loader import _is_backed
 
 _PREP = {
     "sample_rep": "X",

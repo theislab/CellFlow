@@ -1,11 +1,11 @@
-"""Build the annbatch/dagloader streaming training path from a CellFlow covariate spec.
+"""Build the annbatch/binded streaming training path from a CellFlow covariate spec.
 
-Turns the ``prepare_data`` covariate arguments into a :class:`dagloader.Scheme` (perturbed root,
+Turns the ``prepare_data`` covariate arguments into a :class:`binded.Scheme` (perturbed root,
 matched-control child) and a ``condition_fn`` mapping each sampled leaf to its condition embedding. The
 embeddings reuse the in-memory machinery — a cell-free ``AnnData`` shell (``obs`` + ``uns``) drives a
 :class:`~cellflow.data._datamanager.DataManager` and
 :func:`~cellflow.data._condition.build_condition_data` — so they match the in-memory path exactly. Only
-``obs`` (and the embedding tables) are read here; cells are streamed later by ``dagloader``.
+``obs`` (and the embedding tables) are read here; cells are streamed later by ``binded``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from cellflow.data._datamanager import DataManager
 
 if TYPE_CHECKING:
     from cellflow._types import ArrayLike
-    from dagloader import Container, Scheme
+    from binded import Container, Scheme
 
 Leaf = tuple[object, ...]  # a scheme leaf: one value per grouping column
 
@@ -36,7 +36,7 @@ __all__ = [
 
 
 def sample_rep_to_key(sample_rep: str) -> str:
-    """CellFlow ``sample_rep`` → dagloader representation key (``"X"`` or ``"obsm/<key>"``)."""
+    """CellFlow ``sample_rep`` → binded representation key (``"X"`` or ``"obsm/<key>"``)."""
     return "X" if sample_rep == "X" else f"obsm/{sample_rep}"
 
 
@@ -70,15 +70,15 @@ def build_annbatch_training(
     min_cells_per_condition: int = 0,
     chunk_size: int = 1,
 ) -> AnnbatchTraining:
-    """Assemble the :class:`dagloader.Scheme` + ``condition_fn`` for the streaming path (obs only).
+    """Assemble the :class:`binded.Scheme` + ``condition_fn`` for the streaming path (obs only).
 
     ``data`` is an out-of-core :class:`annbatch.DatasetCollection`, an in-memory ``AnnData``, an adata
-    zarr path, or a list of adata zarr paths (paths are resolved via :func:`~dagloader._io.open_source`).
+    zarr path, or a list of adata zarr paths (paths are resolved via :func:`~binded._io.open_source`).
     ``rep_dict`` holds the covariate embedding tables (as ``adata.uns`` would); pass :obj:`None` when the
     primary covariate is categorical (one-hot).
 
-    ``control_in_memory`` tells dagloader to materialize the control (child) node into RAM (sets
-    :attr:`~dagloader.Node.in_memory`; dagloader owns the read via :func:`~dagloader._io.materialize_node`),
+    ``control_in_memory`` tells binded to materialize the control (child) node into RAM (sets
+    :attr:`~binded.Node.in_memory`; binded owns the read via :func:`~binded._io.materialize_node`),
     so the matched control is served from memory while the perturbed target keeps streaming out of core — a
     large dataloader speedup, since controls are re-drawn every batch. Only enable it when the controls fit
     in host RAM (the small population by design).
@@ -99,8 +99,8 @@ def build_annbatch_training(
     nothing; with both filters inactive (``min_cells_per_condition=0`` and ``chunk_size=1``) the root weights
     are ``uniform`` — byte-identical to before.
     """
-    from dagloader import Bind, Node, Scheme, uniform
-    from dagloader._io import key_backings, obs_columns, open_source
+    from binded import Bind, Node, Scheme, uniform
+    from binded._io import key_backings, obs_columns, open_source
 
     context = tuple(split_covariates or ())
     pert_cols = tuple(c for grp in perturbation_covariates.values() for c in grp)
@@ -209,7 +209,7 @@ def build_annbatch_training(
     # inactive (min_cells_per_condition=0 and chunk_size<=1) we skip the pass and use `uniform(pert)` —
     # byte-identical to before.
     if min_cells_per_condition > 0 or chunk_size > 1:
-        from dagloader._io import leaf_codes
+        from binded._io import leaf_codes
 
         codes, leaves = leaf_codes(obs, list(cols))
         total = np.bincount(codes, minlength=len(leaves))
@@ -246,8 +246,8 @@ def build_annbatch_training(
     else:
         pert_weights = uniform(pert)
 
-    # `control_in_memory` just tells dagloader to materialize the control (child) node into RAM — the
-    # perturbed target keeps streaming out of core. dagloader owns the materialization (Node.in_memory);
+    # `control_in_memory` just tells binded to materialize the control (child) node into RAM — the
+    # perturbed target keeps streaming out of core. binded owns the materialization (Node.in_memory);
     # the bind still matches control↔target by the context columns.
     scheme = Scheme(
         sources={"data": data},

@@ -16,7 +16,7 @@ pytest.importorskip("annbatch")
 import anndata as ad
 
 import cellflow
-from dagloader import SamplerConfig
+from binded import SamplerConfig
 
 _PREP = {
     "sample_rep": "X",

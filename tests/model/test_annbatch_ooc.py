@@ -19,7 +19,7 @@ import anndata as ad
 from annbatch import DatasetCollection
 
 import cellflow
-from dagloader import SamplerConfig
+from binded import SamplerConfig
 
 _PREP = {
     "sample_rep": "X",
@@ -100,7 +100,7 @@ class TestOutOfCore:
             split_ratios={"train": 0.5, "val": 0.25, "test": 0.25},
             **_PREP,
         )
-        assert set(cf.split_eval_loaders) == {"val", "test"}  # non-train splits read via DAGEvalLoader
+        assert set(cf.split_eval_loaders) == {"val", "test"}  # non-train splits read via EvalLoader
 
     def test_in_memory_unsorted_source_is_auto_grouped(self):
         # an in-memory (interleaved) AnnData source is grouped automatically → chunk_size>1 works
@@ -127,7 +127,7 @@ class TestOutOfCore:
             [str(tmp_path / "f.h5ad")], shuffle=False
         )
 
-        from dagloader._io import leaf_codes, obs_columns
+        from binded._io import leaf_codes, obs_columns
 
         codes, _ = leaf_codes(obs_columns(dc, ["cell_line", "drug"]), ["cell_line", "drug"])
         n_runs = 1 + int((np.diff(codes) != 0).sum())
@@ -149,10 +149,10 @@ class TestOutOfCore:
             sampler_config=SamplerConfig(batch_size=16, chunk_size=1, preload_nchunks=16),
             **_PREP,
         )
-        assert cf._data_dim == 5  # DAGLoader built (add_datasets accepted the sparse-group backing)
+        assert cf._data_dim == 5  # Loader built (add_datasets accepted the sparse-group backing)
 
     def test_control_in_memory_materializes(self, tmp_path):
-        # control_in_memory tells dagloader to materialize the ctrl node into RAM (Node.in_memory);
+        # control_in_memory tells binded to materialize the ctrl node into RAM (Node.in_memory);
         # prepare_data building the loader runs materialize_node over the (sparse) collection.
         cf = cellflow.model.CellFlowAnnbatch()
         cf.prepare_data(
@@ -162,7 +162,7 @@ class TestOutOfCore:
             **_PREP,
         )
         assert cf._scheme.nodes["ctrl"].in_memory is True  # cellflow flagged it
-        assert isinstance(cf._dataloader._loader._nodes["ctrl"], ad.AnnData)  # dagloader materialized it
+        assert isinstance(cf._dataloader._loader._nodes["ctrl"], ad.AnnData)  # binded materialized it
 
     def test_chunk_drops_short_run_perturbed_only(self, tmp_path):
         # A perturbed condition with a big TOTAL but a sub-chunk sliver run is dropped (per-RUN, not

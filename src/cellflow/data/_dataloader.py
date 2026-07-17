@@ -5,7 +5,7 @@ import numpy as np
 from cellflow._types import ArrayLike
 
 if TYPE_CHECKING:
-    from dagloader import DAGEvalLoader, DAGLoader
+    from binded import EvalLoader, Loader
 
 __all__ = [
     "DAGEvalAdapter",
@@ -16,7 +16,7 @@ __all__ = [
 def _densify(x: ArrayLike) -> ArrayLike:
     """Densify a possibly-sparse streamed cell batch, staying on the array's native backend.
 
-    ``dagloader`` yields native jax arrays (``to="jax"``): dense reps pass straight through, and a
+    ``binded`` yields native jax arrays (``to="jax"``): dense reps pass straight through, and a
     sparse rep arrives as a ``jax.experimental.sparse`` CSR — densified here via ``.todense()`` (still
     on-device). No numpy cast and no host round-trip, so a GPU-resident batch reaches the solver as-is.
     """
@@ -25,7 +25,7 @@ def _densify(x: ArrayLike) -> ArrayLike:
 
 
 class DAGTrainAdapter:
-    """Adapt a ``dagloader.DAGLoader`` stream to the trainer's ``sample(rng)`` batch contract.
+    """Adapt a ``binded.Loader`` stream to the trainer's ``sample(rng)`` batch contract.
 
     Renames the loader's ``{"target", "source", "condition"}`` batch to the model's
     ``{"src_cell_data", "tgt_cell_data", "condition"}`` and densifies any sparse cell rep, keeping the
@@ -33,14 +33,14 @@ class DAGTrainAdapter:
     identically. This is the *training* adapter; validation uses :class:`DAGEvalAdapter`.
     """
 
-    def __init__(self, loader: "DAGLoader"):
+    def __init__(self, loader: "Loader"):
         self._loader = loader
         self._iter = iter(loader)
 
     def sample(self, rng: np.random.Generator | None = None) -> dict[str, ArrayLike | dict[str, ArrayLike]]:
         """Return the next streamed batch as a trainer batch dict.
 
-        ``rng`` is unused — the ``DAGLoader`` owns its own reproducible RNG.
+        ``rng`` is unused — the ``Loader`` owns its own reproducible RNG.
         """
         batch = next(self._iter)
         out: dict[str, ArrayLike | dict[str, ArrayLike]] = {
@@ -53,10 +53,10 @@ class DAGTrainAdapter:
 
 
 class DAGEvalAdapter:
-    """Adapt a ``dagloader.DAGEvalLoader`` to the trainer's validation ``sample(mode)`` contract.
+    """Adapt a ``binded.EvalLoader`` to the trainer's validation ``sample(mode)`` contract.
 
     Yields per-condition ``{"source", "condition", "target"}`` dicts (keyed by the perturbed leaf), as the
-    trainer's validation step expects. The control-rooted ``DAGEvalLoader`` reads each control population's
+    trainer's validation step expects. The control-rooted ``EvalLoader`` reads each control population's
     cells in full for the source and samples a matched perturbed batch for the target — via annbatch, no
     boolean masking. ``n_conditions_*`` sets how many (control-population, drug) batches to draw per mode.
     This mirrors the in-memory :class:`~cellflow.data._legacy.ValidationSampler` contract for the streaming
@@ -65,14 +65,14 @@ class DAGEvalAdapter:
     Parameters
     ----------
     eval_loader
-        A :class:`dagloader.DAGEvalLoader` built over the validation source.
+        A :class:`binded.EvalLoader` built over the validation source.
     n_conditions_on_log_iteration, n_conditions_on_train_end
         How many conditions to draw per mode; :obj:`None` visits each control population once.
     """
 
     def __init__(
         self,
-        eval_loader: "DAGEvalLoader",
+        eval_loader: "EvalLoader",
         *,
         n_conditions_on_log_iteration: int | None = None,
         n_conditions_on_train_end: int | None = None,

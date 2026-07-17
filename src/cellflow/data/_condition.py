@@ -1,7 +1,7 @@
 """Pure helpers for building condition data from ``obs`` + covariate representations.
 
 Extracted from :class:`~cellflow.data._datamanager.DataManager` so the in-memory path and the
-annbatch/dagloader streaming path share **one** implementation — they must produce identical
+annbatch/binded streaming path share **one** implementation — they must produce identical
 condition embeddings. Nothing here touches the cell matrix (``X``); only the covariate spec, the
 ``obs`` table, and the representation dict (``uns``) are used. ``DataManager`` delegates to these.
 """

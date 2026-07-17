@@ -51,6 +51,11 @@ optional-dependencies.annbatch = [
   # Pinned to the branch adding `SequentialClassSampler` (streaming eval path); revert to a released
   # `annbatch>=0.2.x` once it lands upstream. Direct URL so pip/uv/tox all resolve the branch.
   "annbatch @ git+https://github.com/selmanozleyen/annbatch.git@feat/bound-class-wip",
+  # `binded` — the declarative index-free loader, extracted from cellflow's former vendored
+  # `src/dagloader` package. Exposes `Loader` / `EvalLoader` / `Scheme` etc. Pinned by git URL until
+  # a PyPI release; direct URL so pip/uv/tox all resolve the branch. (Itself depends on the annbatch
+  # fork above — same URL, so it dedupes.)
+  "binded @ git+https://github.com/theislab/binded.git@feat/loader",
   # Rust-backed zarr v3 codec pipeline. Always installed with the streaming path: without it, zarr
   # decode runs on a single GIL-bound Python thread (profiled bottleneck when building/reading large
   # sparse Tahoe zarrs); `zarrs` decodes multithreaded in Rust and actually uses the allocated cores.
@@ -115,9 +120,9 @@ urls.Home-page = "https://github.com/theislab/cellflow"
 urls.Source = "https://github.com/theislab/cellflow"
 
 [tool.hatch.build.targets.wheel]
-# `dagloader` is vendored for now but kept as a standalone top-level package (import path
-# `dagloader`) so it can later be extracted into an external dependency with no code changes.
-packages = [ 'src/cellflow', 'src/dagloader' ]
+# `dagloader` was extracted into the standalone `binded` package (import path `binded`); cellflow now
+# depends on it via the `annbatch` extra (git URL). Only `src/cellflow` ships in the wheel.
+packages = [ 'src/cellflow' ]
 
 [tool.hatch.version]
 source = "vcs"
