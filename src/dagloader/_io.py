@@ -111,9 +111,6 @@ def leaf_codes(obs: pd.DataFrame, cols: Sequence[str]) -> tuple[np.ndarray, list
     leaves = sorted((tuple(r) for r in sub.drop_duplicates().to_numpy()), key=lambda t: tuple(map(str, t)))
     if len(sub) == 0:
         return np.zeros(0, dtype=np.int64), leaves
-    # Factorize the rows once at C level → a raw per-cell group code (appearance order). Cast only
-    # non-categorical cols first (keeps existing category orders) so the hashing runs over small integer
-    # codes; NaN is a real code, not a sentinel.
     # Per-column categorical codes + mixed-radix combine → a raw per-cell group code, WITHOUT materializing
     # ~N object tuples (the old `pd.factorize(pd.MultiIndex.from_frame(...))` spent most of its time in
     # `MultiIndex._values` building N tuples). Cast only non-categorical cols (keeps existing category
