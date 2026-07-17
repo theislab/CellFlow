@@ -132,7 +132,8 @@ class CellFlowAnnbatch(BaseCellFlow):
         m = dict(cfg.get("model", {}))
         m.pop("solver", None)  # consumed at construction
         m.pop("seed", None)  # seed is top-level
-        merged = {**m, **dict(m.pop("extra", {}) or {})}  # extra may add/override prepare_model kwargs
+        extra = dict(m.pop("extra", {}) or {})  # pop BEFORE spreading m, else the "extra" key leaks into merged
+        merged = {**m, **extra}  # extra may add/override prepare_model kwargs
         for k in ("hidden_dims", "decoder_dims", "time_encoder_dims"):  # flax needs hashable (tuple) static dims
             if merged.get(k) is not None:
                 merged[k] = tuple(merged[k])
