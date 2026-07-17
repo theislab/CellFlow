@@ -1,29 +1,46 @@
 {
-  "template": "https://github.com/scverse/cookiecutter-scverse",
-  "commit": "aa877587e59c855e2464d09ed7678af00999191a",
-  "checkout": null,
+  "template": "/tmp/tmpvf8ta0q7",
+  "commit": "6518dfa1abde7379ea7255daf0ce09c23f2b4c94",
+  "checkout": "v0.8.0",
   "context": {
     "cookiecutter": {
-      "project_name": "cell_flow_perturbation",
-      "package_name": "cfp",
+      "project_name": "cellflow",
+      "package_name": "cellflow-tools",
       "project_description": "Modeling complex perturbations with flow matching and optimal transport",
       "author_full_name": "Dominik Klein",
       "author_email": "dominik.klein@helmholtz-munich.de",
       "github_user": "MUCDK",
-      "project_repo": "https://github.com/theislab/cell_flow_perturbation",
-      "license": "BSD 3-Clause License",
+      "github_repo": "cellflow",
+      "license": "PolyForm Noncommercial License 1.0.0",
+      "ide_integration": true,
+      "issue_categorization": "",
       "_copy_without_render": [
         ".github/workflows/build.yaml",
         ".github/workflows/test.yaml",
         "docs/_templates/autosummary/**.rst"
+      ],
+      "_exclude_on_template_update": [
+        "CHANGELOG.md",
+        "LICENSE",
+        "README.md",
+        "docs/api.md",
+        "docs/index.md",
+        "docs/notebooks/example.ipynb",
+        "docs/references.bib",
+        "docs/references.md",
+        "src/**",
+        "tests/**"
       ],
       "_render_devdocs": false,
       "_jinja2_env_vars": {
         "lstrip_blocks": true,
         "trim_blocks": true
       },
-      "_template": "https://github.com/scverse/cookiecutter-scverse"
-    }
+      "_template": "/tmp/tmpvf8ta0q7",
+      "_commit": "4d6aa34fd5be7523ca3bd49fbd81a882dde01d1f"
+    },
+    "_commit": "6518dfa1abde7379ea7255daf0ce09c23f2b4c94",
+    "_template": "https://github.com/scverse/cookiecutter-scverse"
   },
   "directory": null
 }

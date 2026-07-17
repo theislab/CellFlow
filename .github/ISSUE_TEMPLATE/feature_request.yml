@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new feature for cell_flow_perturbation
+description: Propose a new feature for cellflow
 labels: enhancement
 body:
   - type: textarea
