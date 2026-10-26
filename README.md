@@ -7,8 +7,7 @@
 [![Codecov](https://codecov.io/gh/theislab/cellflow/branch/main/graph/badge.svg?token=Rgtm5Tsblo)](https://codecov.io/gh/theislab/cellflow)
 [![Docs](https://img.shields.io/readthedocs/cellflow)](https://cellflow.readthedocs.io/en/latest/)
 
-CellFlow - Modeling Complex Perturbations with Flow Matching 
-============================================================
+# CellFlow - Modeling Complex Perturbations with Flow Matching
 
 CellFlow is a framework for predicting single-cell phenotypes induced by complex perturbations. It is quite flexible and enables researchers to systematically explore how cells respond to a wide range of experimental interventions, including drug treatments, genetic modifications, cytokine stimulation, morphogen pathway modulation or even entire organoid protocols.
 
@@ -24,8 +23,8 @@ Check out the [preprint](https://www.biorxiv.org/content/10.1101/2025.04.11.6482
 - ... and more; check out the [documentation](https://cellflow.readthedocs.io) for more information.
 
 
-Installation
-------------
+## Installation
+
 Install **CellFlow** by running::
 
     pip install cellflow-tools
