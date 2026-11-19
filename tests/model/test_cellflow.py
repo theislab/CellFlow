@@ -355,6 +355,35 @@ class TestCellFlow:
                 vf_kwargs=vf_kwargs,
             )
 
+    @pytest.mark.parametrize("condition_null", ["zero_embedding", "mask_value"])
+    def test_prepare_model_condition_dropout(self, adata_perturbation, condition_null):
+        cf = cellflow.model.CellFlow(adata_perturbation, solver="otfm")
+        cf.prepare_data(
+            sample_rep="X",
+            control_key="control",
+            perturbation_covariates={"drug": ["drug1"]},
+            perturbation_covariate_reps={"drug": "drug"},
+        )
+        cf.prepare_model(
+            condition_embedding_dim=2,
+            hidden_dims=(2, 2),
+            decoder_dims=(2, 2),
+            condition_dropout_prob=0.5,
+            condition_null=condition_null,
+        )
+        assert cf.vf.condition_dropout_prob == 0.5
+        assert cf.vf.condition_null == condition_null
+        assert cf.solver.cfg_enabled
+        cf.train(num_iterations=3)
+        adata_pred = adata_perturbation.copy()
+        adata_pred.obs["control"] = True
+        cov = adata_pred.obs.iloc[:1]
+        kw = {"sample_rep": "X", "covariate_data": cov, "max_steps": 3, "throw": False}
+        p1 = next(iter(cf.predict(adata_pred, **kw).values()))
+        p2 = next(iter(cf.predict(adata_pred, guidance_scale=2.0, **kw).values()))
+        assert np.all(np.isfinite(p2))
+        assert not np.allclose(p1, p2)
+
     @pytest.mark.slow
     @pytest.mark.parametrize(
         "sample_covariate_and_reps",

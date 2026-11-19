@@ -272,6 +272,8 @@ class CellFlow:
         layer_norm_before_concatenation: bool = False,
         linear_projection_before_concatenation: bool = False,
         seed=0,
+        condition_dropout_prob: float = 0.0,
+        condition_null: Literal["zero_embedding", "mask_value"] = "zero_embedding",
     ) -> None:
         """Prepare the model for training.
 
@@ -408,6 +410,12 @@ class CellFlow:
             the embedded time, embedded data, and embedded condition.
         seed
             Random seed.
+        condition_dropout_prob
+            Probability of dropping the condition of a training sample (classifier-free guidance training).
+            With a value > 0, :meth:`predict` accepts ``guidance_scale`` (passed on to the solver).
+        condition_null
+            How a dropped condition is represented, see
+            :attr:`cellflow.networks.ConditionalVelocityField.condition_null`.
 
         Returns
         -------
@@ -460,6 +468,8 @@ class CellFlow:
             decoder_dropout=decoder_dropout,
             layer_norm_before_concatenation=layer_norm_before_concatenation,
             linear_projection_before_concatenation=linear_projection_before_concatenation,
+            condition_dropout_prob=condition_dropout_prob,
+            condition_null=condition_null,
             **vf_kwargs,
         )
 
